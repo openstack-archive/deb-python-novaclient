@@ -1,0 +1,11 @@
+python-novaclient (2.4-2) unstable; urgency=low
+
+  * Uploading to SID.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 20 Jun 2011 07:37:52 +0000
+
+python-novaclient (2.4-1) experimental; urgency=low
+
+  * Initial release (Closes: #622944).
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 16 Apr 2011 03:48:33 +0000

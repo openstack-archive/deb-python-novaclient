@@ -1,0 +1,61 @@
+Description: Upstream changes introduced in version 2.4-1
+ This patch has been created by dpkg-source during the package build.
+ Here's the last changelog entry, hopefully it gives details on why
+ those changes were made:
+ .
+ python-novaclient (2.4-1) experimental; urgency=low
+ .
+   * Initial release (Closes: #622944).
+ .
+ The person named in the Author field signed this changelog entry.
+Author: Thomas Goirand <zigo@debian.org>
+Bug-Debian: http://bugs.debian.org/622944
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- python-novaclient-2.4.orig/python_novaclient.egg-info/SOURCES.txt
++++ python-novaclient-2.4/python_novaclient.egg-info/SOURCES.txt
+@@ -34,29 +34,16 @@ python_novaclient.egg-info/entry_points.
+ python_novaclient.egg-info/requires.txt
+ python_novaclient.egg-info/top_level.txt
+ tests/__init__.py
+-tests/__init__.pyc
+ tests/fakeserver.py
+-tests/fakeserver.pyc
+ tests/test_auth.py
+-tests/test_auth.pyc
+ tests/test_backup_schedules.py
+-tests/test_backup_schedules.pyc
+ tests/test_base.py
+-tests/test_base.pyc
+ tests/test_client.py
+-tests/test_client.pyc
+ tests/test_flavors.py
+-tests/test_flavors.pyc
+ tests/test_images.py
+-tests/test_images.pyc
+ tests/test_ipgroups.py
+-tests/test_ipgroups.pyc
+ tests/test_servers.py
+-tests/test_servers.pyc
+ tests/test_shell.py
+-tests/test_shell.pyc
+ tests/test_zones.py
+-tests/test_zones.pyc
+ tests/testfile.txt
+-tests/utils.py
+-tests/utils.pyc
+\ No newline at end of file
++tests/utils.py
+\ No newline at end of file
