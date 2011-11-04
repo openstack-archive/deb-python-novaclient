@@ -2,6 +2,43 @@
 Release notes
 =============
 
+2.5.8 (July 11, 2011)
+=====================
+* returns all public/private ips, not just first one
+* better 'nova list' search options
+
+2.5.7 - 2.5.6 = minor tweaks
+
+2.5.5 (June 21, 2011)
+=====================
+* zone-boot min/max instance count added thanks to comstud
+* create for user added thanks to cerberus
+* fixed tests
+
+2.5.3 (June 15, 2011)
+=====================
+* ProjectID can be None for backwards compatability. 
+* README/docs updated for projectId thanks to usrleon
+
+2.5.1 (June 10, 2011)
+=====================
+* ProjectID now part of authentication
+
+2.5.0 (June 3, 2011)
+=================
+
+* better logging thanks to GridDynamics
+
+2.4.4 (June 1, 2011)
+=================
+
+* added support for GET /servers with reservation_id (and /servers/detail)
+
+2.4.3 (May 27, 2011)
+=================
+
+* added support for POST /zones/select (client only, not cmdline)
+
 2.4 (March 7, 2011)
 =================
 

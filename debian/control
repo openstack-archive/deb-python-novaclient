@@ -2,9 +2,17 @@ Source: python-novaclient
 Section: python
 Priority: optional
 Maintainer: Thomas Goirand <zigo@debian.org>
-Build-Depends: cdbs, debhelper (>= 5.0.38), python-all (>= 2.3.5-11), python-support, python-distribute, python-nose, python-prettytable, python-argparse, python-mock, python-httplib2
+Uploaders: Ghe Rivero <ghe@debian.org>
+Build-Depends: debhelper (>= 7.0.50),
+ python-all (>= 2.6),
+ python-distribute,
+ python-nose,
+ python-prettytable,
+ python-argparse,
+ python-mock (>= 0.7),
+ python-httplib2
 XS-Python-Version: >= 2.5
-Standards-Version: 3.9.1
+Standards-Version: 3.9.2
 
 Package: python-novaclient
 Architecture: all

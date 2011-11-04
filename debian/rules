@@ -1,13 +1,10 @@
-#!/usr/bin/make -f
+#!/usr/bin/make -f                                                                                                                        
 
-DEB_PYTHON_SYSTEM = pysupport
-include /usr/share/cdbs/1/rules/debhelper.mk
-include /usr/share/cdbs/1/class/python-distutils.mk
+%:
+	dh $@ --with python2
 
-clean::
-	rm -f test-stamp || /bin/true
+get-orig-source:
+	uscan --verbose --force-download --rename --destdir=../build-area
 
-build/python-novaclient:: test-stamp
-
-test-stamp:
-	touch test-stamp
+override_dh_auto_test::
+	 python setup.py test
