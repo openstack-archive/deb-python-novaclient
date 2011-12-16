@@ -8,7 +8,7 @@ from tests import fakes
 class FakeClient(fakes.FakeClient, client.Client):
 
     def __init__(self, *args, **kwargs):
-        client.Client.__init__(self, 'username', 'apikey',
+        client.Client.__init__(self, 'username', 'password',
                                'project_id', 'auth_url')
         self.client = FakeHTTPClient(**kwargs)
 
@@ -17,7 +17,7 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def __init__(self, **kwargs):
         self.username = 'username'
-        self.apikey = 'apikey'
+        self.password = 'password'
         self.auth_url = 'auth_url'
         self.callstack = []
 
@@ -55,56 +55,55 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (200, {"limits": {
             "rate": [
                 {
-                    "verb": "POST",
-                    "URI": "*",
+                    "uri": "*",
                     "regex": ".*",
-                    "value": 10,
-                    "remaining": 2,
-                    "unit": "MINUTE",
-                    "resetTime": 1244425439
+                    "limit": [
+                        {
+                            "value": 10,
+                            "verb": "POST",
+                            "remaining": 2,
+                            "unit": "MINUTE",
+                            "next-available": "2011-12-15T22:42:45Z"
+                        },
+                        {
+                            "value": 10,
+                            "verb": "PUT",
+                            "remaining": 2,
+                            "unit": "MINUTE",
+                            "next-available": "2011-12-15T22:42:45Z"
+                        },
+                        {
+                            "value": 100,
+                            "verb": "DELETE",
+                            "remaining": 100,
+                            "unit": "MINUTE",
+                            "next-available": "2011-12-15T22:42:45Z"
+                        }
+                    ]
                 },
                 {
-                    "verb": "POST",
-                    "URI": "*/servers",
+                    "uri": "*/servers",
                     "regex": "^/servers",
-                    "value": 50,
-                    "remaining": 49,
-                    "unit": "DAY", "resetTime": 1244511839
-                },
-                {
-                    "verb": "PUT",
-                    "URI": "*",
-                    "regex": ".*",
-                    "value": 10,
-                    "remaining": 2,
-                    "unit": "MINUTE",
-                    "resetTime": 1244425439
-                },
-                {
-                    "verb": "GET",
-                    "URI": "*changes-since*",
-                    "regex": "changes-since",
-                    "value": 3,
-                    "remaining": 3,
-                    "unit": "MINUTE",
-                    "resetTime": 1244425439
-                },
-                {
-                    "verb": "DELETE",
-                    "URI": "*",
-                    "regex": ".*",
-                    "value": 100,
-                    "remaining": 100,
-                    "unit": "MINUTE",
-                    "resetTime": 1244425439
+                    "limit": [
+                        {
+                            "verb": "POST",
+                            "value": 25,
+                            "remaining": 24,
+                            "unit": "DAY",
+                            "next-available": "2011-12-15T22:42:45Z"
+                        }
+                    ]
                 }
             ],
             "absolute": {
                 "maxTotalRAMSize": 51200,
-                "maxIPGroups": 50,
-                "maxIPGroupMembers": 25
-            }
-        }})
+                "maxServerMeta": 5,
+                "maxImageMeta": 5,
+                "maxPersonality": 5,
+                "maxPersonalitySize": 10240
+            },
+        },
+    })
 
     #
     # Servers
@@ -223,7 +222,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (204, None)
 
     def post_servers_1234_metadata(self, **kw):
-        return (204, {'metadata': { 'test_key': 'test_value'}})
+        return (204, {'metadata': {'test_key': 'test_value'}})
 
     #
     # Server Addresses
@@ -324,7 +323,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         ]})
 
     def get_os_floating_ips_1(self, **kw):
-        return (200, {'floating_ip': 
+        return (200, {'floating_ip':
             {'id': 1, 'fixed_ip': '10.0.0.1', 'ip': '11.0.0.1'}
         })
 
@@ -359,7 +358,7 @@ class FakeHTTPClient(base_client.HTTPClient):
             {
                 "id": 743,
                 "name": "My Server Backup",
-                "serverId": 12,
+                "serverId": 1234,
                 "updated": "2010-10-10T12:00:00Z",
                 "created": "2010-08-10T12:00:00Z",
                 "status": "SAVING",

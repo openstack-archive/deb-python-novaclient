@@ -17,7 +17,7 @@ class ShellTest(utils.TestCase):
         self.old_environment = os.environ.copy()
         os.environ = {
             'NOVA_USERNAME': 'username',
-            'NOVA_API_KEY': 'password',
+            'NOVA_PASSWORD': 'password',
             'NOVA_PROJECT_ID': 'project_id',
             'NOVA_VERSION': '1.1',
             'NOVA_URL': 'http://no.where',
@@ -109,7 +109,8 @@ class ShellTest(utils.TestCase):
         @mock.patch('os.path.exists', mock_exists)
         @mock.patch('__builtin__.open', mock_open)
         def test_shell_call():
-            self.run_command('boot some-server --flavor 1 --image 1 --key_path')
+            cmd = 'boot some-server --flavor 1 --image 1 --key_path'
+            self.run_command(cmd)
             self.assert_called_anytime(
                 'POST', '/servers',
                 {'server': {
@@ -132,8 +133,8 @@ class ShellTest(utils.TestCase):
 
         @mock.patch('os.path.exists', mock_exists)
         def test_shell_call():
-            self.assertRaises(exceptions.CommandError, self.run_command,
-                              'boot some-server --flavor 1 --image 1 --key_path')
+            cmd = 'boot some-server --flavor 1 --image 1 --key_path'
+            self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
         test_shell_call()
 
@@ -228,7 +229,7 @@ class ShellTest(utils.TestCase):
         #                   {'rebuild': {'imageRef': 1}})
         self.assert_called('GET', '/images/2')
 
-        self.run_command('rebuild sample-server 1 --password asdf')
+        self.run_command('rebuild sample-server 1 --rebuild_password asdf')
         # XXX need a way to test multiple calls
         #self.assert_called('POST', '/servers/1234/action',
         #                   {'rebuild': {'imageRef': 1, 'adminPass': 'asdf'}})
@@ -267,7 +268,7 @@ class ShellTest(utils.TestCase):
         self.assert_called('GET', '/images/2')
 
     def test_show_bad_id(self):
-        self.assertRaises(exceptions.CommandError, 
+        self.assertRaises(exceptions.CommandError,
                           self.run_command, 'show xxx')
 
     def test_delete(self):
@@ -275,7 +276,6 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/servers/1234')
         self.run_command('delete sample-server')
         self.assert_called('DELETE', '/servers/1234')
-
 
     def test_set_meta_set(self):
         self.run_command('meta 1234 set key1=val1 key2=val2')

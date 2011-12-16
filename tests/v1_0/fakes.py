@@ -10,7 +10,7 @@ from tests import fakes
 class FakeClient(fakes.FakeClient, client.Client):
 
     def __init__(self, *args, **kwargs):
-        client.Client.__init__(self, 'username', 'apikey',
+        client.Client.__init__(self, 'username', 'password',
                                'project_id', 'auth_url')
         self.client = FakeHTTPClient(**kwargs)
 
@@ -18,7 +18,7 @@ class FakeClient(fakes.FakeClient, client.Client):
 class FakeHTTPClient(base_client.HTTPClient):
     def __init__(self, **kwargs):
         self.username = 'username'
-        self.apikey = 'apikey'
+        self.password = 'password'
         self.auth_url = 'auth_url'
         self.callstack = []
 
@@ -287,7 +287,7 @@ class FakeHTTPClient(base_client.HTTPClient):
             {
                 "id": 743,
                 "name": "My Server Backup",
-                "serverId": 12,
+                "serverId": 1234,
                 "updated": "2010-10-10T12:00:00Z",
                 "created": "2010-08-10T12:00:00Z",
                 "status": "SAVING",

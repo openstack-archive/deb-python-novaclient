@@ -9,16 +9,20 @@ implements 100% of the OpenStack Nova API.
 
 __ http://packages.python.org/python-novaclient/
 
-You'll also probably want to read `Rackspace's API guide`__ (PDF) -- the first
-bit, at least -- to get an idea of the concepts. Rackspace is doing the cloud
-hosting thing a bit differently from Amazon, and if you get the concepts this
-library should make more sense.
+You'll also probably want to read `OpenStack Compute Developer Guide API`__ --
+the first bit, at least -- to get an idea of the concepts. Rackspace is doing
+the cloud hosting thing a bit differently from Amazon, and if you get the
+concepts this library should make more sense.
 
-__ http://docs.rackspacecloud.com/servers/api/cs-devguide-latest.pdf
+__ http://docs.openstack.org/api/
 
-Development takes place on GitHub__. Bug reports and patches may be filed there.
+The project is hosted on `Launchpad`_, where bugs can be filed. The code is
+hosted on `Github`_. Patches must be submitted using `Gerrit`_, *not* Github
+pull requests.
 
-__ https://github.com/rackspace/python-client
+.. _Github: https://github.com/openstack/python-novaclient
+.. _Launchpad: https://launchpad.net/python-novaclient
+.. _Gerrit: http://wiki.openstack.org/GerritWorkflow
 
 This code a fork of `Jacobian's python-cloudservers`__ If you need API support
 for the Rackspace API soley or the BSD license, you should use that repository.
@@ -36,11 +40,11 @@ Installing this package gets you a shell command, ``nova``, that you
 can use to interact with any Rackspace compatible API (including OpenStack).
 
 You'll need to provide your OpenStack username and API key. You can do this
-with the ``--username``, ``--apikey`` and  ``--projectid`` params, but it's easier to just
-set them as environment variables::
+with the ``--username``, ``--password`` and  ``--projectid`` params, but it's
+easier to just set them as environment variables::
 
     export NOVA_USERNAME=openstack
-    export NOVA_API_KEY=yadayada
+    export NOVA_PASSWORD=yadayada
     export NOVA_PROJECT_ID=myproject
 
 You will also need to define the authentication url with ``--url`` and the
@@ -56,14 +60,15 @@ endpoint::
     export NOVA_URL=http://example.com:5000/v2.0/
 
 Since Keystone can return multiple regions in the Service Catalog, you
-can specify the one you want with ``--region_name`` (or 
+can specify the one you want with ``--region_name`` (or
 ``export NOVA_REGION_NAME``). It defaults to the first in the list returned.
 
 You'll find complete documentation on the shell by running
 ``nova help``::
 
-    usage: nova [--username USERNAME] [--apikey APIKEY] [--projectid PROJECTID]
+    usage: nova [--username USERNAME] [--password PASSWORD] [--projectid PROJECTID]
                    [--url URL] [--version VERSION] [--region_name NAME]
+                   [--endpoint_name NAME]
                    <subcommand> ...
 
     Command-line interface to the OpenStack Nova API.
@@ -124,6 +129,8 @@ You'll find complete documentation on the shell by running
         secgroup-list       List security groups for the curent tenant.
         secgroup-list-rules List rules for a security group.
         show                Show details about the given server.
+        suspend             Suspend a server.
+        unpause             Unpause a server.
         unrescue            Unrescue a server.
         volume-attach       Attach a volume to a server.
         volume-create       Add a new volume.
@@ -131,6 +138,14 @@ You'll find complete documentation on the shell by running
         volume-detach       Detach a volume from a server.
         volume-list         List all the volumes.
         volume-show         Show details about a volume.
+        volume-snapshot-create
+                            Add a new snapshot.
+        volume-snapshot-delete
+                            Remove a snapshot.
+        volume-snapshot-list
+                            List all the snapshots.
+        volume-snapshot-show
+                            Show details about a snapshot.
         zone                Show or edit a Child Zone
         zone-add            Add a Child Zone.
         zone-boot           Boot a server, considering Zones.
@@ -141,8 +156,8 @@ You'll find complete documentation on the shell by running
 
     Optional arguments:
       --username USERNAME   Defaults to env[NOVA_USERNAME].
-      --apikey APIKEY       Defaults to env[NOVA_API_KEY].
-      --apikey PROJECTID    Defaults to env[NOVA_PROJECT_ID].
+      --password PASSWORD   Defaults to env[NOVA_PASSWORD].
+      --projectid PROJECTID Defaults to env[NOVA_PROJECT_ID].
       --url AUTH_URL        Defaults to env[NOVA_URL] or
                             https://auth.api.rackspacecloud.com/v1.0
                             if undefined.
@@ -164,7 +179,7 @@ __ http://packages.python.org/python-novaclient/
 By way of a quick-start::
 
     >>> import novaclient
-    >>> nt = novaclient.OpenStack(USERNAME, API_KEY,PROJECT_ID [, AUTH_URL])
+    >>> nt = novaclient.OpenStack(USERNAME, PASSWORD, PROJECT_ID [, AUTH_URL])
     >>> nt.flavors.list()
     [...]
     >>> nt.servers.list()
@@ -190,7 +205,7 @@ Quick-start using keystone::
     [...]
     >>> nt.keypairs.list()
     [...]
-    
+
     # if you want to use the keystone api to modify users/tenants:
     >>> from novaclient import client
     >>> conn = client.HTTPClient(USER, PASS, TENANT, KEYSTONE_URL)
