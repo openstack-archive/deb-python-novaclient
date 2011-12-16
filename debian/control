@@ -1,8 +1,10 @@
 Source: python-novaclient
 Section: python
 Priority: optional
-Maintainer: Thomas Goirand <zigo@debian.org>
-Uploaders: Ghe Rivero <ghe@debian.org>
+Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
+Uploaders: Julien Danjou <acid@debian.org>,
+           Thomas Goirand <zigo@debian.org>,
+           Ghe Rivero <ghe@debian.org>
 Build-Depends: debhelper (>= 7.0.50),
  python-all (>= 2.6),
  python-distribute,
