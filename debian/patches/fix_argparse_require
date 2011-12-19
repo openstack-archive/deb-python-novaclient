@@ -7,7 +7,7 @@ checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
 are templates for supplementary fields that you might want to add:
 
 Origin: other
-Forwarded: will-do
+Forwarded: https://review.openstack.org/2464
 Last-Update: 2011-12-19
 
 --- python-novaclient-2012.1~e2.orig/setup.py
