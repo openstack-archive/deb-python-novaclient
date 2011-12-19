@@ -1,8 +1,9 @@
 python-novaclient (1:2012.1~e2-2) unstable; urgency=low
 
   * Clean egg-info on clean
+  * Fix argparse requirement
 
- -- Julien Danjou <acid@debian.org>  Mon, 19 Dec 2011 17:13:45 +0100
+ -- Julien Danjou <acid@debian.org>  Mon, 19 Dec 2011 17:19:54 +0100
 
 python-novaclient (1:2012.1~e2-1) unstable; urgency=low
 
