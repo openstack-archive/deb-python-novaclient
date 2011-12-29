@@ -1,3 +1,14 @@
+python-novaclient (1:2012.1~e2-3) unstable; urgency=low
+
+  [ Julien Danjou ]
+  * Add URL of forwarded argparse patch
+
+  [ Ghe Rivero ]
+  * Fix Depends on python-argparse. (Closes: #653522)
+  * Finish transition to dh_python2
+
+ -- Julien Danjou <acid@debian.org>  Thu, 29 Dec 2011 09:48:28 +0100
+
 python-novaclient (1:2012.1~e2-2) unstable; urgency=low
 
   * Clean egg-info on clean
