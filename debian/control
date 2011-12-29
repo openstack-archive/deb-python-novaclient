@@ -6,7 +6,7 @@ Uploaders: Julien Danjou <acid@debian.org>,
            Thomas Goirand <zigo@debian.org>,
            Ghe Rivero <ghe@debian.org>
 Build-Depends: debhelper (>= 7.0.50),
- python-all (>= 2.6),
+ python-all (>= 2.6.6-3~),
  python-distribute,
  python-nose,
  python-prettytable,
@@ -18,7 +18,6 @@ Standards-Version: 3.9.2
 Package: python-novaclient
 Architecture: all
 Depends: ${misc:Depends}, ${python:Depends}, python-pkg-resources, python-prettytable, python-argparse, python-httplib2, python (>= 2.6) | python-simplejson
-XB-Python-Version: ${python:Versions}
 Description: client library for OpenStack Compute API
  Python novaclient library and nova CLI tool for interacting with OpenStack
  Compute (Nova) through the OpenStack Compute API.
