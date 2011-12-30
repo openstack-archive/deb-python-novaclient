@@ -17,12 +17,7 @@ Standards-Version: 3.9.2
 
 Package: python-novaclient
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends},
- python-pkg-resources,
- python-prettytable,
- python (>= 2.7) | python-argparse,
- python-httplib2,
- python (>= 2.6) | python-simplejson
+Depends: ${misc:Depends}, ${python:Depends}, python (>= 2.7) | python-argparse, python (>= 2.6) | python-simplejson
 Description: client library for OpenStack Compute API
  Python novaclient library and nova CLI tool for interacting with OpenStack
  Compute (Nova) through the OpenStack Compute API.
