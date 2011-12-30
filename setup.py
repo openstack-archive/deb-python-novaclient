@@ -17,11 +17,9 @@ import setuptools
 import sys
 
 
-requirements = ["httplib2", "prettytable"]
+requirements = ["httplib2", "argparse", "prettytable"]
 if sys.version_info < (2, 6):
     requirements.append("simplejson")
-if sys.version_info < (2, 7):
-    requirements.append("argparse")
 
 
 def read_file(file_name):
