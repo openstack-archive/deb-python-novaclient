@@ -27,9 +27,6 @@ class SecurityGroup(base.Resource):
     def delete(self):
         self.manager.delete(self)
 
-    def get(self):
-        self.manager.get(self)
-
 
 class SecurityGroupManager(base.ManagerWithFind):
     resource_class = SecurityGroup
@@ -52,7 +49,7 @@ class SecurityGroupManager(base.ManagerWithFind):
         :param group: The security group to delete (group or ID)
         :rtype: None
         """
-        return self._delete('/os-security-groups/%s' % base.getid(group))
+        self._delete('/os-security-groups/%s' % base.getid(group))
 
     def get(self, id):
         """

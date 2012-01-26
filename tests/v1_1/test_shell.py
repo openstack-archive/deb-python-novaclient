@@ -1,9 +1,27 @@
+# Copyright 2010 Jacob Kaplan-Moss
+
+# Copyright 2011 OpenStack LLC.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
 import os
 import mock
 import sys
 import tempfile
 
-from novaclient.shell import OpenStackComputeShell
+import novaclient.shell
+import novaclient.client
 from novaclient import exceptions
 from tests.v1_1 import fakes
 from tests import utils
@@ -23,8 +41,11 @@ class ShellTest(utils.TestCase):
             'NOVA_URL': 'http://no.where',
         }
 
-        self.shell = OpenStackComputeShell()
-        self.shell.get_api_class = lambda *_: fakes.FakeClient
+        self.shell = novaclient.shell.OpenStackComputeShell()
+
+        #HACK(bcwaldon): replace this when we start using stubs
+        self.old_get_client_class = novaclient.client.get_client_class
+        novaclient.client.get_client_class = lambda *_: fakes.FakeClient
 
     def tearDown(self):
         os.environ = self.old_environment
@@ -34,6 +55,9 @@ class ShellTest(utils.TestCase):
         # we make sure the method is there before launching it.
         if hasattr(self.shell, 'cs'):
             self.shell.cs.clear_callstack()
+
+        #HACK(bcwaldon): replace this when we start using stubs
+        novaclient.client.get_client_class = self.old_get_client_class
 
     def run_command(self, cmd):
         self.shell.main(cmd.split())
@@ -291,3 +315,75 @@ class ShellTest(utils.TestCase):
         self.run_command('meta 1234 delete key1 key2')
         self.assert_called('DELETE', '/servers/1234/metadata/key1')
         self.assert_called('DELETE', '/servers/1234/metadata/key2', pos=-2)
+
+    def test_dns_create(self):
+        self.run_command('dns-create 192.168.1.1 testname testdomain')
+        self.assert_called('PUT',
+                           '/os-floating-ip-dns/testdomain/entries/testname')
+
+        self.run_command('dns-create 192.168.1.1 testname testdomain --type A')
+        self.assert_called('PUT',
+                           '/os-floating-ip-dns/testdomain/entries/testname')
+
+    def test_dns_create_public_domain(self):
+        self.run_command('dns-create-public-domain testdomain '
+                         '--project test_project')
+        self.assert_called('PUT', '/os-floating-ip-dns/testdomain')
+
+    def test_dns_create_private_domain(self):
+        self.run_command('dns-create-private-domain testdomain '
+                         '--availability_zone av_zone')
+        self.assert_called('PUT', '/os-floating-ip-dns/testdomain')
+
+    def test_dns_delete(self):
+        self.run_command('dns-delete testdomain testname')
+        self.assert_called('DELETE',
+                           '/os-floating-ip-dns/testdomain/entries/testname')
+
+    def test_dns_delete_domain(self):
+        self.run_command('dns-delete-domain testdomain')
+        self.assert_called('DELETE', '/os-floating-ip-dns/testdomain')
+
+    def test_dns_list(self):
+        self.run_command('dns-list testdomain --ip 192.168.1.1')
+        self.assert_called('GET',
+                       '/os-floating-ip-dns/testdomain/entries?ip=192.168.1.1')
+
+        self.run_command('dns-list testdomain --name testname')
+        self.assert_called('GET',
+                           '/os-floating-ip-dns/testdomain/entries/testname')
+
+    def test_dns_domains(self):
+        self.run_command('dns-domains')
+        self.assert_called('GET', '/os-floating-ip-dns')
+
+    def test_usage_list(self):
+        self.run_command('usage-list --start 2000-01-20 --end 2005-02-01')
+        self.assert_called('GET',
+                           '/os-simple-tenant-usage?' +
+                           'start=2000-01-20T00:00:00&' +
+                           'end=2005-02-01T00:00:00&' +
+                           'detailed=1')
+
+    def test_flavor_delete(self):
+        self.run_command("flavor-delete flavordelete")
+        self.assert_called('DELETE', '/flavors/flavordelete')
+
+    def test_flavor_create(self):
+        self.run_command("flavor-create flavorcreate "
+                         "1234 512 10 1 --swap 1024")
+
+        body = {
+            "flavor": {
+                "name": "flavorcreate",
+                "ram": 512,
+                "vcpus": 1,
+                "disk": 10,
+                "id": 1234,
+                "swap": 1024,
+                "rxtx_factor": 1,
+            }
+        }
+
+        self.assert_called('POST', '/flavors', body, pos=-2)
+        self.assert_called('GET', '/flavors/1')

@@ -1,4 +1,20 @@
+# Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
+# Copyright 2011 OpenStack, LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import httplib2
+import urlparse
 
 from novaclient import client as base_client
 from novaclient.v1_1 import client
@@ -29,8 +45,12 @@ class FakeHTTPClient(base_client.HTTPClient):
             assert 'body' in kwargs
 
         # Call the method
-        munged_url = url.strip('/').replace('/', '_').replace('.', '_')
+        args = urlparse.parse_qsl(urlparse.urlparse(url)[4])
+        kwargs.update(args)
+        munged_url = url.rsplit('?', 1)[0]
+        munged_url = munged_url.strip('/').replace('/', '_').replace('.', '_')
         munged_url = munged_url.replace('-', '_')
+
         callback = "%s_%s" % (method.lower(), munged_url)
 
         if not hasattr(self, callback):
@@ -43,9 +63,6 @@ class FakeHTTPClient(base_client.HTTPClient):
 
         status, body = getattr(self, callback)(**kwargs)
         return httplib2.Response({"status": status}), body
-
-    def _munge_get_url(self, url):
-        return url
 
     #
     # Limits
@@ -193,9 +210,6 @@ class FakeHTTPClient(base_client.HTTPClient):
                 fakes.assert_has_keys(pfile, required=['path', 'contents'])
         return (202, self.get_servers_1234()[1])
 
-    def post_servers_1234_migrate(self, *args, **kwargs):
-        return (202, None)
-
     def get_servers_1234(self, **kw):
         r = {'server': self.get_servers_detail()[1]['servers'][0]}
         return (200, r)
@@ -223,6 +237,23 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def post_servers_1234_metadata(self, **kw):
         return (204, {'metadata': {'test_key': 'test_value'}})
+
+    def get_servers_1234_diagnostics(self, **kw):
+        return (200, 'Fake diagnostics')
+
+    def get_servers_1234_actions(self, **kw):
+        return (200, {'actions': [
+            {
+                'action': 'rebuild',
+                'error': None,
+                'created_at': '2011-12-30 11:45:36'
+            },
+            {
+                'action': 'reboot',
+                'error': 'Failed!',
+                'created_at': '2011-12-30 11:40:29'
+            },
+        ]})
 
     #
     # Server Addresses
@@ -286,6 +317,11 @@ class FakeHTTPClient(base_client.HTTPClient):
             assert set(body[action].keys()) == set(['name', 'metadata'])
         elif action == 'changePassword':
             assert body[action].keys() == ['adminPass']
+        elif action == 'os-getConsoleOutput':
+            assert body[action].keys() == ['length']
+            return (202, {'output': 'foo'})
+        elif action == 'os-getVNCConsole':
+            assert body[action].keys() == ['type']
         else:
             raise AssertionError("Unexpected server action: %s" % action)
         return (202, _body)
@@ -312,9 +348,18 @@ class FakeHTTPClient(base_client.HTTPClient):
     def get_flavors_2(self, **kw):
         return (200, {'flavor': self.get_flavors_detail()[1]['flavors'][1]})
 
+    def delete_flavors_flavordelete(self, **kw):
+        return (202, None)
+
+    def post_flavors(self, body, **kw):
+        return (202, {'flavor': self.get_flavors_detail()[1]['flavors'][0]})
+
     #
     # Floating ips
     #
+
+    def get_os_floating_ip_pools(self):
+        return (200, {'floating_ip_pools': [{'name': 'foo', 'name': 'bar'}]})
 
     def get_os_floating_ips(self, **kw):
         return (200, {'floating_ips': [
@@ -330,8 +375,70 @@ class FakeHTTPClient(base_client.HTTPClient):
     def post_os_floating_ips(self, body, **kw):
         return (202, self.get_os_floating_ips_1()[1])
 
+    def post_os_floating_ips(self, body):
+        if body.get('pool'):
+            return (200, {'floating_ip':
+                {'id': 1, 'fixed_ip': '10.0.0.1', 'ip': '11.0.0.1',
+                                                            'pool': 'nova'}})
+        else:
+            return (200, {'floating_ip':
+                {'id': 1, 'fixed_ip': '10.0.0.1', 'ip': '11.0.0.1',
+                                                            'pool': None}})
+
     def delete_os_floating_ips_1(self, **kw):
         return (204, None)
+
+    def get_os_floating_ip_dns(self, **kw):
+        return (205, {'domain_entries':
+                      [{'domain': 'example.org'},
+                       {'domain': 'example.com'}]})
+
+    def get_os_floating_ip_dns_testdomain_entries(self, **kw):
+        if kw.get('ip'):
+            return (205, {'dns_entries':
+                          [{'dns_entry':
+                             {'ip': kw.get('ip'),
+                              'name': "host1",
+                              'type': "A",
+                              'domain': 'testdomain'}},
+                           {'dns_entry':
+                             {'ip': kw.get('ip'),
+                              'name': "host2",
+                              'type': "A",
+                              'domain': 'testdomain'}}]})
+        else:
+            return (404, None)
+
+    def get_os_floating_ip_dns_testdomain_entries_testname(self, **kw):
+        return (205, {'dns_entry':
+                        {'ip': "10.10.10.10",
+                         'name': 'testname',
+                         'type': "A",
+                         'domain': 'testdomain'}})
+
+    def put_os_floating_ip_dns_testdomain(self, body, **kw):
+        if body['domain_entry']['scope'] == 'private':
+            fakes.assert_has_keys(body['domain_entry'],
+                            required=['availability_zone', 'scope'])
+        elif body['domain_entry']['scope'] == 'public':
+            fakes.assert_has_keys(body['domain_entry'],
+                            required=['project', 'scope'])
+
+        else:
+            fakes.assert_has_keys(body['domain_entry'],
+                            required=['project', 'scope'])
+        return (205, None)
+
+    def put_os_floating_ip_dns_testdomain_entries_testname(self, body, **kw):
+        fakes.assert_has_keys(body['dns_entry'],
+                        required=['ip', 'dns_type'])
+        return (205, None)
+
+    def delete_os_floating_ip_dns_testdomain(self, **kw):
+        return (200, None)
+
+    def delete_os_floating_ip_dns_testdomain_entries_testname(self, **kw):
+        return (200, None)
 
     #
     # Images
@@ -454,6 +561,14 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (202, r)
 
     #
+    # Virtual Interfaces
+    #
+    def get_servers_1234_os_virtual_interfaces(self, **kw):
+        return (200, {"virtual_interfaces": [
+            {'id': 'fakeid', 'mac_address': 'fakemac'}
+        ]})
+
+    #
     # Quotas
     #
 
@@ -545,3 +660,51 @@ class FakeHTTPClient(base_client.HTTPClient):
         r = {'security_group_rule':
             self.get_os_security_group_rules()[1]['security_group_rules'][0]}
         return (202, r)
+
+    #
+    # Tenant Usage
+    #
+    def get_os_simple_tenant_usage(self, **kw):
+        return (200, {u'tenant_usages': [{
+            u'total_memory_mb_usage': 25451.762807466665,
+            u'total_vcpus_usage': 49.71047423333333,
+            u'total_hours': 49.71047423333333,
+            u'tenant_id': u'7b0a1d73f8fb41718f3343c207597869',
+            u'stop': u'2012-01-22 19:48:41.750722',
+            u'server_usages': [{
+                u'hours': 49.71047423333333,
+                u'uptime': 27035, u'local_gb': 0, u'ended_at': None,
+                u'name': u'f15image1',
+                u'tenant_id': u'7b0a1d73f8fb41718f3343c207597869',
+                u'vcpus': 1, u'memory_mb': 512, u'state': u'active',
+                u'flavor': u'm1.tiny',
+                u'started_at': u'2012-01-20 18:06:06.479998'}],
+            u'start': u'2011-12-25 19:48:41.750687',
+            u'total_local_gb_usage': 0.0}]})
+
+    def get_os_simple_tenant_usage_tenantfoo(self, **kw):
+        return (200, {u'tenant_usage': {
+            u'total_memory_mb_usage': 25451.762807466665,
+            u'total_vcpus_usage': 49.71047423333333,
+            u'total_hours': 49.71047423333333,
+            u'tenant_id': u'7b0a1d73f8fb41718f3343c207597869',
+            u'stop': u'2012-01-22 19:48:41.750722',
+            u'server_usages': [{
+                u'hours': 49.71047423333333,
+                u'uptime': 27035, u'local_gb': 0, u'ended_at': None,
+                u'name': u'f15image1',
+                u'tenant_id': u'7b0a1d73f8fb41718f3343c207597869',
+                u'vcpus': 1, u'memory_mb': 512, u'state': u'active',
+                u'flavor': u'm1.tiny',
+                u'started_at': u'2012-01-20 18:06:06.479998'}],
+            u'start': u'2011-12-25 19:48:41.750687',
+            u'total_local_gb_usage': 0.0}})
+
+    #
+    # Certificates
+    #
+    def get_os_certificates_root(self, **kw):
+        return (200, {'certificate': {'private_key': None, 'data': 'foo'}})
+
+    def post_os_certificates(self, **kw):
+        return (200, {'certificate': {'private_key': 'foo', 'data': 'bar'}})
