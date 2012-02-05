@@ -1,3 +1,9 @@
+python-novaclient (1:2012.1~e3-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Julien Danjou <acid@debian.org>  Thu, 26 Jan 2012 18:13:21 +0100
+
 python-novaclient (1:2012.1~e2-4) unstable; urgency=low
 
   * Do not depends on python-argparse with python 2.7 (Closes: #653522)
