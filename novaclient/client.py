@@ -10,11 +10,7 @@ OpenStack Client interface. Handles the REST calls and responses.
 import httplib2
 import logging
 import os
-import time
-import urllib
 import urlparse
-
-from novaclient import service_catalog
 
 try:
     import json
@@ -26,8 +22,9 @@ if not hasattr(urlparse, 'parse_qsl'):
     import cgi
     urlparse.parse_qsl = cgi.parse_qsl
 
-
 from novaclient import exceptions
+from novaclient import service_catalog
+from novaclient import utils
 
 
 _logger = logging.getLogger(__name__)
@@ -39,15 +36,16 @@ class HTTPClient(httplib2.Http):
 
     def __init__(self, user, password, projectid, auth_url, insecure=False,
                  timeout=None, token=None, region_name=None,
-                 endpoint_name='publicURL'):
+                 endpoint_type='publicURL', service_name=None):
         super(HTTPClient, self).__init__(timeout=timeout)
         self.user = user
         self.password = password
         self.projectid = projectid
         self.auth_url = auth_url
-        self.version = 'v1.0'
+        self.version = 'v1.1'
         self.region_name = region_name
-        self.endpoint_name = endpoint_name
+        self.endpoint_type = endpoint_type
+        self.service_name = service_name
 
         self.management_url = None
         self.auth_token = None
@@ -84,6 +82,7 @@ class HTTPClient(httplib2.Http):
     def request(self, *args, **kwargs):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         kwargs['headers']['User-Agent'] = self.USER_AGENT
+        kwargs['headers']['Accept'] = 'application/json'
         if 'body' in kwargs:
             kwargs['headers']['Content-Type'] = 'application/json'
             kwargs['body'] = json.dumps(kwargs['body'])
@@ -100,7 +99,7 @@ class HTTPClient(httplib2.Http):
         else:
             body = None
 
-        if resp.status in (400, 401, 403, 404, 408, 413, 500, 501):
+        if resp.status in (400, 401, 403, 404, 408, 409, 413, 500, 501):
             raise exceptions.from_response(resp, body)
 
         return resp, body
@@ -130,7 +129,6 @@ class HTTPClient(httplib2.Http):
                 raise ex
 
     def get(self, url, **kwargs):
-        url = self._munge_get_url(url)
         return self._cs_request(url, 'GET', **kwargs)
 
     def post(self, url, **kwargs):
@@ -158,8 +156,13 @@ class HTTPClient(httplib2.Http):
                 self.management_url = self.service_catalog.url_for(
                                            attr='region',
                                            filter_value=self.region_name,
-                                           endpoint_type=self.endpoint_name)
+                                           endpoint_type=self.endpoint_type,
+                                           service_name=self.service_name)
                 return None
+            except exceptions.AmbiguousEndpoints, exc:
+                print "Found more than one valid endpoint. Use a more " \
+                      "restrictive filter"
+                raise
             except KeyError:
                 raise exceptions.AuthorizationFailure()
             except exceptions.EndpointNotFound:
@@ -196,7 +199,7 @@ class HTTPClient(httplib2.Http):
         magic_tuple = urlparse.urlsplit(self.auth_url)
         scheme, netloc, path, query, frag = magic_tuple
         port = magic_tuple.port
-        if port == None:
+        if port is None:
             port = 80
         path_parts = path.split('/')
         for part in path_parts:
@@ -213,7 +216,10 @@ class HTTPClient(httplib2.Http):
         auth_url = self.auth_url
         if self.version == "v2.0":  # FIXME(chris): This should be better.
             while auth_url:
-                auth_url = self._v2_auth(auth_url)
+                if "NOVA_RAX_AUTH" in os.environ:
+                    auth_url = self._rax_auth(auth_url)
+                else:
+                    auth_url = self._v2_auth(auth_url)
 
             # Are we acting on behalf of another user via an
             # existing token? If so, our actual endpoints may
@@ -224,7 +230,6 @@ class HTTPClient(httplib2.Http):
                 # with the endpoints any more, we need to replace
                 # our service account token with the user token.
                 self.auth_token = self.proxy_token
-
         else:
             try:
                 while auth_url:
@@ -239,7 +244,7 @@ class HTTPClient(httplib2.Http):
 
     def _v1_auth(self, url):
         if self.proxy_token:
-            raise NoTokenLookupException()
+            raise exceptions.NoTokenLookupException()
 
         headers = {'X-Auth-User': self.user,
                    'X-Auth-Key': self.password}
@@ -268,6 +273,20 @@ class HTTPClient(httplib2.Http):
         if self.projectid:
             body['auth']['tenantName'] = self.projectid
 
+        self._authenticate(url, body)
+
+    def _rax_auth(self, url):
+        """Authenticate against the Rackspace auth service."""
+        body = {"auth": {
+                "RAX-KSKEY:apiKeyCredentials": {
+                        "username": self.user,
+                        "apiKey": self.password,
+                        "tenantName": self.projectid}}}
+
+        self._authenticate(url, body)
+
+    def _authenticate(self, url, body):
+        """Authenticate and extract the service catalog."""
         token_url = urlparse.urljoin(url, "tokens")
 
         # Make sure we follow redirects when trying to reach Keystone
@@ -281,17 +300,22 @@ class HTTPClient(httplib2.Http):
 
         return self._extract_service_catalog(url, resp, body)
 
-    def _munge_get_url(self, url):
-        """
-        Munge GET URLs to always return uncached content.
 
-        The OpenStack Compute API caches data *very* agressively and doesn't
-        respect cache headers. To avoid stale data, then, we append a little
-        bit of nonsense onto GET parameters; this appears to force the data not
-        to be cached.
-        """
-        scheme, netloc, path, query, frag = urlparse.urlsplit(url)
-        query = urlparse.parse_qsl(query)
-        query.append(('fresh', str(time.time())))
-        query = urllib.urlencode(query)
-        return urlparse.urlunsplit((scheme, netloc, path, query, frag))
+def get_client_class(version):
+    version_map = {
+        '1.1': 'novaclient.v1_1.client.Client',
+        '2': 'novaclient.v1_1.client.Client',
+    }
+    try:
+        client_path = version_map[str(version)]
+    except (KeyError, ValueError):
+        msg = "Invalid client version '%s'. must be one of: %s" % (
+              (version, ', '.join(version_map.keys())))
+        raise exceptions.UnsupportedVersion(msg)
+
+    return utils.import_class(client_path)
+
+
+def Client(version, *args, **kwargs):
+    client_class = get_client_class(version)
+    return client_class(*args, **kwargs)

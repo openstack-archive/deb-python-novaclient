@@ -25,7 +25,7 @@ pull requests.
 .. _Gerrit: http://wiki.openstack.org/GerritWorkflow
 
 This code a fork of `Jacobian's python-cloudservers`__ If you need API support
-for the Rackspace API soley or the BSD license, you should use that repository.
+for the Rackspace API solely or the BSD license, you should use that repository.
 python-client is licensed under the Apache License like the rest of OpenStack.
 
 __ http://github.com/jacobian/python-cloudservers
@@ -77,17 +77,34 @@ You'll find complete documentation on the shell by running
       <subcommand>
         add-fixed-ip        Add a new fixed IP address to a servers network.
         add-floating-ip     Add a floating IP address to a server.
+        aggregate-add-host  Add the host to the specified aggregate
+        aggregate-create    Create a new aggregate with the specified details
+        aggregate-delete    Delete the aggregate by its id
+        aggregate-details   Show details of the specified aggregate
+        aggregate-list      Print a list of all aggregates
+        aggregate-remove-host
+                            Remove the specified host from the specfied
+                            aggregate
+        aggregate-set-metadata
+                            Update the metadata associated with the aggregate
+        aggregate-update    Update the aggregate's name and optionally
+                            availablity zone
         backup              Backup a server.
         backup-schedule     Show or edit the backup schedule for a server.
         backup-schedule-delete
                             Delete the backup schedule for a server.
         boot                Boot a new server.
         delete              Immediately shut down and delete a server.
+        flavor-create       Create a new flavor
+        flavor-delete       Delete a specific flavor
         flavor-list         Print a list of available 'flavors' (sizes of
                             servers).
         floating-ip-create  Allocate a floating IP to the current tenant.
         floating-ip-delete  De-allocate a floating IP from the current tenant.
         floating-ip-list    List allocated floating IPs for the current tenant.
+        floating-ip-pool-list
+                            List all floating ip pools.
+        get-vnc-console     Get a vnc console for a server
         help                Display help about this program or one of its
                             subcommands.
         image-create        Create a new image by taking a snapshot of a running
@@ -132,6 +149,7 @@ You'll find complete documentation on the shell by running
         suspend             Suspend a server.
         unpause             Unpause a server.
         unrescue            Unrescue a server.
+        usage-list          List usage data for all tenants
         volume-attach       Attach a volume to a server.
         volume-create       Add a new volume.
         volume-delete       Remove a volume.
@@ -146,6 +164,8 @@ You'll find complete documentation on the shell by running
                             List all the snapshots.
         volume-snapshot-show
                             Show details about a snapshot.
+        x509-create-cert    Create x509 cert for a user in tenant
+        x509-get-root-cert  Fetches the x509 root cert.
         zone                Show or edit a Child Zone
         zone-add            Add a Child Zone.
         zone-boot           Boot a server, considering Zones.
@@ -161,8 +181,7 @@ You'll find complete documentation on the shell by running
       --url AUTH_URL        Defaults to env[NOVA_URL] or
                             https://auth.api.rackspacecloud.com/v1.0
                             if undefined.
-      --version VERSION     Accepts 1.0 or 1.1, defaults to
-                            env[NOVA_VERSION].
+      --version VERSION     Accepts 1.1, defaults to env[NOVA_VERSION].
       --region_name NAME    The region name in the Keystone Service Catalog
                             to use after authentication. Defaults to first
                             in the list returned.

@@ -1,7 +1,7 @@
 from novaclient import exceptions
 from novaclient.v1_1 import flavors
-from tests.v1_1 import fakes
 from tests import utils
+from tests.v1_1 import fakes
 
 
 cs = fakes.FakeClient()
@@ -35,3 +35,25 @@ class FlavorsTest(utils.TestCase):
         self.assertEqual(f.name, '512 MB Server')
 
         self.assertRaises(exceptions.NotFound, cs.flavors.find, disk=12345)
+
+    def test_create(self):
+        f = cs.flavors.create("flavorcreate", 512, 1, 10, 1234)
+
+        body = {
+            "flavor": {
+                "name": "flavorcreate",
+                "ram": 512,
+                "vcpus": 1,
+                "disk": 10,
+                "id": 1234,
+                "swap": 0,
+                "rxtx_factor": 1,
+            }
+        }
+
+        cs.assert_called('POST', '/flavors', body)
+        self.assertTrue(isinstance(f, flavors.Flavor))
+
+    def test_delete(self):
+        cs.flavors.delete("flavordelete")
+        cs.assert_called('DELETE', '/flavors/flavordelete')

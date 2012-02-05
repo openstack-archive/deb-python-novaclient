@@ -18,8 +18,11 @@ from novaclient import base
 
 class QuotaSet(base.Resource):
 
-    def get(self):
-        self.manager.get(self)
+    @property
+    def id(self):
+        """QuotaSet does not have a 'id' attribute but base.Resource needs it
+        to self-refresh and QuotaSet is indexed by tenant_id"""
+        return self.tenant_id
 
     def update(self, *args, **kwargs):
         self.manager.update(self.tenant_id, *args, **kwargs)
@@ -51,10 +54,10 @@ class QuotaSetManager(base.ManagerWithFind):
                 'cores': cores}}
 
         for key in body['quota_set'].keys():
-            if body['quota_set'][key] == None:
+            if body['quota_set'][key] is None:
                 body['quota_set'].pop(key)
 
-        return self._update('/os-quota-sets/%s' % (tenant_id), body)
+        self._update('/os-quota-sets/%s' % (tenant_id), body)
 
     def defaults(self, tenant_id):
         return self._get('/os-quota-sets/%s/defaults' % tenant_id,

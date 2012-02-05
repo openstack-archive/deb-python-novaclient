@@ -36,8 +36,9 @@ class ClientTest(utils.TestCase):
             headers = {"X-Auth-Token": "token",
                        "X-Auth-Project-Id": "project_id",
                        "User-Agent": cl.USER_AGENT,
+                       'Accept': 'application/json',
             }
-            mock_request.assert_called_with("http://example.com/hi?fresh=1234",
+            mock_request.assert_called_with("http://example.com/hi",
                                             "GET", headers=headers)
             # Automatic JSON parsing
             self.assertEqual(body, {"hi": "there"})
@@ -54,6 +55,7 @@ class ClientTest(utils.TestCase):
                 "X-Auth-Token": "token",
                 "X-Auth-Project-Id": "project_id",
                 "Content-Type": "application/json",
+                'Accept': 'application/json',
                 "User-Agent": cl.USER_AGENT
             }
             mock_request.assert_called_with("http://example.com/hi", "POST",

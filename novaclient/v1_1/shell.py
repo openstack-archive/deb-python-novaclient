@@ -15,19 +15,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import datetime
 import getpass
 import os
 
 from novaclient import exceptions
 from novaclient import utils
-from novaclient.v1_1 import client
 from novaclient.v1_1 import servers
-
-
-CLIENT_CLASS = client.Client
-
-
-AUTO_KEY = object()
 
 
 def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
@@ -43,15 +37,16 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
         raise exceptions.CommandError("min_instances nor max_instances should"
                                       "be 0")
 
-    if not args.image:
-        raise exceptions.CommandError("you need to specify a Image ID ")
+    if not args.image and not args.block_device_mapping:
+        raise exceptions.CommandError("you need to specify an Image ID "
+                                      "or a block device mapping ")
     if not args.flavor:
         raise exceptions.CommandError("you need to specify a Flavor ID ")
 
     flavor = args.flavor
     image = args.image
 
-    metadata = dict(v.split('=') for v in args.meta)
+    meta = dict(v.split('=') for v in args.meta)
 
     files = {}
     for f in args.files:
@@ -66,35 +61,14 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
     if args.key_name is not None:
         key_name = args.key_name
 
-    # or use file injection functionality (independent of os-keypair extension)
-    keyfile = None
-    if args.key_path is AUTO_KEY:
-        possible_keys = [os.path.join(os.path.expanduser('~'), '.ssh', k)
-                         for k in ('id_dsa.pub', 'id_rsa.pub')]
-        for k in possible_keys:
-            if os.path.exists(k):
-                keyfile = k
-                break
-        else:
-            raise exceptions.CommandError("Couldn't find a key file: tried "
-                               "~/.ssh/id_dsa.pub or ~/.ssh/id_rsa.pub")
-    elif args.key_path:
-        keyfile = args.key_path
-
-    if keyfile:
-        try:
-            files['/root/.ssh/authorized_keys2'] = open(keyfile)
-        except IOError, e:
-            raise exceptions.CommandError("Can't open '%s': %s" % (keyfile, e))
-
     if args.user_data:
         try:
-            user_data = open(args.user_data)
+            userdata = open(args.user_data)
         except IOError, e:
             raise exceptions.CommandError("Can't open '%s': %s" % \
                                           (args.user_data, e))
     else:
-        user_data = None
+        userdata = None
 
     if args.availability_zone:
         availability_zone = args.availability_zone
@@ -119,9 +93,31 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
             nic_info[k] = v
         nics.append(nic_info)
 
-    return (args.name, image, flavor, metadata, files, key_name,
-            reservation_id, min_count, max_count, user_data, \
-            availability_zone, security_groups, block_device_mapping, nics)
+    hints = {}
+    if args.scheduler_hints:
+        hint_set = [dict({hint[0]: hint[1]}) for hint in \
+                [hint_set.split('=') for hint_set in args.scheduler_hints]]
+        for hint in hint_set:
+            hints.update(hint.items())
+    else:
+        hints = {}
+    boot_args = [args.name, image, flavor]
+
+    boot_kwargs = dict(
+            meta=meta,
+            files=files,
+            key_name=key_name,
+            reservation_id=reservation_id,
+            min_count=min_count,
+            max_count=max_count,
+            userdata=userdata,
+            availability_zone=availability_zone,
+            security_groups=security_groups,
+            block_device_mapping=block_device_mapping,
+            nics=nics,
+            scheduler_hints=hints)
+
+    return boot_args, boot_kwargs
 
 
 @utils.arg('--flavor',
@@ -145,13 +141,6 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
      default=[],
      help="Store arbitrary files from <src-path> locally to <dst-path> "\
           "on the new server. You may store up to 5 files.")
-@utils.arg('--key_path',
-     metavar='<key_path>',
-     nargs='?',
-     const=AUTO_KEY,
-     help="Key the server with an SSH keypair. "\
-          "Looks in ~/.ssh for a key, "\
-          "or takes an explicit <path> to one. (uses --file functionality)")
 @utils.arg('--key_name',
      metavar='<key_name>',
      help="Key name of keypair that should be created earlier with \
@@ -175,6 +164,12 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
      default=[],
      help="Block device mapping in the format "
          "<dev_name=<id>:<type>:<size(GB)>:<delete_on_terminate>.")
+@utils.arg('--hint',
+        action='append',
+        dest='scheduler_hints',
+        default=[],
+        metavar='<key=value>',
+        help="Send arbitrary key/value pairs to the scheduler for custom use.")
 @utils.arg('--nic',
      metavar="<net-id=net-uuid,v4-fixed-ip=ip-addr>",
      action='append',
@@ -186,21 +181,12 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
            "v4-fixed-ip: IPv4 fixed address for NIC (optional).")
 def do_boot(cs, args):
     """Boot a new server."""
-    name, image, flavor, metadata, files, key_name, reservation_id, \
-        min_count, max_count, user_data, availability_zone, \
-        security_groups, block_device_mapping, nics = _boot(cs, args)
+    boot_args, boot_kwargs = _boot(cs, args)
 
-    server = cs.servers.create(args.name, image, flavor,
-                                    meta=metadata,
-                                    files=files,
-                                    min_count=min_count,
-                                    max_count=max_count,
-                                    userdata=user_data,
-                                    availability_zone=availability_zone,
-                                    security_groups=security_groups,
-                                    key_name=key_name,
-                                    block_device_mapping=block_device_mapping,
-                                    nics=nics)
+    extra_boot_kwargs = utils.get_resource_manager_extra_kwargs(do_boot, args)
+    boot_kwargs.update(extra_boot_kwargs)
+
+    server = cs.servers.create(*boot_args, **boot_kwargs)
 
     # Keep any information (like adminPass) returned by create
     info = server._info
@@ -242,13 +228,6 @@ def do_boot(cs, args):
      default=[],
      help="Store arbitrary files from <src-path> locally to <dst-path> "\
           "on the new server. You may store up to 5 files.")
-@utils.arg('--key',
-     metavar='<path>',
-     nargs='?',
-     const=AUTO_KEY,
-     help="Key the server with an SSH keypair. "\
-          "Looks in ~/.ssh for a key, "\
-          "or takes an explicit <path> to one.")
 @utils.arg('--reservation_id',
      default=None,
      metavar='<reservation_id>',
@@ -269,23 +248,17 @@ def do_boot(cs, args):
 @utils.arg('name', metavar='<name>', help='Name for the new server')
 def do_zone_boot(cs, args):
     """Boot a new server, potentially across Zones."""
-    reservation_id = args.reservation_id
-    min_count = args.min_instances
-    max_count = args.max_instances
-    name, image, flavor, metadata, \
-            files, reservation_id, min_count, max_count,\
-            user_data, availability_zone, security_groups = \
-                             _boot(cs, args,
-                                        reservation_id=reservation_id,
-                                        min_count=min_count,
-                                        max_count=max_count)
+    boot_args, boot_kwargs = _boot(cs,
+                                   args,
+                                   reservation_id=args.reservation_id,
+                                   min_count=args.min_instances,
+                                   max_count=args.max_instances)
 
-    reservation_id = cs.zones.boot(args.name, image, flavor,
-                                        meta=metadata,
-                                        files=files,
-                                        reservation_id=reservation_id,
-                                        min_count=min_count,
-                                        max_count=max_count)
+    extra_boot_kwargs = utils.get_resource_manager_extra_kwargs(
+            do_zone_boot, args)
+    boot_kwargs.update(extra_boot_kwargs)
+
+    reservation_id = cs.zones.boot(*boot_args, **boot_kwargs)
     print "Reservation ID=", reservation_id
 
 
@@ -298,9 +271,7 @@ def _translate_flavor_keys(collection):
                 setattr(item, to_key, item._info[from_key])
 
 
-def do_flavor_list(cs, args):
-    """Print a list of available 'flavors' (sizes of servers)."""
-    flavors = cs.flavors.list()
+def _print_flavor_list(flavors):
     _translate_flavor_keys(flavors)
     utils.print_list(flavors, [
         'ID',
@@ -310,6 +281,50 @@ def do_flavor_list(cs, args):
         'Local_GB',
         'VCPUs',
         'RXTX_Factor'])
+
+
+def do_flavor_list(cs, args):
+    """Print a list of available 'flavors' (sizes of servers)."""
+    flavors = cs.flavors.list()
+    _print_flavor_list(flavors)
+
+
+@utils.arg('id',
+     metavar='<id>',
+     help="Unique ID of the flavor to delete")
+def do_flavor_delete(cs, args):
+    """Delete a specific flavor"""
+    cs.flavors.delete(args.id)
+
+
+@utils.arg('name',
+     metavar='<name>',
+     help="Name of the new flavor")
+@utils.arg('id',
+     metavar='<id>',
+     help="Unique integer ID for the new flavor")
+@utils.arg('ram',
+     metavar='<ram>',
+     help="Memory size in MB")
+@utils.arg('disk',
+     metavar='<disk>',
+     help="Disk size in GB")
+@utils.arg('vcpus',
+     metavar='<vcpus>',
+     help="Number of vcpus")
+@utils.arg('--swap',
+     metavar='<swap>',
+     help="Swap space size in MB (default 0)",
+     default=0)
+@utils.arg('--rxtx-factor',
+     metavar='<factor>',
+     help="RX/TX factor (default 1)",
+     default=1)
+def do_flavor_create(cs, args):
+    """Create a new flavor"""
+    f = cs.flavors.create(args.name, args.ram, args.vcpus, args.disk, args.id,
+                          args.swap, args.rxtx_factor)
+    _print_flavor_list([f])
 
 
 def do_image_list(cs, args):
@@ -342,6 +357,15 @@ def do_image_list(cs, args):
 def do_image_meta(cs, args):
     """Set or Delete metadata on an image."""
     image = _find_image(cs, args.image)
+    metadata = _extract_metadata(args)
+
+    if args.action == 'set':
+        cs.images.set_meta(image, metadata)
+    elif args.action == 'delete':
+        cs.images.delete_meta(image, metadata.keys())
+
+
+def _extract_metadata(args):
     metadata = {}
     for metadatum in args.metadata[0]:
         # Can only pass the key in on 'delete'
@@ -353,11 +377,7 @@ def do_image_meta(cs, args):
             value = None
 
         metadata[key] = value
-
-    if args.action == 'set':
-        cs.images.set_meta(image, metadata)
-    elif args.action == 'delete':
-        cs.images.delete_meta(image, metadata.keys())
+    return metadata
 
 
 def _print_image(image):
@@ -460,10 +480,20 @@ def do_image_delete(cs, args):
     metavar='<hostname>',
     default=None,
     help='Search instances by hostname to which they are assigned')
+@utils.arg('--all_tenants',
+    dest='all_tenants',
+    metavar='<0|1>',
+    nargs='?',
+    type=int,
+    const=1,
+    default=0,
+    help='Display information from all tenants (Admin only).')
 def do_list(cs, args):
     """List active servers."""
     recurse_zones = args.recurse_zones
+    all_tenants = int(os.environ.get("ALL_TENANTS", args.all_tenants))
     search_opts = {
+            'all_tenants': all_tenants,
             'reservation_id': args.reservation_id,
             'recurse_zones': recurse_zones,
             'ip': args.ip,
@@ -481,21 +511,9 @@ def do_list(cs, args):
         id_col = 'ID'
 
     columns = [id_col, 'Name', 'Status', 'Networks']
-    formatters = {'Networks': _format_servers_list_networks}
+    formatters = {'Networks': utils._format_servers_list_networks}
     utils.print_list(cs.servers.list(search_opts=search_opts), columns,
                      formatters)
-
-
-def _format_servers_list_networks(server):
-    output = []
-    for (network, addresses) in server.networks.items():
-        if len(addresses) == 0:
-            continue
-        addresses_csv = ', '.join(addresses)
-        group = "%s=%s" % (network, addresses_csv)
-        output.append(group)
-
-    return '; '.join(output)
 
 
 @utils.arg('--hard',
@@ -520,12 +538,13 @@ def do_rebuild(cs, args):
     server = _find_server(cs, args.server)
     image = _find_image(cs, args.image)
 
-    if args.rebuild_password != False:
+    if args.rebuild_password is not False:
         _password = args.rebuild_password
     else:
         _password = None
 
-    s = server.rebuild(image, _password)
+    kwargs = utils.get_resource_manager_extra_kwargs(do_rebuild, args)
+    s = server.rebuild(image, _password, **kwargs)
     _print_server(cs, s)
 
 
@@ -543,7 +562,8 @@ def do_resize(cs, args):
     """Resize a server."""
     server = _find_server(cs, args.server)
     flavor = _find_flavor(cs, args.flavor)
-    server.resize(flavor)
+    kwargs = utils.get_resource_manager_extra_kwargs(do_resize, args)
+    server.resize(flavor, **kwargs)
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -591,7 +611,7 @@ def do_resume(cs, args):
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_rescue(cs, args):
     """Rescue a server."""
-    _find_server(cs, args.server).rescue()
+    utils.print_dict(_find_server(cs, args.server).rescue()[1])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -651,17 +671,7 @@ def do_image_create(cs, args):
 def do_meta(cs, args):
     """Set or Delete metadata on a server."""
     server = _find_server(cs, args.server)
-    metadata = {}
-    for metadatum in args.metadata[0]:
-        # Can only pass the key in on 'delete'
-        # So this doesn't have to have '='
-        if metadatum.find('=') > -1:
-            (key, value) = metadatum.split('=', 1)
-        else:
-            key = metadatum
-            value = None
-
-        metadata[key] = value
+    metadata = _extract_metadata(args)
 
     if args.action == 'set':
         cs.servers.set_meta(server, metadata)
@@ -979,8 +989,25 @@ def do_volume_snapshot_delete(cs, args):
     snapshot.delete()
 
 
+@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('console_type',
+    metavar='<console_type>',
+    help='Type of vnc console ("novnc" or "xvpvnc").')
+def do_get_vnc_console(cs, args):
+    """Get a vnc console to a server."""
+    server = _find_server(cs, args.server)
+    data = server.get_vnc_console(args.console_type)
+
+    class VNCConsole:
+        def __init__(self, console_dict):
+            self.type = console_dict['type']
+            self.url = console_dict['url']
+
+    utils.print_list([VNCConsole(data['console'])], ['Type', 'Url'])
+
+
 def _print_floating_ip_list(floating_ips):
-    utils.print_list(floating_ips, ['Ip', 'Instance Id', 'Fixed Ip'])
+    utils.print_list(floating_ips, ['Ip', 'Instance Id', 'Fixed Ip', 'Pool'])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -999,9 +1026,14 @@ def do_remove_floating_ip(cs, args):
     server.remove_floating_ip(args.address)
 
 
+@utils.arg('pool',
+           metavar='<floating_ip_pool>',
+           help='Name of Floating IP Pool. (Optional)',
+           nargs='?',
+           default=None)
 def do_floating_ip_create(cs, args):
     """Allocate a floating IP for the current tenant."""
-    _print_floating_ip_list([cs.floating_ips.create()])
+    _print_floating_ip_list([cs.floating_ips.create(pool=args.pool)])
 
 
 @utils.arg('address', metavar='<address>', help='IP of Floating Ip.')
@@ -1019,6 +1051,89 @@ def do_floating_ip_list(cs, args):
     _print_floating_ip_list(cs.floating_ips.list())
 
 
+def do_floating_ip_pool_list(cs, args):
+    """List all floating ip pools."""
+    utils.print_list(cs.floating_ip_pools.list(), ['name'])
+
+
+def _print_dns_list(dns_entries):
+    utils.print_list(dns_entries, ['ip', 'name', 'domain'])
+
+
+def _print_domain_list(domain_entries):
+    utils.print_list(domain_entries, ['domain', 'scope',
+                                   'project', 'availability_zone'])
+
+
+def do_dns_domains(cs, args):
+    """Print a list of available dns domains."""
+    domains = cs.dns_domains.domains()
+    _print_domain_list(domains)
+
+
+@utils.arg('domain', metavar='<domain>', help='DNS domain')
+@utils.arg('--ip', metavar='<ip>', help='ip address', default=None)
+@utils.arg('--name', metavar='<name>', help='DNS name', default=None)
+def do_dns_list(cs, args):
+    """List current DNS entries for domain and ip or domain and name."""
+    if not (args.ip or args.name):
+        raise exceptions.CommandError(
+              "You must specify either --ip or --name")
+    if args.name:
+        entry = cs.dns_entries.get(args.domain, args.name)
+        _print_dns_list([entry])
+    else:
+        entries = cs.dns_entries.get_for_ip(args.domain,
+                                            ip=args.ip)
+        _print_dns_list(entries)
+
+
+@utils.arg('ip', metavar='<ip>', help='ip address')
+@utils.arg('name', metavar='<name>', help='DNS name')
+@utils.arg('domain', metavar='<domain>', help='DNS domain')
+@utils.arg('--type', metavar='<type>', help='dns type (e.g. "A")',
+           default='A')
+def do_dns_create(cs, args):
+    """Create a DNS entry for domain, name and ip."""
+    entries = cs.dns_entries.create(args.domain, args.name,
+                                    args.ip, args.type)
+
+
+@utils.arg('domain', metavar='<domain>', help='DNS domain')
+@utils.arg('name', metavar='<name>', help='DNS name')
+def do_dns_delete(cs, args):
+    """Delete the specified DNS entry."""
+    cs.dns_entries.delete(args.domain, args.name)
+
+
+@utils.arg('domain', metavar='<domain>', help='DNS domain')
+def do_dns_delete_domain(cs, args):
+    """Delete the specified DNS domain."""
+    cs.dns_domains.delete(args.domain)
+
+
+@utils.arg('domain', metavar='<domain>', help='DNS domain')
+@utils.arg('--availability_zone', metavar='<availability_zone>',
+           help='Limit access to this domain to instances '
+                'in the specified availability zone.',
+           default=None)
+def do_dns_create_private_domain(cs, args):
+    """Create the specified DNS domain."""
+    cs.dns_domains.create_private(args.domain,
+                                  args.availability_zone)
+
+
+@utils.arg('domain', metavar='<domain>', help='DNS domain')
+@utils.arg('--project', metavar='<project>',
+           help='Limit access to this domain to users '
+                'of the specified project.',
+           default=None)
+def do_dns_create_public_domain(cs, args):
+    """Create the specified DNS domain."""
+    cs.dns_domains.create_public(args.domain,
+                                 args.project)
+
+
 def _print_secgroup_rules(rules):
     class FormattedRule:
         def __init__(self, obj):
@@ -1029,7 +1144,7 @@ def _print_secgroup_rules(rules):
                 elif k == 'group':
                     k = 'source_group'
                     v = v.get('name')
-                if v == None:
+                if v is None:
                     v = ''
 
                 setattr(self, k, v)
@@ -1165,7 +1280,7 @@ def do_secgroup_delete_group_rule(cs, args):
         if (rule.get('ip_protocol') == params.get('ip_protocol') and
             rule.get('from_port') == params.get('from_port') and
             rule.get('to_port') == params.get('to_port') and
-            rule.get('group', {}).get('name') ==\
+            rule.get('group', {}).get('name') == \
                      params.get('group_name')):
             return cs.security_group_rules.delete(rule['id'])
 
@@ -1221,3 +1336,202 @@ def do_rate_limits(cs, args):
     limits = cs.limits.get().rate
     columns = ['Verb', 'URI', 'Value', 'Remain', 'Unit', 'Next_Available']
     utils.print_list(limits, columns)
+
+
+@utils.arg('--start', metavar='<start>',
+           help='Usage range start date ex 2012-01-20 (default: 4 weeks ago)',
+           default=None)
+@utils.arg('--end', metavar='<end>',
+           help='Usage range end date, ex 2012-01-20 (default: tomorrow) ',
+           default=None)
+def do_usage_list(cs, args):
+    """List usage data for all tenants"""
+    dateformat = "%Y-%m-%d"
+    rows = ["Tenant ID", "Instances", "RAM MB-Hours", "CPU Hours",
+            "Disk GB-Hours"]
+
+    if args.start:
+        start = datetime.datetime.strptime(args.start, dateformat)
+    else:
+        start = (datetime.datetime.today() -
+                 datetime.timedelta(weeks=4))
+
+    if args.end:
+        end = datetime.datetime.strptime(args.end, dateformat)
+    else:
+        end = (datetime.datetime.today() +
+                 datetime.timedelta(days=1))
+
+    def simplify_usage(u):
+        simplerows = map(lambda x: x.lower().replace(" ", "_"), rows)
+
+        setattr(u, simplerows[0], u.tenant_id)
+        setattr(u, simplerows[1], "%d" % len(u.server_usages))
+        setattr(u, simplerows[2], "%.2f" % u.total_memory_mb_usage)
+        setattr(u, simplerows[3], "%.2f" % u.total_vcpus_usage)
+        setattr(u, simplerows[4], "%.2f" % u.total_local_gb_usage)
+
+    usage_list = cs.usage.list(start, end, detailed=True)
+
+    print "Usage from %s to %s:" % (start.strftime(dateformat),
+                                    end.strftime(dateformat))
+
+    for usage in usage_list:
+        simplify_usage(usage)
+
+    utils.print_list(usage_list, rows)
+
+
+@utils.arg('pk_filename',
+           metavar='<private_key_file>',
+           nargs='?',
+           default='pk.pem',
+           help='Filename to write the private key to.')
+@utils.arg('cert_filename',
+           metavar='<x509_cert>',
+           nargs='?',
+           default='cert.pem',
+           help='Filename to write the x509 cert.')
+def do_x509_create_cert(cs, args):
+    """Create x509 cert for a user in tenant"""
+
+    if os.path.exists(args.pk_filename):
+        raise exceptions.CommandError("Unable to write privatekey - %s exists."
+                        % args.pk_filename)
+    if os.path.exists(args.cert_filename):
+        raise exceptions.CommandError("Unable to write x509 cert - %s exists."
+                        % args.cert_filename)
+
+    certs = cs.certs.create()
+
+    with open(args.pk_filename, 'w') as private_key:
+        private_key.write(certs.private_key)
+        print "Wrote private key to %s" % args.pk_filename
+
+    with open(args.cert_filename, 'w') as cert:
+        cert.write(certs.data)
+        print "Wrote x509 certificate to %s" % args.cert_filename
+
+
+@utils.arg('filename',
+           metavar='<filename>',
+           nargs='?',
+           default='cacert.pem',
+           help='Filename to write the x509 root cert.')
+def do_x509_get_root_cert(cs, args):
+    """Fetches the x509 root cert."""
+    if os.path.exists(args.filename):
+        raise exceptions.CommandError("Unable to write x509 root cert - \
+                                      %s exists." % args.filename)
+
+    with open(args.filename, 'w') as cert:
+        cacert = cs.certs.get()
+        cert.write(cacert.data)
+        print "Wrote x509 root cert to %s" % args.filename
+
+
+def do_aggregate_list(cs, args):
+    """Print a list of all aggregates."""
+    aggregates = cs.aggregates.list()
+    columns = ['Id', 'Name', 'Availability Zone', 'Operational State']
+    utils.print_list(aggregates, columns)
+
+
+@utils.arg('name', metavar='<name>', help='Name of aggregate.')
+@utils.arg('availability_zone', metavar='<availability_zone>',
+           help='The availablity zone of the aggregate.')
+def do_aggregate_create(cs, args):
+    """Create a new aggregate with the specified details."""
+    aggregate = cs.aggregates.create(args.name, args.availability_zone)
+    _print_aggregate_details(aggregate)
+
+
+@utils.arg('id', metavar='<id>', help='Aggregate id to delete.')
+def do_aggregate_delete(cs, args):
+    """Delete the aggregate by its id."""
+    cs.aggregates.delete(args.id)
+    print "Aggregate %s has been succesfully deleted." % args.id
+
+
+@utils.arg('id', metavar='<id>', help='Aggregate id to udpate.')
+@utils.arg('name', metavar='<name>', help='Name of aggregate.')
+@utils.arg('availability_zone', metavar='<availability_zone>',
+           help='The availablity zone of the aggregate.', nargs='?')
+def do_aggregate_update(cs, args):
+    """Update the aggregate's name and optionally availablity zone."""
+    updates = {"name": args.name}
+    if args.availability_zone:
+        updates["availability_zone"] = args.availability_zone
+
+    aggregate = cs.aggregates.update(args.id, updates)
+    print "Aggregate %s has been succesfully updated." % args.id
+    _print_aggregate_details(aggregate)
+
+
+@utils.arg('id', metavar='<id>', help='Aggregate id to udpate.')
+@utils.arg('metadata',
+           metavar='<key=value>',
+           nargs='+',
+           action='append',
+           default=[],
+           help='Metadata to add/update to aggregate')
+def do_aggregate_set_metadata(cs, args):
+    """Update the metadata associated with the aggregate."""
+    metadata = _extract_metadata(args)
+    aggregate = cs.aggregates.set_metadata(args.id, metadata)
+    print "Aggregate %s has been succesfully updated." % args.id
+    _print_aggregate_details(aggregate)
+
+
+@utils.arg('id', metavar='<id>', help='Host aggregate id to delete.')
+@utils.arg('host', metavar='<host>', help='The host to add to the aggregate.')
+def do_aggregate_add_host(cs, args):
+    """Add the host to the specified aggregate."""
+    aggregate = cs.aggregates.add_host(args.id, args.host)
+    print "Aggregate %s has been succesfully updated." % args.id
+    _print_aggregate_details(aggregate)
+
+
+@utils.arg('id', metavar='<id>', help='Host aggregate id to delete.')
+@utils.arg('host', metavar='<host>', help='The host to add to the aggregate.')
+def do_aggregate_remove_host(cs, args):
+    """Remove the specified host from the specfied aggregate."""
+    aggregate = cs.aggregates.remove_host(args.id, args.host)
+    print "Aggregate %s has been succesfully updated." % args.id
+    _print_aggregate_details(aggregate)
+
+
+@utils.arg('id', metavar='<id>', help='Host aggregate id to delete.')
+def do_aggregate_details(cs, args):
+    """Show details of the specified aggregate."""
+    _print_aggregate_details(cs.aggregates.get_details(args.id))
+
+
+def _print_aggregate_details(aggregate):
+    columns = ['Id', 'Name', 'Availability Zone', 'Operational State',
+               'Hosts', 'Metadata']
+    utils.print_list([aggregate], columns)
+
+
+@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('host', metavar='<host>', help='destination host name.')
+@utils.arg('--block_migrate', action='store_true', dest='block_migrate',
+           default=False,
+           help='True in case of block_migration.\
+                (Default=False:live_migration)')
+@utils.arg('--disk_over_commit', action='store_true', dest='disk_over_commit',
+           default=False,
+           help='Allow overcommit.(Default=Flase)')
+def do_live_migration(cs, args):
+    """Migrates a running instance to a new machine."""
+    _find_server(cs, args.server).live_migrate(args.host,
+                                               args.block_migrate,
+                                               args.disk_over_commit)
+
+
+@utils.arg('host', metavar='<hostname>', help='Name of host.')
+def do_describe_resource(cs, args):
+    """Show details about a resource"""
+    result = cs.hosts.get(args.host)
+    columns = ["HOST", "PROJECT", "cpu", "memory_mb", "disk_gb"]
+    utils.print_list(result, columns)

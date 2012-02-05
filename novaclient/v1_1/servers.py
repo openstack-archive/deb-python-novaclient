@@ -47,6 +47,22 @@ class Server(base.Resource):
         """
         self.manager.update(self, name=name)
 
+    def get_console_output(self, length=None):
+        """
+        Get text console log output from Server.
+
+        :param length: The number of lines you would like to retrieve (as int)
+        """
+        return self.manager.get_console_output(self, length)
+
+    def get_vnc_console(self, console_type):
+        """
+        Get vnc console for a Server.
+
+        :param console_type: Type of console ('novnc' or 'xvpvnc')
+        """
+        return self.manager.get_vnc_console(self, console_type)
+
     def add_fixed_ip(self, network_id):
         """
         Add an IP address on a network.
@@ -99,7 +115,7 @@ class Server(base.Resource):
         """
         Rescue -- Rescue the problematic server.
         """
-        self.manager.rescue(self)
+        return self.manager.rescue(self)
 
     def unrescue(self):
         """
@@ -109,11 +125,11 @@ class Server(base.Resource):
 
     def diagnostics(self):
         """Diagnostics -- Retrieve server diagnostics."""
-        self.manager.diagnostics(self)
+        return self.manager.diagnostics(self)
 
     def actions(self):
         """Actions -- Retrieve server actions."""
-        self.manager.actions(self)
+        return self.manager.actions(self)
 
     def migrate(self):
         """
@@ -144,16 +160,16 @@ class Server(base.Resource):
         """
         self.manager.reboot(self, type)
 
-    def rebuild(self, image, password=None):
+    def rebuild(self, image, password=None, **kwargs):
         """
         Rebuild -- shut down and then re-image -- this server.
 
         :param image: the :class:`Image` (or its ID) to re-image with.
         :param password: string to set as password on the rebuilt server.
         """
-        return self.manager.rebuild(self, image, password)
+        return self.manager.rebuild(self, image, password=password, **kwargs)
 
-    def resize(self, flavor):
+    def resize(self, flavor, **kwargs):
         """
         Resize the server's resources.
 
@@ -164,9 +180,9 @@ class Server(base.Resource):
         flavor quickly with :meth:`revert_resize`. All resizes are
         automatically confirmed after 24 hours.
         """
-        self.manager.resize(self, flavor)
+        self.manager.resize(self, flavor, **kwargs)
 
-    def create_image(self, image_name, metadata):
+    def create_image(self, image_name, metadata=None):
         """
         Create an image based on this server.
 
@@ -199,6 +215,16 @@ class Server(base.Resource):
             return networks
         except Exception:
             return {}
+
+    def live_migrate(self, host,
+                     block_migration=False,
+                     disk_over_commit=False):
+        """
+        Migrates a running instance to a new machine.
+        """
+        self.manager.live_migrate(self, host,
+                                  block_migration,
+                                  disk_over_commit)
 
 
 class ServerManager(local_base.BootingManagerWithFind):
@@ -278,6 +304,17 @@ class ServerManager(local_base.BootingManagerWithFind):
         address = address.ip if hasattr(address, 'ip') else address
         self._action('removeFloatingIp', server, {'address': address})
 
+    def get_vnc_console(self, server, console_type):
+        """
+        Get a vnc console for an instance
+
+        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param console_type: Type of vnc console to get ('novnc' or 'xvpvnc')
+        """
+
+        return self._action('os-getVNCConsole', server,
+                            {'type': console_type})[1]
+
     def pause(self, server):
         """
         Pause the server.
@@ -306,7 +343,7 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         Rescue the server.
         """
-        self._action('rescue', server, None)
+        return self._action('rescue', server, None)
 
     def unrescue(self, server):
         """
@@ -328,7 +365,8 @@ class ServerManager(local_base.BootingManagerWithFind):
                zone_blob=None, reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
                key_name=None, availability_zone=None,
-               block_device_mapping=None, nics=None):
+               block_device_mapping=None, nics=None, scheduler_hints=None,
+               **kwargs):
         # TODO: (anthony) indicate in doc string if param is an extension
         # and/or optional
         """
@@ -360,6 +398,8 @@ class ServerManager(local_base.BootingManagerWithFind):
         :param nics:  (optional extension) an ordered list of nics to be
                       added to this server, with information about
                       connected networks, fixed ips, etc.
+        :param scheduler_hints: (optional extension) arbitrary key-value pairs
+                            specified by the client to help boot an instance
         """
         if not min_count:
             min_count = 1
@@ -367,22 +407,26 @@ class ServerManager(local_base.BootingManagerWithFind):
             max_count = min_count
         if min_count > max_count:
             min_count = max_count
+
+        boot_args = [name, image, flavor]
+
+        boot_kwargs = dict(
+            meta=meta, files=files, userdata=userdata, zone_blob=zone_blob,
+            reservation_id=reservation_id, min_count=min_count,
+            max_count=max_count, security_groups=security_groups,
+            key_name=key_name, availability_zone=availability_zone,
+            scheduler_hints=scheduler_hints, **kwargs)
+
         if block_device_mapping:
-            return self._boot("/os-volumes_boot", "server",
-                        name, image, flavor,
-                        meta=meta, files=files, userdata=userdata,
-                        zone_blob=zone_blob, reservation_id=reservation_id,
-                        min_count=min_count, max_count=max_count,
-                        security_groups=security_groups, key_name=key_name,
-                        availability_zone=availability_zone,
-                        block_device_mapping=block_device_mapping)
+            resource_url = "/os-volumes_boot"
+            boot_kwargs['block_device_mapping'] = block_device_mapping
         else:
-            return self._boot("/servers", "server", name, image, flavor,
-                          meta=meta, files=files, userdata=userdata,
-                          zone_blob=zone_blob, reservation_id=reservation_id,
-                          min_count=min_count, max_count=max_count,
-                          security_groups=security_groups, key_name=key_name,
-                          availability_zone=availability_zone, nics=nics)
+            resource_url = "/servers"
+            boot_kwargs['nics'] = nics
+
+        response_key = "server"
+        return self._boot(resource_url, response_key, *boot_args,
+                **boot_kwargs)
 
     def update(self, server, name=None):
         """
@@ -424,7 +468,7 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._action('reboot', server, {'type': type})
 
-    def rebuild(self, server, image, password=None):
+    def rebuild(self, server, image, password=None, **kwargs):
         """
         Rebuild -- shut down and then re-image -- a server.
 
@@ -435,7 +479,7 @@ class ServerManager(local_base.BootingManagerWithFind):
         body = {'imageRef': base.getid(image)}
         if password is not None:
             body['adminPass'] = password
-        resp, body = self._action('rebuild', server, body)
+        resp, body = self._action('rebuild', server, body, **kwargs)
         return Server(self, body['server'])
 
     def migrate(self, server):
@@ -444,9 +488,9 @@ class ServerManager(local_base.BootingManagerWithFind):
 
         :param server: The :class:`Server` (or its ID).
         """
-        self.api.client.post('/servers/%s/migrate' % base.getid(server))
+        self._action('migrate', server)
 
-    def resize(self, server, flavor):
+    def resize(self, server, flavor, **kwargs):
         """
         Resize a server's resources.
 
@@ -458,7 +502,8 @@ class ServerManager(local_base.BootingManagerWithFind):
         flavor quickly with :meth:`revert_resize`. All resizes are
         automatically confirmed after 24 hours.
         """
-        self._action('resize', server, {'flavorRef': base.getid(flavor)})
+        info = {'flavorRef': base.getid(flavor)}
+        self._action('resize', server, info=info, **kwargs)
 
     def confirm_resize(self, server):
         """
@@ -497,6 +542,18 @@ class ServerManager(local_base.BootingManagerWithFind):
         return self._create("/servers/%s/metadata" % base.getid(server),
                              body, "metadata")
 
+    def get_console_output(self, server, length=None):
+        """
+        Get text console log output from Server.
+
+        :param server: The :class:`Server` (or its ID) whose console output
+                        you would like to retrieve.
+        :param length: The number of tail loglines you would like to retrieve.
+        """
+        return self._action('os-getConsoleOutput',
+                            server,
+                            {'length': length})[1]['output']
+
     def delete_meta(self, server, keys):
         """
         Delete metadata from an server
@@ -506,9 +563,26 @@ class ServerManager(local_base.BootingManagerWithFind):
         for k in keys:
             self._delete("/servers/%s/metadata/%s" % (base.getid(server), k))
 
-    def _action(self, action, server, info=None):
+    def live_migrate(self, server, host, block_migration, disk_over_commit):
+        """
+        Migrates a running instance to a new machine.
+
+        :param server: instance id which comes from nova list.
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration.
+        :param disk_over_commit: if True, Allow overcommit.
+
+        """
+        self._action('os-migrateLive', server,
+                     {'host': host,
+                      'block_migration': block_migration,
+                      'disk_over_commit': disk_over_commit})
+
+    def _action(self, action, server, info=None, **kwargs):
         """
         Perform a server "action" -- reboot/rebuild/resize/etc.
         """
+        body = {action: info}
+        self.run_hooks('modify_body_for_action', body, **kwargs)
         url = '/servers/%s/action' % base.getid(server)
-        return self.api.client.post(url, body={action: info})
+        return self.api.client.post(url, body=body)

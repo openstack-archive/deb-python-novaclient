@@ -3,7 +3,6 @@ import json
 import mock
 import urlparse
 
-
 from novaclient.v1_1 import client
 from novaclient import exceptions
 from tests import utils
@@ -29,11 +28,11 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
                 },
                 "serviceCatalog": [
                     {
-                        "adminURL": "http://localhost:8774/v1.1",
                         "type": "compute",
                         "endpoints": [
                             {
                                 "region": "RegionOne",
+                                "adminURL": "http://localhost:8774/v1.1",
                                 "internalURL": "http://localhost:8774/v1.1",
                                 "publicURL": "http://localhost:8774/v1.1/",
                             },
@@ -56,6 +55,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
             headers = {
                 'User-Agent': cs.client.USER_AGENT,
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
             }
             body = {
                 'auth': {
@@ -153,6 +153,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
             headers = {
                 'User-Agent': cs.client.USER_AGENT,
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
             }
             body = {
                 'auth': {
@@ -178,6 +179,57 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
         test_auth_call()
 
+    def test_ambiguous_endpoints(self):
+        cs = client.Client("username", "password", "project_id",
+                           "auth_url/v2.0")
+        resp = {
+            "access": {
+                "token": {
+                    "expires": "12345",
+                    "id": "FAKE_ID",
+                },
+                "serviceCatalog": [
+                    {
+                        "adminURL": "http://localhost:8774/v1.1",
+                        "type": "compute",
+                        "name": "Compute CLoud",
+                        "endpoints": [
+                            {
+                                "region": "RegionOne",
+                                "internalURL": "http://localhost:8774/v1.1",
+                                "publicURL": "http://localhost:8774/v1.1/",
+                            },
+                        ],
+                    },
+                    {
+                        "adminURL": "http://localhost:8774/v1.1",
+                        "type": "compute",
+                        "name": "Hyper-compute Cloud",
+                        "endpoints": [
+                            {
+                                "internalURL": "http://localhost:8774/v1.1",
+                                "publicURL": "http://localhost:8774/v1.1/",
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        auth_response = httplib2.Response({
+            "status": 200,
+            "body": json.dumps(resp),
+            })
+
+        mock_request = mock.Mock(return_value=(auth_response,
+                                               json.dumps(resp)))
+
+        @mock.patch.object(httplib2.Http, "request", mock_request)
+        def test_auth_call():
+            self.assertRaises(exceptions.AmbiguousEndpoints,
+                              cs.client.authenticate)
+
+        test_auth_call()
+
 
 class AuthenticationTests(utils.TestCase):
     def test_authenticate_success(self):
@@ -194,6 +246,7 @@ class AuthenticationTests(utils.TestCase):
         def test_auth_call():
             cs.client.authenticate()
             headers = {
+                'Accept': 'application/json',
                 'X-Auth-User': 'username',
                 'X-Auth-Key': 'password',
                 'X-Auth-Project-Id': 'project_id',

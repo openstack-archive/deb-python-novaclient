@@ -1,8 +1,8 @@
 import StringIO
 
 from novaclient.v1_1 import servers
-from tests.v1_1 import fakes
 from tests import utils
+from tests.v1_1 import fakes
 
 
 cs = fakes.FakeClient()
@@ -145,9 +145,9 @@ class ServersTest(utils.TestCase):
     def test_migrate_server(self):
         s = cs.servers.get(1234)
         s.migrate()
-        cs.assert_called('POST', '/servers/1234/migrate')
+        cs.assert_called('POST', '/servers/1234/action')
         cs.servers.migrate(s)
-        cs.assert_called('POST', '/servers/1234/migrate')
+        cs.assert_called('POST', '/servers/1234/action')
 
     def test_add_fixed_ip(self):
         s = cs.servers.get(1234)
@@ -199,4 +199,78 @@ class ServersTest(utils.TestCase):
         s.unrescue()
         cs.assert_called('POST', '/servers/1234/action')
         cs.servers.unrescue(s)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_get_console_output_without_length(self):
+        success = 'foo'
+        s = cs.servers.get(1234)
+        s.get_console_output()
+        self.assertEqual(s.get_console_output(), success)
+        cs.assert_called('POST', '/servers/1234/action')
+
+        cs.servers.get_console_output(s)
+        self.assertEqual(cs.servers.get_console_output(s), success)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_get_console_output_with_length(self):
+        success = 'foo'
+
+        s = cs.servers.get(1234)
+        s.get_console_output(length=50)
+        self.assertEqual(s.get_console_output(length=50), success)
+        cs.assert_called('POST', '/servers/1234/action')
+
+        cs.servers.get_console_output(s, length=50)
+        self.assertEqual(cs.servers.get_console_output(s, length=50), success)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_get_server_actions(self):
+        s = cs.servers.get(1234)
+        actions = s.actions()
+        self.assertTrue(actions is not None)
+        cs.assert_called('GET', '/servers/1234/actions')
+
+        actions_from_manager = cs.servers.actions(1234)
+        self.assertTrue(actions_from_manager is not None)
+        cs.assert_called('GET', '/servers/1234/actions')
+
+        self.assertEqual(actions, actions_from_manager)
+
+    def test_get_server_diagnostics(self):
+        s = cs.servers.get(1234)
+        diagnostics = s.diagnostics()
+        self.assertTrue(diagnostics is not None)
+        cs.assert_called('GET', '/servers/1234/diagnostics')
+
+        diagnostics_from_manager = cs.servers.diagnostics(1234)
+        self.assertTrue(diagnostics_from_manager is not None)
+        cs.assert_called('GET', '/servers/1234/diagnostics')
+
+        self.assertEqual(diagnostics, diagnostics_from_manager)
+
+    def test_get_vnc_console(self):
+        s = cs.servers.get(1234)
+        s.get_vnc_console('fake')
+        cs.assert_called('POST', '/servers/1234/action')
+
+        cs.servers.get_vnc_console(s, 'fake')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_create_image(self):
+        s = cs.servers.get(1234)
+        s.create_image('123')
+        cs.assert_called('POST', '/servers/1234/action')
+        s.create_image('123', {})
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.create_image(s, '123')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.create_image(s, '123', {})
+
+    def test_live_migrate_server(self):
+        s = cs.servers.get(1234)
+        s.live_migrate(host='hostname', block_migration=False,
+                       disk_over_commit=False)
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.live_migrate(s, host='hostname', block_migration=False,
+                                disk_over_commit=False)
         cs.assert_called('POST', '/servers/1234/action')

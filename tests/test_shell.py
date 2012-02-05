@@ -1,9 +1,8 @@
 import os
-import mock
 import httplib2
 
-from novaclient.shell import OpenStackComputeShell
 from novaclient import exceptions
+import novaclient.shell
 from tests import utils
 
 
@@ -13,17 +12,17 @@ class ShellTest(utils.TestCase):
     def setUp(self):
         global _old_env
         fake_env = {
-            'NOVA_USERNAME': 'username',
-            'NOVA_PASSWORD': 'password',
-            'NOVA_PROJECT_ID': 'project_id',
-            'NOVA_URL': 'http://no.where',
+            'OS_USERNAME': 'username',
+            'OS_PASSWORD': 'password',
+            'OS_TENANT_NAME': 'tenant_name',
+            'OS_AUTH_URL': 'http://no.where',
         }
         _old_env, os.environ = os.environ, fake_env.copy()
 
         # Make a fake shell object, a helping wrapper to call it, and a quick
         # way of asserting that certain API calls were made.
         global shell, _shell, assert_called, assert_called_anytime
-        _shell = OpenStackComputeShell()
+        _shell = novaclient.shell.OpenStackComputeShell()
         shell = lambda cmd: _shell.main(cmd.split())
 
     def tearDown(self):

@@ -4,6 +4,12 @@ Exception definitions.
 """
 
 
+class UnsupportedVersion(Exception):
+    """Indicates that the user is trying to use an unsupported
+    version of the API"""
+    pass
+
+
 class CommandError(Exception):
     pass
 
@@ -21,6 +27,15 @@ class NoTokenLookupException(Exception):
 class EndpointNotFound(Exception):
     """Could not find Service or Region in Service Catalog."""
     pass
+
+
+class AmbiguousEndpoints(Exception):
+    """Found more than one matching endpoint in Service Catalog."""
+    def __init__(self, endpoints=None):
+        self.endpoints = endpoints
+
+    def __str__(self):
+        return "AmbiguousEndpoints: %s" % repr(self.endpoints)
 
 
 class ClientException(Exception):
