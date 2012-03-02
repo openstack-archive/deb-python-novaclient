@@ -1,3 +1,4 @@
+import os
 import prettytable
 import sys
 import uuid
@@ -11,6 +12,18 @@ def arg(*args, **kwargs):
         add_arg(func, *args, **kwargs)
         return func
     return _decorator
+
+
+def env(*vars, **kwargs):
+    """
+    returns the first environment variable set
+    if none are non-empty, defaults to '' or keyword arg default
+    """
+    for v in vars:
+        value = os.environ.get(v, None)
+        if value:
+            return value
+    return kwargs.get('default', '')
 
 
 def add_arg(f, *args, **kwargs):
@@ -83,6 +96,27 @@ def isunauthenticated(f):
     return getattr(f, 'unauthenticated', False)
 
 
+def service_type(stype):
+    """
+    Adds 'service_type' attribute to decorated function.
+    Usage:
+        @service_type('volume')
+        def mymethod(f):
+            ...
+    """
+    def inner(f):
+        f.service_type = stype
+        return f
+    return inner
+
+
+def get_service_type(f):
+    """
+    Retrieves service type from function
+    """
+    return getattr(f, 'service_type', None)
+
+
 def pretty_choice_list(l):
     return ', '.join("'%s'" % i for i in l)
 
@@ -109,11 +143,11 @@ def print_list(objs, fields, formatters={}):
     pt.printt(sortby=fields[0])
 
 
-def print_dict(d):
-    pt = prettytable.PrettyTable(['Property', 'Value'], caching=False)
+def print_dict(d, property="Property"):
+    pt = prettytable.PrettyTable([property, 'Value'], caching=False)
     pt.aligns = ['l', 'l']
     [pt.add_row(list(r)) for r in d.iteritems()]
-    pt.printt(sortby='Property')
+    pt.printt(sortby=property)
 
 
 def find_resource(manager, name_or_id):

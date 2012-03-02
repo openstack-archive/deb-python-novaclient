@@ -36,15 +36,18 @@ class HTTPClient(httplib2.Http):
 
     def __init__(self, user, password, projectid, auth_url, insecure=False,
                  timeout=None, token=None, region_name=None,
-                 endpoint_name='publicURL'):
+                 endpoint_type='publicURL', service_type=None,
+                 service_name=None):
         super(HTTPClient, self).__init__(timeout=timeout)
         self.user = user
         self.password = password
         self.projectid = projectid
-        self.auth_url = auth_url
+        self.auth_url = auth_url.rstrip('/')
         self.version = 'v1.1'
         self.region_name = region_name
-        self.endpoint_name = endpoint_name
+        self.endpoint_type = endpoint_type
+        self.service_type = service_type
+        self.service_name = service_name
 
         self.management_url = None
         self.auth_token = None
@@ -81,6 +84,7 @@ class HTTPClient(httplib2.Http):
     def request(self, *args, **kwargs):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         kwargs['headers']['User-Agent'] = self.USER_AGENT
+        kwargs['headers']['Accept'] = 'application/json'
         if 'body' in kwargs:
             kwargs['headers']['Content-Type'] = 'application/json'
             kwargs['body'] = json.dumps(kwargs['body'])
@@ -151,11 +155,19 @@ class HTTPClient(httplib2.Http):
 
                 if extract_token:
                     self.auth_token = self.service_catalog.get_token()
-                self.management_url = self.service_catalog.url_for(
+
+                management_url = self.service_catalog.url_for(
                                            attr='region',
                                            filter_value=self.region_name,
-                                           endpoint_type=self.endpoint_name)
+                                           endpoint_type=self.endpoint_type,
+                                           service_type=self.service_type,
+                                           service_name=self.service_name)
+                self.management_url = management_url.rstrip('/')
                 return None
+            except exceptions.AmbiguousEndpoints, exc:
+                print "Found more than one valid endpoint. Use a more " \
+                      "restrictive filter"
+                raise
             except KeyError:
                 raise exceptions.AuthorizationFailure()
             except exceptions.EndpointNotFound:
@@ -180,8 +192,7 @@ class HTTPClient(httplib2.Http):
         """
 
         # GET ...:5001/v2.0/tokens/#####/endpoints
-        end = '/'.join(['tokens', self.proxy_token, 'endpoints'])
-        url = urlparse.urljoin(url, end)
+        url = '/'.join([url, 'tokens', self.proxy_token, 'endpoints'])
         _logger.debug("Using Endpoint URL: %s" % url)
         resp, body = self.request(url, "GET",
                                   headers={'X-Auth_Token': self.auth_token})
@@ -232,7 +243,7 @@ class HTTPClient(httplib2.Http):
             # real endpoint, only hostname and port.
             except exceptions.AuthorizationFailure:
                 if auth_url.find('v2.0') < 0:
-                    auth_url = urlparse.urljoin(auth_url, 'v2.0/')
+                    auth_url = auth_url + '/v2.0'
                 self._v2_auth(auth_url)
 
     def _v1_auth(self, url):
@@ -247,7 +258,8 @@ class HTTPClient(httplib2.Http):
         resp, body = self.request(url, 'GET', headers=headers)
         if resp.status in (200, 204):  # in some cases we get No Content
             try:
-                self.management_url = resp['x-server-management-url']
+                mgmt_header = 'x-server-management-url'
+                self.management_url = resp[mgmt_header].rstrip('/')
                 self.auth_token = resp['x-auth-token']
                 self.auth_url = url
             except KeyError:
@@ -280,7 +292,7 @@ class HTTPClient(httplib2.Http):
 
     def _authenticate(self, url, body):
         """Authenticate and extract the service catalog."""
-        token_url = urlparse.urljoin(url, "tokens")
+        token_url = url + "/tokens"
 
         # Make sure we follow redirects when trying to reach Keystone
         tmp_follow_all_redirects = self.follow_all_redirects
@@ -295,14 +307,16 @@ class HTTPClient(httplib2.Http):
 
 
 def get_client_class(version):
+    version_map = {
+        '1.1': 'novaclient.v1_1.client.Client',
+        '2': 'novaclient.v1_1.client.Client',
+    }
     try:
-        version = str(version)
-        client_path = {
-            '1.1': 'novaclient.v1_1.client.Client',
-            '2': 'novaclient.v1_1.client.Client',
-        }[version]
+        client_path = version_map[str(version)]
     except (KeyError, ValueError):
-        raise exceptions.UnsupportedVersion()
+        msg = "Invalid client version '%s'. must be one of: %s" % (
+              (version, ', '.join(version_map.keys())))
+        raise exceptions.UnsupportedVersion(msg)
 
     return utils.import_class(client_path)
 

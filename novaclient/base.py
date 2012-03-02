@@ -20,9 +20,14 @@ Base utilities to build API operation managers and objects on top of.
 """
 
 import contextlib
+import errno
 import os
 from novaclient import exceptions
 from novaclient import utils
+
+
+UUID_CACHE_DIR = utils.env('NOVACLIENT_UUID_CACHE_DIR',
+                           default="~/.novaclient")
 
 
 # Python 2.4 compat
@@ -100,9 +105,17 @@ class Manager(utils.HookableMixin):
         Delete is not handled because listings are assumed to be performed
         often enough to keep the UUID cache reasonably up-to-date.
         """
+        uuid_cache_dir = os.path.expanduser(UUID_CACHE_DIR)
+        try:
+            os.makedirs(uuid_cache_dir, 0755)
+        except OSError as e:
+            if e.errno == errno.EEXIST:
+                pass
+            else:
+                raise
+
         resource = obj_class.__name__.lower()
-        filename = os.path.expanduser("~/.novaclient_cached_%s_uuids" %
-                                      resource)
+        filename = uuid_cache_dir + "/%s-uuid-cache" % resource
 
         try:
             self._uuid_cache = open(filename, mode)
@@ -122,9 +135,12 @@ class Manager(utils.HookableMixin):
         if hasattr(self, '_uuid_cache'):
             self._uuid_cache.write("%s\n" % uuid)
 
-    def _get(self, url, response_key):
+    def _get(self, url, response_key=None):
         resp, body = self.api.client.get(url)
-        return self.resource_class(self, body[response_key])
+        if response_key:
+            return self.resource_class(self, body[response_key])
+        else:
+            return self.resource_class(self, body)
 
     def _create(self, url, body, response_key, return_raw=False, **kwargs):
         self.run_hooks('modify_body_for_create', body, **kwargs)
@@ -141,6 +157,7 @@ class Manager(utils.HookableMixin):
     def _update(self, url, body, **kwargs):
         self.run_hooks('modify_body_for_update', body, **kwargs)
         resp, body = self.api.client.put(url, body=body)
+        return body
 
 
 class ManagerWithFind(Manager):
@@ -188,7 +205,7 @@ class ManagerWithFind(Manager):
 class BootingManagerWithFind(ManagerWithFind):
     """Like a `ManagerWithFind`, but has the ability to boot servers."""
     def _boot(self, resource_url, response_key, name, image, flavor,
-              ipgroup=None, meta=None, files=None, zone_blob=None,
+              ipgroup=None, meta=None, files=None,
               reservation_id=None, return_raw=False, min_count=None,
               max_count=None, **kwargs):
         """
@@ -206,9 +223,6 @@ class BootingManagerWithFind(ManagerWithFind):
                       are the file contents (either as a string or as a
                       file-like object). A maximum of five entries is allowed,
                       and each file must be 10k or less.
-        :param zone_blob: a single (encrypted) string which is used internally
-                      by Nova for routing between Zones. Users cannot populate
-                      this field.
         :param reservation_id: a UUID for the set of servers being requested.
         :param return_raw: If True, don't try to coearse the result into
                            a Resource object.
@@ -224,8 +238,6 @@ class BootingManagerWithFind(ManagerWithFind):
             body["server"]["metadata"] = meta
         if reservation_id:
             body["server"]["reservation_id"] = reservation_id
-        if zone_blob:
-            body["server"]["blob"] = zone_blob
 
         if not min_count:
             min_count = 1

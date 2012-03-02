@@ -41,7 +41,8 @@ class VolumeManager(base.ManagerWithFind):
     resource_class = Volume
 
     def create(self, size, snapshot_id=None,
-                    display_name=None, display_description=None):
+                    display_name=None, display_description=None,
+                    volume_type=None):
         """
         Create a volume.
 
@@ -49,13 +50,15 @@ class VolumeManager(base.ManagerWithFind):
         :param snapshot_id: ID of the snapshot
         :param display_name: Name of the volume
         :param display_description: Description of the volume
+        :param volume_type: Type of volume
         :rtype: :class:`Volume`
         """
         body = {'volume': {'size': size,
                             'snapshot_id': snapshot_id,
                             'display_name': display_name,
-                            'display_description': display_description}}
-        return self._create('/os-volumes', body, 'volume')
+                            'display_description': display_description,
+                            'volume_type': volume_type}}
+        return self._create('/volumes', body, 'volume')
 
     def get(self, volume_id):
         """
@@ -64,7 +67,7 @@ class VolumeManager(base.ManagerWithFind):
         :param volume_id: The ID of the volume to delete.
         :rtype: :class:`Volume`
         """
-        return self._get("/os-volumes/%s" % volume_id, "volume")
+        return self._get("/volumes/%s" % volume_id, "volume")
 
     def list(self, detailed=True):
         """
@@ -73,9 +76,9 @@ class VolumeManager(base.ManagerWithFind):
         :rtype: list of :class:`Volume`
         """
         if detailed is True:
-            return self._list("/os-volumes/detail", "volumes")
+            return self._list("/volumes/detail", "volumes")
         else:
-            return self._list("/os-volumes", "volumes")
+            return self._list("/volumes", "volumes")
 
     def delete(self, volume):
         """
@@ -83,7 +86,7 @@ class VolumeManager(base.ManagerWithFind):
 
         :param volume: The :class:`Volume` to delete.
         """
-        self._delete("/os-volumes/%s" % base.getid(volume))
+        self._delete("/volumes/%s" % base.getid(volume))
 
     def create_server_volume(self, server_id, volume_id, device):
         """

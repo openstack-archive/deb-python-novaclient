@@ -322,6 +322,10 @@ class FakeHTTPClient(base_client.HTTPClient):
             return (202, {'output': 'foo'})
         elif action == 'os-getVNCConsole':
             assert body[action].keys() == ['type']
+        elif action == 'os-migrateLive':
+            assert set(body[action].keys()) == set(['host',
+                                                    'block_migration',
+                                                    'disk_over_commit'])
         else:
             raise AssertionError("Unexpected server action: %s" % action)
         return (202, _body)
@@ -338,8 +342,10 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_flavors_detail(self, **kw):
         return (200, {'flavors': [
-            {'id': 1, 'name': '256 MB Server', 'ram': 256, 'disk': 10},
-            {'id': 2, 'name': '512 MB Server', 'ram': 512, 'disk': 20}
+            {'id': 1, 'name': '256 MB Server', 'ram': 256, 'disk': 10,
+             'OS-FLV-EXT-DATA:ephemeral': 10},
+            {'id': 2, 'name': '512 MB Server', 'ram': 512, 'disk': 20,
+             'OS-FLV-EXT-DATA:ephemeral': 20}
         ]})
 
     def get_flavors_1(self, **kw):
@@ -347,6 +353,11 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_flavors_2(self, **kw):
         return (200, {'flavor': self.get_flavors_detail()[1]['flavors'][1]})
+
+    def get_flavors_3(self, **kw):
+        # Diablo has no ephemeral
+        return (200, {'flavor': {'id': 3, 'name': '256 MB Server',
+                                 'ram': 256, 'disk': 10}})
 
     def delete_flavors_flavordelete(self, **kw):
         return (202, None)
@@ -497,50 +508,6 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def delete_images_1_metadata_test_key(self, **kw):
         return (204, None)
-
-    #
-    # Zones
-    #
-    def get_zones(self, **kw):
-        return (200, {'zones': [
-            {'id': 1, 'api_url': 'http://foo.com', 'username': 'bob'},
-            {'id': 2, 'api_url': 'http://foo.com', 'username': 'alice'},
-        ]})
-
-    def get_zones_detail(self, **kw):
-        return (200, {'zones': [
-            {'id': 1, 'api_url': 'http://foo.com', 'username': 'bob',
-                                                   'password': 'qwerty'},
-            {'id': 2, 'api_url': 'http://foo.com', 'username': 'alice',
-                                                   'password': 'password'}
-        ]})
-
-    def get_zones_1(self, **kw):
-        r = {'zone': self.get_zones_detail()[1]['zones'][0]}
-        return (200, r)
-
-    def get_zones_2(self, **kw):
-        r = {'zone': self.get_zones_detail()[1]['zones'][1]}
-        return (200, r)
-
-    def post_zones(self, body, **kw):
-        assert body.keys() == ['zone']
-        fakes.assert_has_keys(body['zone'],
-                        required=['api_url', 'username', 'password'],
-                        optional=['weight_offset', 'weight_scale'])
-
-        return (202, self.get_zones_1()[1])
-
-    def put_zones_1(self, body, **kw):
-        assert body.keys() == ['zone']
-        fakes.assert_has_keys(body['zone'], optional=['api_url', 'username',
-                                                'password',
-                                                'weight_offset',
-                                                'weight_scale'])
-        return (204, None)
-
-    def delete_zones_1(self, **kw):
-        return (202, None)
 
     #
     # Keypairs
@@ -708,3 +675,88 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def post_os_certificates(self, **kw):
         return (200, {'certificate': {'private_key': 'foo', 'data': 'bar'}})
+
+    #
+    # Aggregates
+    #
+    def get_os_aggregates(self, *kw):
+        return (200, {"aggregates": [
+            {'id':'1',
+             'name': 'test',
+             'availability_zone': 'nova1'},
+            {'id':'2',
+             'name': 'test2',
+             'availability_zone': 'nova1'},
+        ]})
+
+    def _return_aggregate(self):
+        r = {'aggregate': self.get_os_aggregates()[1]['aggregates'][0]}
+        return (200, r)
+
+    def get_os_aggregates_1(self, **kw):
+        return self._return_aggregate()
+
+    def post_os_aggregates(self, body, **kw):
+        return self._return_aggregate()
+
+    def put_os_aggregates_1(self, body, **kw):
+        return self._return_aggregate()
+
+    def put_os_aggregates_2(self, body, **kw):
+        return self._return_aggregate()
+
+    def post_os_aggregates_1_action(self, body, **kw):
+        return self._return_aggregate()
+
+    def post_os_aggregates_2_action(self, body, **kw):
+        return self._return_aggregate()
+
+    def delete_os_aggregates_1(self, **kw):
+        return (202, None)
+
+    #
+    # Hosts
+    #
+    def get_os_hosts_host(self, *kw):
+        return (200, {'host':
+                [{'resource': {'project': '(total)', 'host': 'dummy',
+                  'cpu': 16, 'memory_mb': 32234, 'disk_gb': 128}},
+                 {'resource': {'project': '(used_now)', 'host': 'dummy',
+                  'cpu': 1, 'memory_mb': 2075, 'disk_gb': 45}},
+                 {'resource': {'project': '(used_max)', 'host': 'dummy',
+                  'cpu': 1, 'memory_mb': 2048, 'disk_gb': 30}},
+                 {'resource': {'project': 'admin', 'host': 'dummy',
+                  'cpu': 1, 'memory_mb': 2048, 'disk_gb': 30}}]})
+
+    def get_os_hosts_sample_host(self, *kw):
+        return (200, {'host': [{'resource': {'host': 'sample_host'}}], })
+
+    def put_os_hosts_sample_host_1(self, body, **kw):
+        return (200, {'host': 'sample-host_1',
+                      'status': 'enabled'})
+
+    def put_os_hosts_sample_host_2(self, body, **kw):
+        return (200, {'host': 'sample-host_2',
+                      'maintenance_mode': 'on_maintenance'})
+
+    def put_os_hosts_sample_host_3(self, body, **kw):
+        return (200, {'host': 'sample-host_3',
+                      'status': 'enabled',
+                      'maintenance_mode': 'on_maintenance'})
+
+    def get_os_hosts_sample_host_startup(self, **kw):
+        return (200, {'host': 'sample_host',
+                      'power_action': 'startup'})
+
+    def get_os_hosts_sample_host_reboot(self, **kw):
+        return (200, {'host': 'sample_host',
+                      'power_action': 'reboot'})
+
+    def get_os_hosts_sample_host_shutdown(self, **kw):
+        return (200, {'host': 'sample_host',
+                      'power_action': 'shutdown'})
+
+    def put_os_hosts_sample_host(self, body, **kw):
+        result = {'host': 'dummy'}
+        result.update(body)
+        return (200, result)

@@ -25,6 +25,15 @@ class FlavorsTest(utils.TestCase):
         self.assertTrue(isinstance(f, flavors.Flavor))
         self.assertEqual(f.ram, 256)
         self.assertEqual(f.disk, 10)
+        self.assertEqual(f.ephemeral, 10)
+
+    def test_get_flavor_details_diablo(self):
+        f = cs.flavors.get(3)
+        cs.assert_called('GET', '/flavors/3')
+        self.assertTrue(isinstance(f, flavors.Flavor))
+        self.assertEqual(f.ram, 256)
+        self.assertEqual(f.disk, 10)
+        self.assertEqual(f.ephemeral, 'N/A')
 
     def test_find(self):
         f = cs.flavors.find(ram=256)
@@ -37,6 +46,25 @@ class FlavorsTest(utils.TestCase):
         self.assertRaises(exceptions.NotFound, cs.flavors.find, disk=12345)
 
     def test_create(self):
+        f = cs.flavors.create("flavorcreate", 512, 1, 10, 1234, ephemeral=10)
+
+        body = {
+            "flavor": {
+                "name": "flavorcreate",
+                "ram": 512,
+                "vcpus": 1,
+                "disk": 10,
+                "OS-FLV-EXT-DATA:ephemeral": 10,
+                "id": 1234,
+                "swap": 0,
+                "rxtx_factor": 1,
+            }
+        }
+
+        cs.assert_called('POST', '/flavors', body)
+        self.assertTrue(isinstance(f, flavors.Flavor))
+
+    def test_create_ephemeral_defaults_to_zero(self):
         f = cs.flavors.create("flavorcreate", 512, 1, 10, 1234)
 
         body = {
@@ -45,6 +73,7 @@ class FlavorsTest(utils.TestCase):
                 "ram": 512,
                 "vcpus": 1,
                 "disk": 10,
+                "OS-FLV-EXT-DATA:ephemeral": 0,
                 "id": 1234,
                 "swap": 0,
                 "rxtx_factor": 1,

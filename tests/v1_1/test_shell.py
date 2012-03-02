@@ -124,71 +124,6 @@ class ShellTest(utils.TestCase):
         cmd = 'boot some-server --image 1 --file /foo=%s' % invalid_file
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
-    def test_boot_key_auto(self):
-        mock_exists = mock.Mock(return_value=True)
-        mock_open = mock.Mock()
-        mock_open.return_value = mock.Mock()
-        mock_open.return_value.read = mock.Mock(return_value='SSHKEY')
-
-        @mock.patch('os.path.exists', mock_exists)
-        @mock.patch('__builtin__.open', mock_open)
-        def test_shell_call():
-            cmd = 'boot some-server --flavor 1 --image 1 --key_path'
-            self.run_command(cmd)
-            self.assert_called_anytime(
-                'POST', '/servers',
-                {'server': {
-                    'flavorRef': '1',
-                    'name': 'some-server',
-                    'imageRef': '1',
-                    'min_count': 1,
-                    'max_count': 1,
-                    'personality': [{
-                        'path': '/root/.ssh/authorized_keys2',
-                        'contents': ('SSHKEY').encode('base64')},
-                    ]},
-                },
-            )
-
-        test_shell_call()
-
-    def test_boot_key_auto_no_keys(self):
-        mock_exists = mock.Mock(return_value=False)
-
-        @mock.patch('os.path.exists', mock_exists)
-        def test_shell_call():
-            cmd = 'boot some-server --flavor 1 --image 1 --key_path'
-            self.assertRaises(exceptions.CommandError, self.run_command, cmd)
-
-        test_shell_call()
-
-    def test_boot_key_file(self):
-        testfile = os.path.join(os.path.dirname(__file__), 'testfile.txt')
-        expected_file_data = open(testfile).read().encode('base64')
-        cmd = 'boot some-server --flavor 1 --image 1 --key_path %s'
-        self.run_command(cmd % testfile)
-        self.assert_called_anytime(
-            'POST', '/servers',
-            {'server': {
-                'flavorRef': '1',
-                'name': 'some-server',
-                'imageRef': '1',
-                'min_count': 1,
-                'max_count': 1,
-                'personality': [
-                    {'path': '/root/.ssh/authorized_keys2',
-                     'contents':expected_file_data},
-                 ]},
-            },
-        )
-
-    def test_boot_invalid_keyfile(self):
-        invalid_file = os.path.join(os.path.dirname(__file__),
-                                    'asdfasdfasdfasdf')
-        cmd = 'boot some-server --flavor 1 --image 1 --key_path %s'
-        self.assertRaises(exceptions.CommandError, self.run_command,
-                          cmd % invalid_file)
-
     def test_flavor_list(self):
         self.run_command('flavor-list')
         self.assert_called_anytime('GET', '/flavors/detail')
@@ -371,7 +306,7 @@ class ShellTest(utils.TestCase):
 
     def test_flavor_create(self):
         self.run_command("flavor-create flavorcreate "
-                         "1234 512 10 1 --swap 1024")
+                         "1234 512 10 1 --swap 1024 --ephemeral 10")
 
         body = {
             "flavor": {
@@ -379,6 +314,7 @@ class ShellTest(utils.TestCase):
                 "ram": 512,
                 "vcpus": 1,
                 "disk": 10,
+                "OS-FLV-EXT-DATA:ephemeral": 10,
                 "id": 1234,
                 "swap": 1024,
                 "rxtx_factor": 1,
@@ -387,3 +323,94 @@ class ShellTest(utils.TestCase):
 
         self.assert_called('POST', '/flavors', body, pos=-2)
         self.assert_called('GET', '/flavors/1')
+
+    def test_aggregate_list(self):
+        self.run_command('aggregate-list')
+        self.assert_called('GET', '/os-aggregates')
+
+    def test_aggregate_create(self):
+        self.run_command('aggregate-create test_name nova1')
+        body = {"aggregate": {"name": "test_name",
+                              "availability_zone": "nova1"}}
+        self.assert_called('POST', '/os-aggregates', body)
+
+    def test_aggregate_delete(self):
+        self.run_command('aggregate-delete 1')
+        self.assert_called('DELETE', '/os-aggregates/1')
+
+    def test_aggregate_update(self):
+        self.run_command('aggregate-update 1 new_name')
+        body = {"aggregate": {"name": "new_name"}}
+        self.assert_called('PUT', '/os-aggregates/1', body)
+
+    def test_aggregate_update_with_availability_zone(self):
+        self.run_command('aggregate-update 1 foo new_zone')
+        body = {"aggregate": {"name": "foo", "availability_zone": "new_zone"}}
+        self.assert_called('PUT', '/os-aggregates/1', body)
+
+    def test_aggregate_set_metadata(self):
+        self.run_command('aggregate-set-metadata 1 foo=bar delete_key')
+        body = {"set_metadata": {"metadata": {"foo": "bar",
+                                              "delete_key": None}}}
+        self.assert_called('POST', '/os-aggregates/1/action', body)
+
+    def test_aggregate_add_host(self):
+        self.run_command('aggregate-add-host 1 host1')
+        body = {"add_host": {"host": "host1"}}
+        self.assert_called('POST', '/os-aggregates/1/action', body)
+
+    def test_aggregate_remove_host(self):
+        self.run_command('aggregate-remove-host 1 host1')
+        body = {"remove_host": {"host": "host1"}}
+        self.assert_called('POST', '/os-aggregates/1/action', body)
+
+    def test_aggregate_details(self):
+        self.run_command('aggregate-details 1')
+        self.assert_called('GET', '/os-aggregates/1')
+
+    def test_live_migration(self):
+        self.run_command('live-migration sample-server hostname')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                            'block_migration': False,
+                                            'disk_over_commit': False}})
+        self.run_command('live-migration sample-server hostname \
+                         --block_migrate')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                            'block_migration': True,
+                                            'disk_over_commit': False}})
+        self.run_command('live-migration sample-server hostname \
+                         --block_migrate --disk_over_commit')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                            'block_migration': True,
+                                            'disk_over_commit': True}})
+
+    def test_host_update_status(self):
+        self.run_command('host-update sample-host_1 --status enabled')
+        body = {'status': 'enabled'}
+        self.assert_called('PUT', '/os-hosts/sample-host_1', body)
+
+    def test_host_update_maintenance(self):
+        self.run_command('host-update sample-host_2 --maintenance enable')
+        body = {'maintenance_mode': 'enable'}
+        self.assert_called('PUT', '/os-hosts/sample-host_2', body)
+
+    def test_host_update_multiple_settings(self):
+        self.run_command('host-update sample-host_3 '
+                         '--status disabled --maintenance enable')
+        body = {'status': 'disabled', 'maintenance_mode': 'enable'}
+        self.assert_called('PUT', '/os-hosts/sample-host_3', body)
+
+    def test_host_startup(self):
+        self.run_command('host-action sample-host --action startup')
+        self.assert_called('GET', '/os-hosts/sample-host/startup')
+
+    def test_host_shutdown(self):
+        self.run_command('host-action sample-host --action shutdown')
+        self.assert_called('GET', '/os-hosts/sample-host/shutdown')
+
+    def test_host_reboot(self):
+        self.run_command('host-action sample-host --action reboot')
+        self.assert_called('GET', '/os-hosts/sample-host/reboot')

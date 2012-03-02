@@ -77,6 +77,18 @@ You'll find complete documentation on the shell by running
       <subcommand>
         add-fixed-ip        Add a new fixed IP address to a servers network.
         add-floating-ip     Add a floating IP address to a server.
+        aggregate-add-host  Add the host to the specified aggregate
+        aggregate-create    Create a new aggregate with the specified details
+        aggregate-delete    Delete the aggregate by its id
+        aggregate-details   Show details of the specified aggregate
+        aggregate-list      Print a list of all aggregates
+        aggregate-remove-host
+                            Remove the specified host from the specfied
+                            aggregate
+        aggregate-set-metadata
+                            Update the metadata associated with the aggregate
+        aggregate-update    Update the aggregate's name and optionally
+                            availability zone
         backup              Backup a server.
         backup-schedule     Show or edit the backup schedule for a server.
         backup-schedule-delete
@@ -95,6 +107,8 @@ You'll find complete documentation on the shell by running
         get-vnc-console     Get a vnc console for a server
         help                Display help about this program or one of its
                             subcommands.
+        host-update         Update the host status or maintenance mode
+        host-action         Perform a power action on the host
         image-create        Create a new image by taking a snapshot of a running
                             server.
         image-delete        Delete an image.
@@ -110,7 +124,7 @@ You'll find complete documentation on the shell by running
         keypair-delete      Delete keypair by its id
         keypair-list        Show a list of keypairs for a user
         list                List active servers.
-        migrate             Migrate a server to a new host in the same zone.
+        migrate             Migrate a server to a new host.
         reboot              Reboot a server.
         rebuild             Shutdown, re-image, and re-boot a server.
         remove-fixed-ip     Remove an IP address from a server.
@@ -154,12 +168,6 @@ You'll find complete documentation on the shell by running
                             Show details about a snapshot.
         x509-create-cert    Create x509 cert for a user in tenant
         x509-get-root-cert  Fetches the x509 root cert.
-        zone                Show or edit a Child Zone
-        zone-add            Add a Child Zone.
-        zone-boot           Boot a server, considering Zones.
-        zone-delete         Remove a Child Zone.
-        zone-info           Show the capabilities for this Zone.
-        zone-list           List all the immediate Child Zones.
 
 
     Optional arguments:
@@ -211,14 +219,6 @@ Quick-start using keystone::
     >>> nt.servers.list()
     [...]
     >>> nt.keypairs.list()
-    [...]
-
-    # if you want to use the keystone api to modify users/tenants:
-    >>> from novaclient import client
-    >>> conn = client.HTTPClient(USER, PASS, TENANT, KEYSTONE_URL)
-    >>> from novaclient import keystone
-    >>> kc = keystone.Client(conn.client)
-    >>> kc.tenants.list()
     [...]
 
 What's new?

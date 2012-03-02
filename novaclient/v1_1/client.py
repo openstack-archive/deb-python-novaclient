@@ -1,9 +1,11 @@
 from novaclient import client
 from novaclient.v1_1 import certs
+from novaclient.v1_1 import aggregates
 from novaclient.v1_1 import flavors
 from novaclient.v1_1 import floating_ip_dns
 from novaclient.v1_1 import floating_ips
 from novaclient.v1_1 import floating_ip_pools
+from novaclient.v1_1 import hosts
 from novaclient.v1_1 import images
 from novaclient.v1_1 import keypairs
 from novaclient.v1_1 import limits
@@ -15,7 +17,7 @@ from novaclient.v1_1 import usage
 from novaclient.v1_1 import virtual_interfaces
 from novaclient.v1_1 import volumes
 from novaclient.v1_1 import volume_snapshots
-from novaclient.v1_1 import zones
+from novaclient.v1_1 import volume_types
 
 
 class Client(object):
@@ -38,7 +40,8 @@ class Client(object):
     # FIXME(jesse): project_id isn't required to authenticate
     def __init__(self, username, api_key, project_id, auth_url,
                   insecure=False, timeout=None, token=None, region_name=None,
-                  endpoint_name='publicURL', extensions=None):
+                  endpoint_type='publicURL', extensions=None,
+                  service_type=None, service_name=None):
         # FIXME(comstud): Rename the api_key argument above when we
         # know it's not being used as keyword argument
         password = api_key
@@ -55,8 +58,8 @@ class Client(object):
         self.floating_ip_pools = floating_ip_pools.FloatingIPPoolManager(self)
         self.volumes = volumes.VolumeManager(self)
         self.volume_snapshots = volume_snapshots.SnapshotManager(self)
+        self.volume_types = volume_types.VolumeTypeManager(self)
         self.keypairs = keypairs.KeypairManager(self)
-        self.zones = zones.ZoneManager(self)
         self.quotas = quotas.QuotaSetManager(self)
         self.security_groups = security_groups.SecurityGroupManager(self)
         self.security_group_rules = \
@@ -64,6 +67,8 @@ class Client(object):
         self.usage = usage.UsageManager(self)
         self.virtual_interfaces = \
             virtual_interfaces.VirtualInterfaceManager(self)
+        self.aggregates = aggregates.AggregateManager(self)
+        self.hosts = hosts.HostManager(self)
 
         # Add in any extensions...
         if extensions:
@@ -80,7 +85,9 @@ class Client(object):
                                         timeout=timeout,
                                         token=token,
                                         region_name=region_name,
-                                        endpoint_name=endpoint_name)
+                                        endpoint_type=endpoint_type,
+                                        service_type=service_type,
+                                        service_name=service_name)
 
     def authenticate(self):
         """

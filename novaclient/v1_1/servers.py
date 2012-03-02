@@ -133,7 +133,7 @@ class Server(base.Resource):
 
     def migrate(self):
         """
-        Migrate a server to a new host in the same zone.
+        Migrate a server to a new host.
         """
         self.manager.migrate(self)
 
@@ -215,6 +215,16 @@ class Server(base.Resource):
             return networks
         except Exception:
             return {}
+
+    def live_migrate(self, host,
+                     block_migration=False,
+                     disk_over_commit=False):
+        """
+        Migrates a running instance to a new machine.
+        """
+        self.manager.live_migrate(self, host,
+                                  block_migration,
+                                  disk_over_commit)
 
 
 class ServerManager(local_base.BootingManagerWithFind):
@@ -352,10 +362,11 @@ class ServerManager(local_base.BootingManagerWithFind):
                           "actions")
 
     def create(self, name, image, flavor, meta=None, files=None,
-               zone_blob=None, reservation_id=None, min_count=None,
+               reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
                key_name=None, availability_zone=None,
-               block_device_mapping=None, nics=None, **kwargs):
+               block_device_mapping=None, nics=None, scheduler_hints=None,
+               config_drive=None, **kwargs):
         # TODO: (anthony) indicate in doc string if param is an extension
         # and/or optional
         """
@@ -372,21 +383,23 @@ class ServerManager(local_base.BootingManagerWithFind):
                       are the file contents (either as a string or as a
                       file-like object). A maximum of five entries is allowed,
                       and each file must be 10k or less.
-        :param zone_blob: a single (encrypted) string which is used internally
-                      by Nova for routing between Zones. Users cannot populate
-                      this field.
         :param userdata: user data to pass to be exposed by the metadata
                       server this can be a file type object as well or a
                       string.
         :param reservation_id: a UUID for the set of servers being requested.
         :param key_name: (optional extension) name of previously created
                       keypair to inject into the instance.
-        :param availability_zone: The :class:`Zone`.
+        :param availability_zone: Name of the availability zone for instance
+                                  placement.
         :param block_device_mapping: (optional extension) A dict of block
                       device mappings for this server.
         :param nics:  (optional extension) an ordered list of nics to be
                       added to this server, with information about
                       connected networks, fixed ips, etc.
+        :param scheduler_hints: (optional extension) arbitrary key-value pairs
+                            specified by the client to help boot an instance
+        :param config_drive: (optional extension) value for config drive
+                            either boolean, or volume-id
         """
         if not min_count:
             min_count = 1
@@ -398,10 +411,11 @@ class ServerManager(local_base.BootingManagerWithFind):
         boot_args = [name, image, flavor]
 
         boot_kwargs = dict(
-            meta=meta, files=files, userdata=userdata, zone_blob=zone_blob,
+            meta=meta, files=files, userdata=userdata,
             reservation_id=reservation_id, min_count=min_count,
             max_count=max_count, security_groups=security_groups,
             key_name=key_name, availability_zone=availability_zone,
+            scheduler_hints=scheduler_hints, config_drive=config_drive,
             **kwargs)
 
         if block_device_mapping:
@@ -471,7 +485,7 @@ class ServerManager(local_base.BootingManagerWithFind):
 
     def migrate(self, server):
         """
-        Migrate a server to a new host in the same zone.
+        Migrate a server to a new host.
 
         :param server: The :class:`Server` (or its ID).
         """
@@ -549,6 +563,21 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         for k in keys:
             self._delete("/servers/%s/metadata/%s" % (base.getid(server), k))
+
+    def live_migrate(self, server, host, block_migration, disk_over_commit):
+        """
+        Migrates a running instance to a new machine.
+
+        :param server: instance id which comes from nova list.
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration.
+        :param disk_over_commit: if True, Allow overcommit.
+
+        """
+        self._action('os-migrateLive', server,
+                     {'host': host,
+                      'block_migration': block_migration,
+                      'disk_over_commit': disk_over_commit})
 
     def _action(self, action, server, info=None, **kwargs):
         """
