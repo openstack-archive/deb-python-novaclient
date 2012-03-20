@@ -29,6 +29,8 @@ REBOOT_SOFT, REBOOT_HARD = 'SOFT', 'HARD'
 
 
 class Server(base.Resource):
+    HUMAN_ID = True
+
     def __repr__(self):
         return "<Server: %s>" % self.name
 
@@ -98,6 +100,18 @@ class Server(base.Resource):
         Unpause -- Unpause the paused server.
         """
         self.manager.unpause(self)
+
+    def lock(self):
+        """
+        Lock -- Lock the instance from certain operations.
+        """
+        self.manager.lock(self)
+
+    def unlock(self):
+        """
+        Unlock -- Remove instance lock.
+        """
+        self.manager.unlock(self)
 
     def suspend(self):
         """
@@ -327,6 +341,18 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._action('unpause', server, None)
 
+    def lock(self, server):
+        """
+        Lock the server.
+        """
+        self._action('lock', server, None)
+
+    def unlock(self, server):
+        """
+        Unlock the server.
+        """
+        self._action('unlock', server, None)
+
     def suspend(self, server):
         """
         Suspend the server.
@@ -530,8 +556,10 @@ class ServerManager(local_base.BootingManagerWithFind):
         :param image_name: Name to give the snapshot image
         :param meta: Metadata to give newly-created image entity
         """
-        self._action('createImage', server,
-                     {'name': image_name, 'metadata': metadata or {}})
+        body = {'name': image_name, 'metadata': metadata or {}}
+        location = self._action('createImage', server, body)[0]['location']
+        image_uuid = location.split('/')[-1]
+        return image_uuid
 
     def set_meta(self, server, metadata):
         """

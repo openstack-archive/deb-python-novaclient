@@ -18,6 +18,8 @@
 import datetime
 import getpass
 import os
+import sys
+import time
 
 from novaclient import exceptions
 from novaclient import utils
@@ -43,8 +45,8 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
     if not args.flavor:
         raise exceptions.CommandError("you need to specify a Flavor ID ")
 
-    flavor = args.flavor
-    image = args.image
+    flavor = _find_flavor(cs, args.flavor)
+    image = _find_image(cs, args.image)
 
     meta = dict(v.split('=', 1) for v in args.meta)
 
@@ -192,6 +194,11 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
      dest='config_drive',
      default=False,
      help="Enable config drive")
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance builds so progress can be reported.')
 def do_boot(cs, args):
     """Boot a new server."""
     boot_args, boot_kwargs = _boot(cs, args)
@@ -218,6 +225,41 @@ def do_boot(cs, args):
     info.pop('addresses', None)
 
     utils.print_dict(info)
+
+    if args.poll:
+        _poll_for_status(cs.servers.get, info['id'], 'building', ['active'])
+
+
+def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
+                     poll_period=5, show_progress=True):
+    """Block while an action is being performed, periodically printing
+    progress.
+    """
+    def print_progress(progress):
+        if show_progress:
+            msg = ('\rInstance %(action)s... %(progress)s%% complete'
+                   % dict(action=action, progress=progress))
+        else:
+            msg = '\rInstance %(action)s...' % dict(action=action)
+
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+    print
+    while True:
+        obj = poll_fn(obj_id)
+        status = obj.status.lower()
+        progress = getattr(obj, 'progress', None) or 0
+        if status in final_ok_states:
+            print_progress(100)
+            print "\nFinished"
+            break
+        elif status == "error":
+            print "\nError %(action)s instance" % locals()
+            break
+        else:
+            print_progress(progress)
+            time.sleep(poll_period)
 
 
 def _translate_flavor_keys(collection):
@@ -473,9 +515,19 @@ def do_list(cs, args):
     default=servers.REBOOT_SOFT,
     help='Perform a hard reboot (instead of a soft one).')
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance is rebooting.')
 def do_reboot(cs, args):
     """Reboot a server."""
-    _find_server(cs, args.server).reboot(args.reboot_type)
+    server = _find_server(cs, args.server)
+    server.reboot(args.reboot_type)
+
+    if args.poll:
+        _poll_for_status(cs.servers.get, server.id, 'rebooting', ['active'],
+                         show_progress=False)
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -483,6 +535,11 @@ def do_reboot(cs, args):
 @utils.arg('--rebuild_password', dest='rebuild_password',
            metavar='<rebuild_password>', default=False,
            help="Set the provided password on the rebuild instance.")
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance rebuilds so progress can be reported.')
 def do_rebuild(cs, args):
     """Shutdown, re-image, and re-boot a server."""
     server = _find_server(cs, args.server)
@@ -497,6 +554,9 @@ def do_rebuild(cs, args):
     s = server.rebuild(image, _password, **kwargs)
     _print_server(cs, s)
 
+    if args.poll:
+        _poll_for_status(cs.servers.get, server.id, 'rebuilding', ['active'])
+
 
 @utils.arg('server', metavar='<server>',
            help='Name (old name) or ID of server.')
@@ -508,12 +568,20 @@ def do_rename(cs, args):
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 @utils.arg('flavor', metavar='<flavor>', help="Name or ID of new flavor.")
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance resizes so progress can be reported.')
 def do_resize(cs, args):
     """Resize a server."""
     server = _find_server(cs, args.server)
     flavor = _find_flavor(cs, args.flavor)
     kwargs = utils.get_resource_manager_extra_kwargs(do_resize, args)
     server.resize(flavor, **kwargs)
+    if args.poll:
+        _poll_for_status(cs.servers.get, server.id, 'resizing',
+                         ['active', 'verify-resize'])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -529,9 +597,19 @@ def do_resize_revert(cs, args):
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance migrates so progress can be reported.')
 def do_migrate(cs, args):
     """Migrate a server."""
-    _find_server(cs, args.server).migrate()
+    server = _find_server(cs, args.server)
+    server.migrate()
+
+    if args.poll:
+        _poll_for_status(cs.servers.get, server.id, 'migrating',
+                         ['active', 'verify-resize'])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -544,6 +622,18 @@ def do_pause(cs, args):
 def do_unpause(cs, args):
     """Unpause a server."""
     _find_server(cs, args.server).unpause()
+
+
+@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+def do_lock(cs, args):
+    """Lock a server."""
+    _find_server(cs, args.server).lock()
+
+
+@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+def do_unlock(cs, args):
+    """Unlock a server."""
+    _find_server(cs, args.server).unlock()
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -599,10 +689,19 @@ def do_root_password(cs, args):
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 @utils.arg('name', metavar='<name>', help='Name of snapshot.')
+@utils.arg('--poll',
+    dest='poll',
+    action="store_true",
+    default=False,
+    help='Blocks while instance snapshots so progress can be reported.')
 def do_image_create(cs, args):
     """Create a new image by taking a snapshot of a running server."""
     server = _find_server(cs, args.server)
-    cs.servers.create_image(server, args.name)
+    image_uuid = cs.servers.create_image(server, args.name)
+
+    if args.poll:
+        _poll_for_status(cs.images.get, image_uuid, 'snapshotting',
+                         ['active'])
 
 
 @utils.arg('server',
@@ -927,6 +1026,18 @@ def do_get_vnc_console(cs, args):
 
 def _print_floating_ip_list(floating_ips):
     utils.print_list(floating_ips, ['Ip', 'Instance Id', 'Fixed Ip', 'Pool'])
+
+
+@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('--length',
+           metavar='<length>',
+           default=None,
+           help='Length in lines to tail.')
+def do_console_log(cs, args):
+    """Get console log output of a server."""
+    server = _find_server(cs, args.server)
+    data = server.get_console_output(length=args.length)
+    print data
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -1501,21 +1612,43 @@ def do_credentials(cs, args):
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('--port',
+    dest='port',
+    action='store',
+    type=int,
+    default=22,
+    help='Optional flag to indicate which port to use for ssh. '
+         '(Default=22)')
 @utils.arg('--private',
     dest='private',
-    action='store_const',
-    const=True,
+    action='store_true',
     default=False,
     help='Optional flag to indicate whether to use private address '
-        'attached to an instance. (Default=False)')
+         'attached to an instance. (Default=False)')
+@utils.arg('--ipv6',
+    dest='ipv6',
+    action='store_true',
+    default=False,
+    help='Optional flag to indicate whether to use an IPv6 address '
+         'attached to an instance. (Defaults to IPv4 address)')
 @utils.arg('--login', metavar='<login>', help='Login to use.', default="root")
 def do_ssh(cs, args):
     """SSH into a server."""
     addresses = _find_server(cs, args.server).addresses
     address_type = "private" if args.private else "public"
-    try:
-        ip_address = addresses[address_type][0]['addr']
-    except (KeyError, IndexError):
-        print "ERROR: No %s address found." % address_type
+    version = 6 if args.ipv6 else 4
+
+    ip_address = None
+    for address in addresses[address_type]:
+        if address['version'] == version:
+            ip_address = address['addr']
+            break
+
+    if ip_address:
+        os.system("ssh -%d -p%d %s@%s" % (version, args.port, args.login,
+                                          ip_address))
+    else:
+        pretty_version = "IPv%d" % version
+        print "ERROR: No %s %s address found." % (address_type,
+                                                  pretty_version)
         return
-    os.system("ssh %s@%s" % (args.login, ip_address))
