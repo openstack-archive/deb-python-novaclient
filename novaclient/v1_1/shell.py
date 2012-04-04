@@ -860,8 +860,7 @@ def do_volume_list(cs, args):
 
     # Create a list of servers to which the volume is attached
     for vol in volumes:
-        servers = [s.get('server_id') or s.get('serverId')
-                   for s in vol.attachments]
+        servers = [s.get('server_id') for s in vol.attachments]
         setattr(vol, 'attached_to', ','.join(map(str, servers)))
     utils.print_list(volumes, ['ID', 'Status', 'Display Name',
                         'Size', 'Volume Type', 'Attached to'])
@@ -1135,12 +1134,10 @@ def do_dns_list(cs, args):
 @utils.arg('ip', metavar='<ip>', help='ip address')
 @utils.arg('name', metavar='<name>', help='DNS name')
 @utils.arg('domain', metavar='<domain>', help='DNS domain')
-@utils.arg('--type', metavar='<type>', help='dns type (e.g. "A")',
-           default='A')
+@utils.arg('--type', metavar='<type>', help='dns type (e.g. "A")', default='A')
 def do_dns_create(cs, args):
     """Create a DNS entry for domain, name and ip."""
-    entries = cs.dns_entries.create(args.domain, args.name,
-                                    args.ip, args.type)
+    cs.dns_entries.create(args.domain, args.name, args.ip, args.type)
 
 
 @utils.arg('domain', metavar='<domain>', help='DNS domain')
@@ -1259,7 +1256,7 @@ def do_secgroup_delete(cs, args):
 
 
 def do_secgroup_list(cs, args):
-    """List security groups for the curent tenant."""
+    """List security groups for the current tenant."""
     _print_secgroups(cs.security_groups.list())
 
 
@@ -1652,6 +1649,11 @@ def do_ssh(cs, args):
     address_type = "private" if args.private else "public"
     version = 6 if args.ipv6 else 4
 
+    if address_type not in addresses:
+        print "ERROR: No %s addresses found for '%s'." % (address_type,
+                                                          args.server)
+        return
+
     ip_address = None
     for address in addresses[address_type]:
         if address['version'] == version:
@@ -1666,3 +1668,138 @@ def do_ssh(cs, args):
         print "ERROR: No %s %s address found." % (address_type,
                                                   pretty_version)
         return
+
+
+_quota_resources = ['instances', 'cores', 'ram', 'volumes', 'gigabytes',
+                    'floating_ips', 'metadata_items', 'injected_files',
+                    'injected_file_content_bytes']
+
+
+def _quota_show(quotas):
+    quota_dict = {}
+    for resource in _quota_resources:
+        quota_dict[resource] = getattr(quotas, resource, None)
+    utils.print_dict(quota_dict)
+
+
+def _quota_update(manager, identifier, args):
+    updates = {}
+    for resource in _quota_resources:
+        val = getattr(args, resource, None)
+        if val is not None:
+            updates[resource] = val
+
+    if updates:
+        manager.update(identifier, **updates)
+
+
+@utils.arg('tenant', metavar='<tenant_id>',
+           help='UUID of tenant to list the quotas for.')
+def do_quota_show(cs, args):
+    """List the quotas for a tenant."""
+
+    _quota_show(cs.quotas.get(args.tenant))
+
+
+@utils.arg('tenant', metavar='<tenant_id>',
+           help='UUID of tenant to list the default quotas for.')
+def do_quota_defaults(cs, args):
+    """List the default quotas for a tenant."""
+
+    _quota_show(cs.quotas.defaults(args.tenant))
+
+
+@utils.arg('tenant', metavar='<tenant_id>',
+           help='UUID of tenant to set the quotas for.')
+@utils.arg('--instances',
+           metavar='<instances>',
+           type=int, default=None,
+           help='New value for the "instances" quota.')
+@utils.arg('--cores',
+           metavar='<cores>',
+           type=int, default=None,
+           help='New value for the "cores" quota.')
+@utils.arg('--ram',
+           metavar='<ram>',
+           type=int, default=None,
+           help='New value for the "ram" quota.')
+@utils.arg('--volumes',
+           metavar='<volumes>',
+           type=int, default=None,
+           help='New value for the "volumes" quota.')
+@utils.arg('--gigabytes',
+           metavar='<gigabytes>',
+           type=int, default=None,
+           help='New value for the "gigabytes" quota.')
+@utils.arg('--floating-ips', '--floating_ips',
+           metavar='<floating_ips>',
+           type=int, default=None,
+           help='New value for the "floating_ips" quota.')
+@utils.arg('--metadata-items', '--metadata_items',
+           metavar='<metadata_items>',
+           type=int, default=None,
+           help='New value for the "metadata_items" quota.')
+@utils.arg('--injected-files', '--injected_files',
+           metavar='<injected_files>',
+           type=int, default=None,
+           help='New value for the "injected_files" quota.')
+@utils.arg('--injected-file-content-bytes', '--injected_file_content_bytes',
+           metavar='<injected_file_content_bytes>',
+           type=int, default=None,
+           help='New value for the "injected_file_content_bytes" quota.')
+def do_quota_update(cs, args):
+    """Update the quotas for a tenant."""
+
+    _quota_update(cs.quotas, args.tenant, args)
+
+
+@utils.arg('class_name', metavar='<class>',
+           help='Name of quota class to list the quotas for.')
+def do_quota_class_show(cs, args):
+    """List the quotas for a quota class."""
+
+    _quota_show(cs.quota_classes.get(args.class_name))
+
+
+@utils.arg('class_name', metavar='<class>',
+           help='Name of quota class to set the quotas for.')
+@utils.arg('--instances',
+           metavar='<instances>',
+           type=int, default=None,
+           help='New value for the "instances" quota.')
+@utils.arg('--cores',
+           metavar='<cores>',
+           type=int, default=None,
+           help='New value for the "cores" quota.')
+@utils.arg('--ram',
+           metavar='<ram>',
+           type=int, default=None,
+           help='New value for the "ram" quota.')
+@utils.arg('--volumes',
+           metavar='<volumes>',
+           type=int, default=None,
+           help='New value for the "volumes" quota.')
+@utils.arg('--gigabytes',
+           metavar='<gigabytes>',
+           type=int, default=None,
+           help='New value for the "gigabytes" quota.')
+@utils.arg('--floating-ips', '--floating_ips',
+           metavar='<floating_ips>',
+           type=int, default=None,
+           help='New value for the "floating_ips" quota.')
+@utils.arg('--metadata-items', '--metadata_items',
+           metavar='<metadata_items>',
+           type=int, default=None,
+           help='New value for the "metadata_items" quota.')
+@utils.arg('--injected-files', '--injected_files',
+           metavar='<injected_files>',
+           type=int, default=None,
+           help='New value for the "injected_files" quota.')
+@utils.arg('--injected-file-content-bytes', '--injected_file_content_bytes',
+           metavar='<injected_file_content_bytes>',
+           type=int, default=None,
+           help='New value for the "injected_file_content_bytes" quota.')
+def do_quota_class_update(cs, args):
+    """Update the quotas for a quota class."""
+
+    _quota_update(cs.quota_classes, args.class_name, args)

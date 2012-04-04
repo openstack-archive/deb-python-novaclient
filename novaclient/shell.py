@@ -55,9 +55,8 @@ class NovaClientArgumentParser(argparse.ArgumentParser):
         self.print_usage(sys.stderr)
         #FIXME(lzyeval): if changes occur in argparse.ArgParser._check_value
         choose_from = ' (choose from'
-        self.exit(2, "error: %s\nTry `%s' for more information.\n" %
-                     (message.split(choose_from)[0],
-                      self.prog.replace(" ", " help ", 1)))
+        self.exit(2, "error: %s\nTry '%s help' for more information.\n" %
+                     (message.split(choose_from)[0], self.prog))
 
 
 class OpenStackComputeShell(object):
@@ -121,7 +120,7 @@ class OpenStackComputeShell(object):
             help='Accepts 1.1, defaults to env[NOVA_VERSION].')
 
         parser.add_argument('--insecure',
-            default=False,
+            default=utils.env('NOVACLIENT_INSECURE', default=False),
             action='store_true',
             help=argparse.SUPPRESS)
 
