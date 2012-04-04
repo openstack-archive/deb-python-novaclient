@@ -230,6 +230,19 @@ def do_boot(cs, args):
         _poll_for_status(cs.servers.get, info['id'], 'building', ['active'])
 
 
+def do_cloudpipe_list(cs, args):
+    """Print a list of all cloudpipe instances."""
+    cloudpipes = cs.cloudpipe.list()
+    columns = ['Project Id', "Public IP", "Public Port", "Internal IP"]
+    utils.print_list(cloudpipes, columns)
+
+
+@utils.arg('project', metavar='<project>', help='Name of the project.')
+def do_cloudpipe_create(cs, args):
+    """Create a cloudpipe instance for the given project"""
+    cs.cloudpipe.create(args.project)
+
+
 def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
                      poll_period=5, show_progress=True):
     """Block while an action is being performed, periodically printing
@@ -847,7 +860,8 @@ def do_volume_list(cs, args):
 
     # Create a list of servers to which the volume is attached
     for vol in volumes:
-        servers = [server.get('serverId') for server in vol.attachments]
+        servers = [s.get('server_id') or s.get('serverId')
+                   for s in vol.attachments]
         setattr(vol, 'attached_to', ','.join(map(str, servers)))
     utils.print_list(volumes, ['ID', 'Status', 'Display Name',
                         'Size', 'Volume Type', 'Attached to'])
