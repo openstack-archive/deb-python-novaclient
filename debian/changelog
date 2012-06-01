@@ -2,6 +2,7 @@ python-novaclient (1:2012.1-3) unstable; urgency=low
 
   * Add depend on python-pkg-resources
   * Better exception handling (Closes: 674451)
+  * Fixed URL to the format 1.0 for the debian/copyright file.
 
  -- Mehdi Abaakouk <sileht@sileht.net>  Fri, 01 Jun 2012 11:08:01 +0200
 
