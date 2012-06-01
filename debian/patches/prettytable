@@ -1,5 +1,8 @@
---- a/novaclient/utils.py
-+++ b/novaclient/utils.py
+Use new prettyprintable api
+Index: python-novaclient/novaclient/utils.py
+===================================================================
+--- python-novaclient.orig/novaclient/utils.py	2012-06-01 11:13:57.000000000 +0200
++++ python-novaclient/novaclient/utils.py	2012-06-01 11:53:40.000000000 +0200
 @@ -142,14 +142,14 @@
                  row.append(data)
          pt.add_row(row)
