@@ -3,8 +3,8 @@ Upstream-Name: python-novaclient
 Source: http://pypi.python.org/pypi/python-novaclient/
 
 Files: *
-Copyright: 2011, OpenStack LLC.
-Copyright: 2009-2010, Jacob Kaplan-Moss
+Copyright: (c) 2011, OpenStack LLC.
+           (c) 2009-2010, Jacob Kaplan-Moss
 License: Apache-2
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
