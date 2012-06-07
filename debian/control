@@ -16,8 +16,8 @@ Build-Depends: debhelper (>= 7.0.50),
  python-httplib2
 Standards-Version: 3.9.3
 Homepage: https://github.com/openstack/python-novaclient 
-Vcs-Browser: git://git.debian.org/openstack/python-novaclient.git
-Vcs-Bzr: http://git.debian.org/?p=openstack/python-novaclient.git;a=summary 
+Vcs-Git: git://git.debian.org/openstack/python-novaclient.git
+Vcs-Browser: http://git.debian.org/?p=openstack/python-novaclient.git;a=summary 
 
 Package: python-novaclient
 Architecture: all
