@@ -42,7 +42,7 @@ class HTTPClient(httplib2.Http):
                  timeout=None, proxy_tenant_id=None,
                  proxy_token=None, region_name=None,
                  endpoint_type='publicURL', service_type=None,
-                 service_name=None):
+                 service_name=None, volume_service_name=None):
         super(HTTPClient, self).__init__(timeout=timeout)
         self.user = user
         self.password = password
@@ -53,6 +53,7 @@ class HTTPClient(httplib2.Http):
         self.endpoint_type = endpoint_type
         self.service_type = service_type
         self.service_name = service_name
+        self.volume_service_name = volume_service_name
 
         self.management_url = None
         self.auth_token = None
@@ -103,7 +104,7 @@ class HTTPClient(httplib2.Http):
         else:
             body = None
 
-        if resp.status in (400, 401, 403, 404, 408, 409, 413, 500, 501):
+        if resp.status >= 400:
             raise exceptions.from_response(resp, body)
 
         return resp, body
@@ -159,11 +160,12 @@ class HTTPClient(httplib2.Http):
                     self.auth_token = self.service_catalog.get_token()
 
                 management_url = self.service_catalog.url_for(
-                                           attr='region',
-                                           filter_value=self.region_name,
-                                           endpoint_type=self.endpoint_type,
-                                           service_type=self.service_type,
-                                           service_name=self.service_name)
+                               attr='region',
+                               filter_value=self.region_name,
+                               endpoint_type=self.endpoint_type,
+                               service_type=self.service_type,
+                               service_name=self.service_name,
+                               volume_service_name=self.volume_service_name,)
                 self.management_url = management_url.rstrip('/')
                 return None
             except exceptions.AmbiguousEndpoints:

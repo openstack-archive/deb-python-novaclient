@@ -37,7 +37,7 @@ class ShellTest(utils.TestCase):
             'NOVA_USERNAME': 'username',
             'NOVA_PASSWORD': 'password',
             'NOVA_PROJECT_ID': 'project_id',
-            'NOVA_VERSION': '1.1',
+            'OS_COMPUTE_API_VERSION': '1.1',
             'NOVA_URL': 'http://no.where',
         }
 
@@ -81,7 +81,8 @@ class ShellTest(utils.TestCase):
                 }},
         )
 
-        self.run_command('boot --image 1 --flavor 1 --meta foo=bar'
+    def test_boot_metadata(self):
+        self.run_command('boot --image 1 --flavor 1 --meta foo=bar=pants'
                          ' --meta spam=eggs some-server ')
         self.assert_called_anytime(
             'POST', '/servers',
@@ -89,10 +90,46 @@ class ShellTest(utils.TestCase):
                 'flavorRef': '1',
                 'name': 'some-server',
                 'imageRef': '1',
-                'metadata': {'foo': 'bar', 'spam': 'eggs'},
+                'metadata': {'foo': 'bar=pants', 'spam': 'eggs'},
                 'min_count': 1,
                 'max_count': 1,
             }},
+        )
+
+    def test_boot_hints(self):
+        self.run_command('boot --image 1 --flavor 1 --hint a=b=c some-server ')
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': '1',
+                    'min_count': 1,
+                    'max_count': 1,
+                },
+                'os:scheduler_hints': {'a': 'b=c'},
+            },
+        )
+
+    def test_boot_nics(self):
+        cmd = ('boot --image 1 --flavor 1 '
+               '--nic net-id=a=c,v4-fixed-ip=10.0.0.1 some-server')
+        self.run_command(cmd)
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': '1',
+                    'min_count': 1,
+                    'max_count': 1,
+                    'networks': [
+                        {'uuid': 'a=c', 'fixed_ip': '10.0.0.1'},
+                    ],
+                },
+            },
         )
 
     def test_boot_files(self):
@@ -235,6 +272,18 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/servers/1234')
         self.run_command('delete sample-server')
         self.assert_called('DELETE', '/servers/1234')
+
+    def test_diagnostics(self):
+        self.run_command('diagnostics 1234')
+        self.assert_called('GET', '/servers/1234/diagnostics')
+        self.run_command('diagnostics sample-server')
+        self.assert_called('GET', '/servers/1234/diagnostics')
+
+    def test_actions(self):
+        self.run_command('actions 1234')
+        self.assert_called('GET', '/servers/1234/actions')
+        self.run_command('actions sample-server')
+        self.assert_called('GET', '/servers/1234/actions')
 
     def test_set_meta_set(self):
         self.run_command('meta 1234 set key1=val1 key2=val2')

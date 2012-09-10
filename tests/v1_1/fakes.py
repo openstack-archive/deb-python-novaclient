@@ -204,7 +204,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         ]})
 
     def post_servers(self, body, **kw):
-        assert body.keys() == ['server']
+        assert set(body.keys()) <= set(['server', 'os:scheduler_hints'])
         fakes.assert_has_keys(body['server'],
                         required=['name', 'imageRef', 'flavorRef'],
                         optional=['metadata', 'personality'])
@@ -242,7 +242,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (204, {'metadata': {'test_key': 'test_value'}})
 
     def get_servers_1234_diagnostics(self, **kw):
-        return (200, 'Fake diagnostics')
+        return (200, {'data': 'Fake diagnostics'})
 
     def get_servers_1234_actions(self, **kw):
         return (200, {'actions': [

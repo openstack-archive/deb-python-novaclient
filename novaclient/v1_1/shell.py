@@ -91,14 +91,14 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
     for nic_str in args.nics:
         nic_info = {"net-id": "", "v4-fixed-ip": ""}
         for kv_str in nic_str.split(","):
-            k, v = kv_str.split("=")
+            k, v = kv_str.split("=", 1)
             nic_info[k] = v
         nics.append(nic_info)
 
     hints = {}
     if args.scheduler_hints:
-        hint_set = [dict({hint[0]: hint[1]}) for hint in \
-                [hint_set.split('=') for hint_set in args.scheduler_hints]]
+        parsed_hints = [hint.split('=', 1) for hint in args.scheduler_hints]
+        hint_set = [dict({hint[0]: hint[1]}) for hint in parsed_hints]
         for hint in hint_set:
             hints.update(hint.items())
     else:
@@ -676,14 +676,16 @@ def do_unrescue(cs, args):
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_diagnostics(cs, args):
     """Retrieve server diagnostics."""
-    utils.print_dict(cs.servers.diagnostics(args.server)[1])
+    server = _find_server(cs, args.server)
+    utils.print_dict(cs.servers.diagnostics(server)[1])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_actions(cs, args):
     """Retrieve server actions."""
+    server = _find_server(cs, args.server)
     utils.print_list(
-        cs.servers.actions(args.server),
+        cs.servers.actions(server),
         ["Created_At", "Action", "Error"])
 
 
@@ -915,7 +917,6 @@ def do_volume_delete(cs, args):
     help='Name or ID of server.')
 @utils.arg('volume',
     metavar='<volume>',
-    type=int,
     help='ID of the volume to attach.')
 @utils.arg('device', metavar='<device>',
     help='Name of the device e.g. /dev/vdb.')
@@ -931,7 +932,6 @@ def do_volume_attach(cs, args):
     help='Name or ID of server.')
 @utils.arg('attachment_id',
     metavar='<volume>',
-    type=int,
     help='Attachment ID of the volume.')
 def do_volume_detach(cs, args):
     """Detach a volume from a server."""
@@ -958,7 +958,6 @@ def do_volume_snapshot_show(cs, args):
 
 @utils.arg('volume_id',
     metavar='<volume_id>',
-    type=int,
     help='ID of the volume to snapshot')
 @utils.arg('--force',
     metavar='<True|False>',
@@ -1643,6 +1642,10 @@ def do_credentials(cs, args):
     help='Optional flag to indicate whether to use an IPv6 address '
          'attached to an instance. (Defaults to IPv4 address)')
 @utils.arg('--login', metavar='<login>', help='Login to use.', default="root")
+@utils.arg('-i', '--identity',
+    dest='identity',
+    help='Private key file, same as the -i option to the ssh command.',
+    default='')
 def do_ssh(cs, args):
     """SSH into a server."""
     addresses = _find_server(cs, args.server).addresses
@@ -1660,9 +1663,11 @@ def do_ssh(cs, args):
             ip_address = address['addr']
             break
 
+    identity = '-i %s' % args.identity if len(args.identity) else ''
+
     if ip_address:
-        os.system("ssh -%d -p%d %s@%s" % (version, args.port, args.login,
-                                          ip_address))
+        os.system("ssh -%d -p%d %s %s@%s" % (version, args.port, identity,
+                                             args.login, ip_address))
     else:
         pretty_version = "IPv%d" % version
         print "ERROR: No %s %s address found." % (address_type,

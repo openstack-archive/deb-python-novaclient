@@ -26,7 +26,7 @@ class Keypair(base.Resource):
     """
 
     def __repr__(self):
-        return "<Keypair: %s>" % self.uuid
+        return "<Keypair: %s>" % self.id
 
     def _add_details(self, info):
         dico = 'keypair' in info and \
@@ -35,7 +35,7 @@ class Keypair(base.Resource):
             setattr(self, k, v)
 
     @property
-    def uuid(self):
+    def id(self):
         return self.name
 
     def delete(self):

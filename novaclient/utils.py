@@ -142,14 +142,14 @@ def print_list(objs, fields, formatters={}):
                 row.append(data)
         pt.add_row(row)
 
-    pt.printt(sortby=fields[0])
+    print pt.get_string(sortby=fields[0])
 
 
 def print_dict(d, property="Property"):
     pt = prettytable.PrettyTable([property, 'Value'], caching=False)
     pt.aligns = ['l', 'l']
     [pt.add_row(list(r)) for r in d.iteritems()]
-    pt.printt(sortby=property)
+    print pt.get_string(sortby=property)
 
 
 def find_resource(manager, name_or_id):
@@ -169,21 +169,27 @@ def find_resource(manager, name_or_id):
         pass
 
     try:
-        return manager.find(human_id=name_or_id)
-    except exceptions.NotFound:
-        pass
-
-    # finally try to find entity by name
-    try:
-        return manager.find(name=name_or_id)
-    except exceptions.NotFound:
         try:
-            # Volumes does not have name, but displayName
-            return manager.find(displayName=name_or_id)
+            return manager.find(human_id=name_or_id)
         except exceptions.NotFound:
-            msg = "No %s with a name or ID of '%s' exists." % \
-                (manager.resource_class.__name__.lower(), name_or_id)
-            raise exceptions.CommandError(msg)
+            pass
+
+        # finally try to find entity by name
+        try:
+            return manager.find(name=name_or_id)
+        except exceptions.NotFound:
+            try:
+                # Volumes does not have name, but display_name
+                return manager.find(display_name=name_or_id)
+            except exceptions.NotFound:
+                msg = "No %s with a name or ID of '%s' exists." % \
+                    (manager.resource_class.__name__.lower(), name_or_id)
+                raise exceptions.CommandError(msg)
+    except exceptions.NoUniqueMatch:
+        msg = ("Multiple %s matches found for '%s', use an ID to be more"
+               " specific." % (manager.resource_class.__name__.lower(),
+                               name_or_id))
+        raise exceptions.CommandError(msg)
 
 
 def _format_servers_list_networks(server):
