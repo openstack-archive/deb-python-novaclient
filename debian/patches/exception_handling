@@ -1,0 +1,28 @@
+From bdccfbc88b7ca1cafe51ce39c58d18914a969dbb Mon Sep 17 00:00:00 2001
+From: Yuriy Taraday <yorik.sar@gmail.com>
+Date: Fri, 13 Apr 2012 18:56:44 +0400
+Subject: [PATCH] Raise exception on all 4xx and 5xx responses.
+
+Fixes bug 965826.
+
+Change-Id: I44ce602176320b1e60e4c927e19a7eec232923b9
+---
+ novaclient/client.py |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/novaclient/client.py b/novaclient/client.py
+index ea470e6..3bd3ec6 100644
+--- a/novaclient/client.py
++++ b/novaclient/client.py
+@@ -103,7 +103,7 @@ class HTTPClient(httplib2.Http):
+         else:
+             body = None
+ 
+-        if resp.status in (400, 401, 403, 404, 408, 409, 413, 500, 501):
++        if resp.status >= 400:
+             raise exceptions.from_response(resp, body)
+ 
+         return resp, body
+-- 
+1.7.10
+
