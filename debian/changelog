@@ -1,4 +1,4 @@
-python-novaclient (1:2012.2~e1-1) experimental; urgency=low
+python-novaclient (1:2012.2~f1-1) experimental; urgency=low
 
   * New upstream version
   * Remove exception_handling and prettytable patches (incorporated upstream)
