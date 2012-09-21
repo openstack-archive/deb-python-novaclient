@@ -108,7 +108,7 @@ class ServersTest(utils.TestCase):
         s = cs.servers.get(1234)
         s.reboot()
         cs.assert_called('POST', '/servers/1234/action')
-        cs.servers.reboot(s, type='HARD')
+        cs.servers.reboot(s, reboot_type='HARD')
         cs.assert_called('POST', '/servers/1234/action')
 
     def test_rebuild_server(self):
@@ -186,6 +186,20 @@ class ServersTest(utils.TestCase):
         cs.servers.remove_floating_ip(s, f)
         cs.assert_called('POST', '/servers/1234/action')
         s.remove_floating_ip(f)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_stop(self):
+        s = cs.servers.get(1234)
+        s.stop()
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.stop(s)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_start(self):
+        s = cs.servers.get(1234)
+        s.start()
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.start(s)
         cs.assert_called('POST', '/servers/1234/action')
 
     def test_rescue(self):
@@ -288,4 +302,25 @@ class ServersTest(utils.TestCase):
         cs.assert_called('POST', '/servers/1234/action')
         cs.servers.live_migrate(s, host='hostname', block_migration=False,
                                 disk_over_commit=False)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_reset_state(self):
+        s = cs.servers.get(1234)
+        s.reset_state('newstate')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.reset_state(s, 'newstate')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_add_security_group(self):
+        s = cs.servers.get(1234)
+        s.add_security_group('newsg')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.add_security_group(s, 'newsg')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_remove_security_group(self):
+        s = cs.servers.get(1234)
+        s.remove_security_group('oldsg')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.remove_security_group(s, 'oldsg')
         cs.assert_called('POST', '/servers/1234/action')

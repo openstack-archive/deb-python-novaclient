@@ -16,12 +16,7 @@ import os
 import setuptools
 import sys
 
-
-requirements = ["httplib2", "prettytable"]
-if sys.version_info < (2, 6):
-    requirements.append("simplejson")
-if sys.version_info < (2, 7):
-    requirements.append("argparse")
+from novaclient.openstack.common import setup
 
 
 def read_file(file_name):
@@ -30,7 +25,7 @@ def read_file(file_name):
 
 setuptools.setup(
     name="python-novaclient",
-    version="2012.2",
+    version=setup.get_post_version('novaclient'),
     author="Rackspace, based on work by Jacob Kaplan-Moss",
     author_email="github@racklabs.com",
     description="Client library for OpenStack Nova API.",
@@ -38,9 +33,9 @@ setuptools.setup(
     license="Apache License, Version 2.0",
     url="https://github.com/openstack/python-novaclient",
     packages=setuptools.find_packages(exclude=['tests', 'tests.*']),
-    install_requires=requirements,
-    tests_require=["nose", "mock"],
+    install_requires=setup.parse_requirements(),
     test_suite="nose.collector",
+    cmdclass=setup.get_cmdclass(),
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Environment :: Console",
@@ -52,5 +47,6 @@ setuptools.setup(
     ],
     entry_points={
         "console_scripts": ["nova = novaclient.shell:main"]
-    }
+    },
+    data_files=[('novaclient', ['novaclient/versioninfo'])]
 )

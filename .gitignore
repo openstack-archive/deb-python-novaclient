@@ -1,5 +1,6 @@
 .coverage
 .venv
+.tox
 *,cover
 cover
 *.pyc
@@ -9,3 +10,6 @@ cover
 build
 dist
 python_novaclient.egg-info
+AUTHORS
+ChangeLog
+novaclient/versioninfo

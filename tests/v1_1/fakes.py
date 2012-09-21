@@ -305,6 +305,10 @@ class FakeHTTPClient(base_client.HTTPClient):
             assert body[action] is None
         elif action == 'migrate':
             assert body[action] is None
+        elif action == 'os-stop':
+            assert body[action] is None
+        elif action == 'os-start':
+            assert body[action] is None
         elif action == 'rescue':
             assert body[action] is None
         elif action == 'unrescue':
@@ -335,6 +339,12 @@ class FakeHTTPClient(base_client.HTTPClient):
             assert set(body[action].keys()) == set(['host',
                                                     'block_migration',
                                                     'disk_over_commit'])
+        elif action == 'os-resetState':
+            assert body[action].keys() == ['state']
+        elif action == 'addSecurityGroup':
+            assert body[action].keys() == ['name']
+        elif action == 'removeSecurityGroup':
+            assert body[action].keys() == ['name']
         else:
             raise AssertionError("Unexpected server action: %s" % action)
         return (resp, _body)
@@ -364,9 +374,13 @@ class FakeHTTPClient(base_client.HTTPClient):
     def get_flavors_detail(self, **kw):
         return (200, {'flavors': [
             {'id': 1, 'name': '256 MB Server', 'ram': 256, 'disk': 10,
-             'OS-FLV-EXT-DATA:ephemeral': 10},
+             'OS-FLV-EXT-DATA:ephemeral': 10,
+             'os-flavor-access:is_public': True,
+             'links': {}},
             {'id': 2, 'name': '512 MB Server', 'ram': 512, 'disk': 20,
-             'OS-FLV-EXT-DATA:ephemeral': 20}
+             'OS-FLV-EXT-DATA:ephemeral': 20,
+             'os-flavor-access:is_public': False,
+             'links': {}},
         ]})
 
     def get_flavors_1(self, **kw):
@@ -385,6 +399,22 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def post_flavors(self, body, **kw):
         return (202, {'flavor': self.get_flavors_detail()[1]['flavors'][0]})
+
+    #
+    # Flavor access
+    #
+
+    def get_flavors_1_os_flavor_access(self, **kw):
+        return (404, None)
+
+    def get_flavors_2_os_flavor_access(self, **kw):
+        return (200, {'flavor_access': [
+            {'flavor_id': '2', 'tenant_id': 'proj1'},
+            {'flavor_id': '2', 'tenant_id': 'proj2'}
+        ]})
+
+    def post_flavors_2_action(self, body, **kw):
+        return (202, self.get_flavors_2_os_flavor_access()[1])
 
     #
     # Floating ips
@@ -814,3 +844,129 @@ class FakeHTTPClient(base_client.HTTPClient):
         result = {'host': 'dummy'}
         result.update(body)
         return (200, result)
+
+    def get_os_hypervisors(self, **kw):
+        return (200, {"hypervisors": [
+                    {'id': 1234, 'hypervisor_hostname': 'hyper1'},
+                    {'id': 5678, 'hypervisor_hostname': 'hyper2'},
+                    ]})
+
+    def get_os_hypervisors_detail(self, **kw):
+        return (200, {"hypervisors": [
+                    {'id': 1234,
+                     'service': {'id': 1, 'host': 'compute1'},
+                     'vcpus': 4,
+                     'memory_mb': 10 * 1024,
+                     'local_gb': 250,
+                     'vcpus_used': 2,
+                     'memory_mb_used': 5 * 1024,
+                     'local_gb_used': 125,
+                     'hypervisor_type': "xen",
+                     'hypervisor_version': 3,
+                     'hypervisor_hostname': "hyper1",
+                     'free_ram_mb': 5 * 1024,
+                     'free_disk_gb': 125,
+                     'current_workload': 2,
+                     'running_vms': 2,
+                     'cpu_info': 'cpu_info',
+                     'disk_available_least': 100},
+                    {'id': 2,
+                     'service': {'id': 2, 'host': "compute2"},
+                     'vcpus': 4,
+                     'memory_mb': 10 * 1024,
+                     'local_gb': 250,
+                     'vcpus_used': 2,
+                     'memory_mb_used': 5 * 1024,
+                     'local_gb_used': 125,
+                     'hypervisor_type': "xen",
+                     'hypervisor_version': 3,
+                     'hypervisor_hostname': "hyper2",
+                     'free_ram_mb': 5 * 1024,
+                     'free_disk_gb': 125,
+                     'current_workload': 2,
+                     'running_vms': 2,
+                     'cpu_info': 'cpu_info',
+                     'disk_available_least': 100}
+                    ]})
+
+    def get_os_hypervisors_statistics(self, **kw):
+        return (200, {"hypervisor_statistics": {
+                    'count': 2,
+                    'vcpus': 8,
+                    'memory_mb': 20 * 1024,
+                    'local_gb': 500,
+                    'vcpus_used': 4,
+                    'memory_mb_used': 10 * 1024,
+                    'local_gb_used': 250,
+                    'free_ram_mb': 10 * 1024,
+                    'free_disk_gb': 250,
+                    'current_workload': 4,
+                    'running_vms': 4,
+                    'disk_available_least': 200,
+                    }})
+
+    def get_os_hypervisors_hyper_search(self, **kw):
+        return (200, {'hypervisors': [
+                    {'id': 1234, 'hypervisor_hostname': 'hyper1'},
+                    {'id': 5678, 'hypervisor_hostname': 'hyper2'}
+                    ]})
+
+    def get_os_hypervisors_hyper_servers(self, **kw):
+        return (200, {'hypervisors': [
+                    {'id': 1234,
+                     'hypervisor_hostname': 'hyper1',
+                     'servers': [
+                            {'name': 'inst1', 'uuid': 'uuid1'},
+                            {'name': 'inst2', 'uuid': 'uuid2'}
+                            ]},
+                    {'id': 5678,
+                     'hypervisor_hostname': 'hyper2',
+                     'servers': [
+                            {'name': 'inst3', 'uuid': 'uuid3'},
+                            {'name': 'inst4', 'uuid': 'uuid4'}
+                            ]}
+                    ]})
+
+    def get_os_hypervisors_1234(self, **kw):
+        return (200, {'hypervisor':
+                          {'id': 1234,
+                           'service': {'id': 1, 'host': 'compute1'},
+                           'vcpus': 4,
+                           'memory_mb': 10 * 1024,
+                           'local_gb': 250,
+                           'vcpus_used': 2,
+                           'memory_mb_used': 5 * 1024,
+                           'local_gb_used': 125,
+                           'hypervisor_type': "xen",
+                           'hypervisor_version': 3,
+                           'hypervisor_hostname': "hyper1",
+                           'free_ram_mb': 5 * 1024,
+                           'free_disk_gb': 125,
+                           'current_workload': 2,
+                           'running_vms': 2,
+                           'cpu_info': 'cpu_info',
+                           'disk_available_least': 100}})
+
+    def get_os_hypervisors_1234_uptime(self, **kw):
+        return (200, {'hypervisor':
+                          {'id': 1234,
+                           'hypervisor_hostname': "hyper1",
+                           'uptime': "fake uptime"}})
+
+    def get_os_networks(self, **kw):
+        return (200, {'networks': [{"label": "1", "cidr": "10.0.0.0/24"}]})
+
+    def get_os_networks_1(self, **kw):
+        return (200, {'network': {"label": "1", "cidr": "10.0.0.0/24"}})
+
+    def post_os_networks(self, **kw):
+        return (202, {'network': kw})
+
+    def delete_os_networks_networkdelete(self, **kw):
+        return (202, None)
+
+    def post_os_networks_add(self, **kw):
+        return (202, None)
+
+    def post_os_networks_networkdisassociate_action(self, **kw):
+        return (202, None)

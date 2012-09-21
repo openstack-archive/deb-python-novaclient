@@ -15,6 +15,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import datetime
 import os
 import mock
 import sys
@@ -23,6 +24,7 @@ import tempfile
 import novaclient.shell
 import novaclient.client
 from novaclient import exceptions
+from novaclient.openstack.common import timeutils
 from tests.v1_1 import fakes
 from tests import utils
 
@@ -58,6 +60,8 @@ class ShellTest(utils.TestCase):
 
         #HACK(bcwaldon): replace this when we start using stubs
         novaclient.client.get_client_class = self.old_get_client_class
+
+        timeutils.clear_time_override()
 
     def run_command(self, cmd):
         self.shell.main(cmd.split())
@@ -165,6 +169,10 @@ class ShellTest(utils.TestCase):
         self.run_command('flavor-list')
         self.assert_called_anytime('GET', '/flavors/detail')
 
+    def test_flavor_show(self):
+        self.run_command('flavor-show 1')
+        self.assert_called('GET', '/flavors/1')
+
     def test_image_show(self):
         self.run_command('image-show 1')
         self.assert_called('GET', '/images/1')
@@ -225,7 +233,7 @@ class ShellTest(utils.TestCase):
         #                   {'rebuild': {'imageRef': 1}})
         self.assert_called('GET', '/images/2')
 
-        self.run_command('rebuild sample-server 1 --rebuild_password asdf')
+        self.run_command('rebuild sample-server 1 --rebuild-password asdf')
         # XXX need a way to test multiple calls
         #self.assert_called('POST', '/servers/1234/action',
         #                   {'rebuild': {'imageRef': 1, 'adminPass': 'asdf'}})
@@ -316,7 +324,7 @@ class ShellTest(utils.TestCase):
 
     def test_dns_create_private_domain(self):
         self.run_command('dns-create-private-domain testdomain '
-                         '--availability_zone av_zone')
+                         '--availability-zone av_zone')
         self.assert_called('PUT', '/os-floating-ip-dns/testdomain')
 
     def test_dns_delete(self):
@@ -349,13 +357,23 @@ class ShellTest(utils.TestCase):
                            'end=2005-02-01T00:00:00&' +
                            'detailed=1')
 
+    def test_usage_list_no_args(self):
+        timeutils.set_time_override(datetime.datetime(2005, 2, 1, 0, 0))
+        self.run_command('usage-list')
+        self.assert_called('GET',
+                           '/os-simple-tenant-usage?' +
+                           'start=2005-01-04T00:00:00&' +
+                           'end=2005-02-02T00:00:00&' +
+                           'detailed=1')
+
     def test_flavor_delete(self):
         self.run_command("flavor-delete flavordelete")
         self.assert_called('DELETE', '/flavors/flavordelete')
 
     def test_flavor_create(self):
         self.run_command("flavor-create flavorcreate "
-                         "1234 512 10 1 --swap 1024 --ephemeral 10")
+                         "1234 512 10 1 --swap 1024 --ephemeral 10 "
+                         "--is-public true")
 
         body = {
             "flavor": {
@@ -367,6 +385,7 @@ class ShellTest(utils.TestCase):
                 "id": 1234,
                 "swap": 1024,
                 "rxtx_factor": 1,
+                "os-flavor-access:is_public": True,
             }
         }
 
@@ -424,17 +443,25 @@ class ShellTest(utils.TestCase):
                                             'block_migration': False,
                                             'disk_over_commit': False}})
         self.run_command('live-migration sample-server hostname \
-                         --block_migrate')
+                         --block-migrate')
         self.assert_called('POST', '/servers/1234/action',
                            {'os-migrateLive': {'host': 'hostname',
                                             'block_migration': True,
                                             'disk_over_commit': False}})
         self.run_command('live-migration sample-server hostname \
-                         --block_migrate --disk_over_commit')
+                         --block-migrate --disk-over-commit')
         self.assert_called('POST', '/servers/1234/action',
                            {'os-migrateLive': {'host': 'hostname',
                                             'block_migration': True,
                                             'disk_over_commit': True}})
+
+    def test_reset_state(self):
+        self.run_command('reset-state sample-server')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-resetState': {'state': 'error'}})
+        self.run_command('reset-state sample-server --active')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-resetState': {'state': 'active'}})
 
     def test_host_update_status(self):
         self.run_command('host-update sample-host_1 --status enabled')
@@ -463,6 +490,30 @@ class ShellTest(utils.TestCase):
     def test_host_reboot(self):
         self.run_command('host-action sample-host --action reboot')
         self.assert_called('GET', '/os-hosts/sample-host/reboot')
+
+    def test_hypervisor_list(self):
+        self.run_command('hypervisor-list')
+        self.assert_called('GET', '/os-hypervisors')
+
+    def test_hypervisor_list_matching(self):
+        self.run_command('hypervisor-list --matching hyper')
+        self.assert_called('GET', '/os-hypervisors/hyper/search')
+
+    def test_hypervisor_servers(self):
+        self.run_command('hypervisor-servers hyper')
+        self.assert_called('GET', '/os-hypervisors/hyper/servers')
+
+    def test_hypervisor_show(self):
+        self.run_command('hypervisor-show 1234')
+        self.assert_called('GET', '/os-hypervisors/1234')
+
+    def test_hypervisor_uptime(self):
+        self.run_command('hypervisor-uptime 1234')
+        self.assert_called('GET', '/os-hypervisors/1234/uptime')
+
+    def test_hypervisor_stats(self):
+        self.run_command('hypervisor-stats')
+        self.assert_called('GET', '/os-hypervisors/statistics')
 
     def test_quota_show(self):
         self.run_command('quota-show test')

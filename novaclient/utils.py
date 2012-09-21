@@ -16,13 +16,13 @@ def arg(*args, **kwargs):
     return _decorator
 
 
-def env(*vars, **kwargs):
+def env(*args, **kwargs):
     """
     returns the first environment variable set
     if none are non-empty, defaults to '' or keyword arg default
     """
-    for v in vars:
-        value = os.environ.get(v, None)
+    for arg in args:
+        value = os.environ.get(arg, None)
         if value:
             return value
     return kwargs.get('default', '')
@@ -40,6 +40,17 @@ def add_arg(f, *args, **kwargs):
         # Because of the sematics of decorator composition if we just append
         # to the options list positional options will appear to be backwards.
         f.arguments.insert(0, (args, kwargs))
+
+
+def bool_from_str(val):
+    """Convert a string representation of a bool into a bool value"""
+
+    if not val:
+        return False
+    try:
+        return True if bool(int(val)) else False
+    except ValueError:
+        return val.lower() in ['true', 'yes', 'y']
 
 
 def add_resource_manager_extra_kwargs_hook(f, hook):
@@ -123,10 +134,14 @@ def pretty_choice_list(l):
     return ', '.join("'%s'" % i for i in l)
 
 
-def print_list(objs, fields, formatters={}):
+def print_list(objs, fields, formatters={}, sortby_index=0):
+    if sortby_index == None:
+        sortby = None
+    else:
+        sortby = fields[sortby_index]
     mixed_case_fields = ['serverId']
     pt = prettytable.PrettyTable([f for f in fields], caching=False)
-    pt.aligns = ['l' for f in fields]
+    pt.align = 'l'
 
     for o in objs:
         row = []
@@ -142,14 +157,14 @@ def print_list(objs, fields, formatters={}):
                 row.append(data)
         pt.add_row(row)
 
-    print pt.get_string(sortby=fields[0])
+    print pt.get_string(sortby=sortby)
 
 
-def print_dict(d, property="Property"):
-    pt = prettytable.PrettyTable([property, 'Value'], caching=False)
-    pt.aligns = ['l', 'l']
+def print_dict(d, dict_property="Property"):
+    pt = prettytable.PrettyTable([dict_property, 'Value'], caching=False)
+    pt.align = 'l'
     [pt.add_row(list(r)) for r in d.iteritems()]
-    print pt.get_string(sortby=property)
+    print pt.get_string(sortby=dict_property)
 
 
 def find_resource(manager, name_or_id):
@@ -176,15 +191,14 @@ def find_resource(manager, name_or_id):
 
         # finally try to find entity by name
         try:
-            return manager.find(name=name_or_id)
+            resource = getattr(manager, 'resource_class', None)
+            name_attr = resource.NAME_ATTR if resource else 'name'
+            kwargs = {name_attr: name_or_id}
+            return manager.find(**kwargs)
         except exceptions.NotFound:
-            try:
-                # Volumes does not have name, but display_name
-                return manager.find(display_name=name_or_id)
-            except exceptions.NotFound:
-                msg = "No %s with a name or ID of '%s' exists." % \
-                    (manager.resource_class.__name__.lower(), name_or_id)
-                raise exceptions.CommandError(msg)
+            msg = "No %s with a name or ID of '%s' exists." % \
+                (manager.resource_class.__name__.lower(), name_or_id)
+            raise exceptions.CommandError(msg)
     except exceptions.NoUniqueMatch:
         msg = ("Multiple %s matches found for '%s', use an ID to be more"
                " specific." % (manager.resource_class.__name__.lower(),

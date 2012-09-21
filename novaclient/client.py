@@ -7,15 +7,25 @@
 OpenStack Client interface. Handles the REST calls and responses.
 """
 
-import httplib2
 import logging
 import os
+import time
 import urlparse
+
+import httplib2
+import pkg_resources
 
 try:
     import json
 except ImportError:
     import simplejson as json
+
+has_keyring = False
+try:
+    import keyring
+    has_keyring = True
+except ImportError:
+    pass
 
 # Python 2.5 compat fix
 if not hasattr(urlparse, 'parse_qsl'):
@@ -27,26 +37,32 @@ from novaclient import service_catalog
 from novaclient import utils
 
 
-_logger = logging.getLogger(__name__)
-if 'NOVACLIENT_DEBUG' in os.environ and os.environ['NOVACLIENT_DEBUG']:
-    ch = logging.StreamHandler()
-    _logger.setLevel(logging.DEBUG)
-    _logger.addHandler(ch)
+def get_auth_system_url(auth_system):
+    """Load plugin-based auth_url"""
+    ep_name = 'openstack.client.auth_url'
+    for ep in pkg_resources.iter_entry_points(ep_name):
+        if ep.name == auth_system:
+            return ep.load()()
+    raise exceptions.AuthSystemNotFound(auth_system)
 
 
 class HTTPClient(httplib2.Http):
 
     USER_AGENT = 'python-novaclient'
 
-    def __init__(self, user, password, projectid, auth_url, insecure=False,
-                 timeout=None, proxy_tenant_id=None,
+    def __init__(self, user, password, projectid, auth_url=None,
+                 insecure=False, timeout=None, proxy_tenant_id=None,
                  proxy_token=None, region_name=None,
                  endpoint_type='publicURL', service_type=None,
-                 service_name=None, volume_service_name=None):
+                 service_name=None, volume_service_name=None,
+                 timings=False, bypass_url=None, no_cache=False,
+                 http_log_debug=False, auth_system='keystone'):
         super(HTTPClient, self).__init__(timeout=timeout)
         self.user = user
         self.password = password
         self.projectid = projectid
+        if not auth_url and auth_system and auth_system != 'keystone':
+            auth_url = get_auth_system_url(auth_system)
         self.auth_url = auth_url.rstrip('/')
         self.version = 'v1.1'
         self.region_name = region_name
@@ -54,18 +70,52 @@ class HTTPClient(httplib2.Http):
         self.service_type = service_type
         self.service_name = service_name
         self.volume_service_name = volume_service_name
+        self.timings = timings
+        self.bypass_url = bypass_url
+        self.no_cache = no_cache
+        self.http_log_debug = http_log_debug
+
+        self.times = []  # [("item", starttime, endtime), ...]
 
         self.management_url = None
         self.auth_token = None
         self.proxy_token = proxy_token
         self.proxy_tenant_id = proxy_tenant_id
+        self.used_keyring = False
 
         # httplib2 overrides
         self.force_exception_to_status_code = True
         self.disable_ssl_certificate_validation = insecure
 
-    def http_log(self, args, kwargs, resp, body):
-        if not _logger.isEnabledFor(logging.DEBUG):
+        self.auth_system = auth_system
+
+        self._logger = logging.getLogger(__name__)
+        if self.http_log_debug:
+            ch = logging.StreamHandler()
+            self._logger.setLevel(logging.DEBUG)
+            self._logger.addHandler(ch)
+
+    def use_token_cache(self, use_it):
+        # One day I'll stop using negative naming.
+        self.no_cache = not use_it
+
+    def unauthenticate(self):
+        """Forget all of our authentication information."""
+        self.management_url = None
+        self.auth_token = None
+        self.used_keyring = False
+
+    def set_management_url(self, url):
+        self.management_url = url
+
+    def get_timings(self):
+        return self.times
+
+    def reset_timings(self):
+        self.times = []
+
+    def http_log_req(self, args, kwargs):
+        if not self.http_log_debug:
             return
 
         string_parts = ['curl -i']
@@ -79,10 +129,14 @@ class HTTPClient(httplib2.Http):
             header = ' -H "%s: %s"' % (element, kwargs['headers'][element])
             string_parts.append(header)
 
-        _logger.debug("REQ: %s\n" % "".join(string_parts))
+        self._logger.debug("\nREQ: %s\n" % "".join(string_parts))
         if 'body' in kwargs:
-            _logger.debug("REQ BODY: %s\n" % (kwargs['body']))
-        _logger.debug("RESP:%s %s\n", resp, body)
+            self._logger.debug("REQ BODY: %s\n" % (kwargs['body']))
+
+    def http_log_resp(self, resp, body):
+        if not self.http_log_debug:
+            return
+        self._logger.debug("RESP:%s %s\n", resp, body)
 
     def request(self, *args, **kwargs):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
@@ -92,9 +146,9 @@ class HTTPClient(httplib2.Http):
             kwargs['headers']['Content-Type'] = 'application/json'
             kwargs['body'] = json.dumps(kwargs['body'])
 
+        self.http_log_req(args, kwargs)
         resp, body = super(HTTPClient, self).request(*args, **kwargs)
-
-        self.http_log(args, kwargs, resp, body)
+        self.http_log_resp(resp, body)
 
         if body:
             try:
@@ -109,6 +163,13 @@ class HTTPClient(httplib2.Http):
 
         return resp, body
 
+    def _time_request(self, url, method, **kwargs):
+        start_time = time.time()
+        resp, body = self.request(url, method, **kwargs)
+        self.times.append(("%s %s" % (method, url),
+                           start_time, time.time()))
+        return resp, body
+
     def _cs_request(self, url, method, **kwargs):
         if not self.management_url:
             self.authenticate()
@@ -121,14 +182,15 @@ class HTTPClient(httplib2.Http):
             if self.projectid:
                 kwargs['headers']['X-Auth-Project-Id'] = self.projectid
 
-            resp, body = self.request(self.management_url + url, method,
-                                      **kwargs)
+            resp, body = self._time_request(self.management_url + url, method,
+                                            **kwargs)
             return resp, body
         except exceptions.Unauthorized, ex:
             try:
                 self.authenticate()
-                resp, body = self.request(self.management_url + url, method,
-                                          **kwargs)
+                kwargs['headers']['X-Auth-Token'] = self.auth_token
+                resp, body = self._time_request(self.management_url + url,
+                                                method, **kwargs)
                 return resp, body
             except exceptions.Unauthorized:
                 raise ex
@@ -155,17 +217,16 @@ class HTTPClient(httplib2.Http):
                 self.auth_url = url
                 self.service_catalog = \
                     service_catalog.ServiceCatalog(body)
-
                 if extract_token:
                     self.auth_token = self.service_catalog.get_token()
 
                 management_url = self.service_catalog.url_for(
-                               attr='region',
-                               filter_value=self.region_name,
-                               endpoint_type=self.endpoint_type,
-                               service_type=self.service_type,
-                               service_name=self.service_name,
-                               volume_service_name=self.volume_service_name,)
+                    attr='region',
+                    filter_value=self.region_name,
+                    endpoint_type=self.endpoint_type,
+                    service_type=self.service_type,
+                    service_name=self.service_name,
+                    volume_service_name=self.volume_service_name,)
                 self.management_url = management_url.rstrip('/')
                 return None
             except exceptions.AmbiguousEndpoints:
@@ -198,13 +259,36 @@ class HTTPClient(httplib2.Http):
         # GET ...:5001/v2.0/tokens/#####/endpoints
         url = '/'.join([url, 'tokens', '%s?belongsTo=%s'
                         % (self.proxy_token, self.proxy_tenant_id)])
-        _logger.debug("Using Endpoint URL: %s" % url)
-        resp, body = self.request(url, "GET",
-                                  headers={'X-Auth_Token': self.auth_token})
+        self._logger.debug("Using Endpoint URL: %s" % url)
+        resp, body = self._time_request(
+            url, "GET", headers={'X-Auth_Token': self.auth_token})
         return self._extract_service_catalog(url, resp, body,
                                              extract_token=False)
 
     def authenticate(self):
+        if has_keyring:
+            keys = [self.auth_url, self.user, self.region_name,
+                    self.endpoint_type, self.service_type, self.service_name,
+                    self.volume_service_name]
+            for index, key in enumerate(keys):
+                if key is None:
+                    keys[index] = '?'
+            keyring_key = "/".join(keys)
+            if not self.no_cache and not self.used_keyring:
+                # Lookup the token/mgmt url from the keyring first time
+                # through.
+                # If we come through again, it's because the old token
+                # was rejected.
+                try:
+                    block = keyring.get_password("novaclient_auth",
+                                                 keyring_key)
+                    if block:
+                        self.used_keyring = True
+                        self.auth_token, self.management_url = block.split('|')
+                        return
+                except Exception:
+                    pass
+
         magic_tuple = urlparse.urlsplit(self.auth_url)
         scheme, netloc, path, query, frag = magic_tuple
         port = magic_tuple.port
@@ -220,15 +304,22 @@ class HTTPClient(httplib2.Http):
         # Ideally this is going to have to be provided by the service catalog.
         new_netloc = netloc.replace(':%d' % port, ':%d' % (35357,))
         admin_url = urlparse.urlunsplit(
-                        (scheme, new_netloc, path, query, frag))
+            (scheme, new_netloc, path, query, frag))
+
+        # FIXME(chmouel): This is to handle backward compatibiliy when
+        # we didn't have a plugin mechanism for the auth_system. This
+        # should be removed in the future and have people move to
+        # OS_AUTH_SYSTEM=rackspace instead.
+        if "NOVA_RAX_AUTH" in os.environ:
+            self.auth_system = "rackspace"
 
         auth_url = self.auth_url
         if self.version == "v2.0":  # FIXME(chris): This should be better.
             while auth_url:
-                if "NOVA_RAX_AUTH" in os.environ:
-                    auth_url = self._rax_auth(auth_url)
-                else:
+                if not self.auth_system or self.auth_system == 'keystone':
                     auth_url = self._v2_auth(auth_url)
+                else:
+                    auth_url = self._plugin_auth(auth_url)
 
             # Are we acting on behalf of another user via an
             # existing token? If so, our actual endpoints may
@@ -251,6 +342,19 @@ class HTTPClient(httplib2.Http):
                     auth_url = auth_url + '/v2.0'
                 self._v2_auth(auth_url)
 
+        if self.bypass_url:
+            self.set_management_url(self.bypass_url)
+
+        # Store the token/mgmt url in the keyring for later requests.
+        if has_keyring and not self.no_cache:
+            try:
+                keyring_value = "%s|%s" % (self.auth_token,
+                                           self.management_url)
+                keyring.set_password("novaclient_auth",
+                                     keyring_key, keyring_value)
+            except Exception:
+                pass
+
     def _v1_auth(self, url):
         if self.proxy_token:
             raise exceptions.NoTokenLookupException()
@@ -260,7 +364,7 @@ class HTTPClient(httplib2.Http):
         if self.projectid:
             headers['X-Auth-Project-Id'] = self.projectid
 
-        resp, body = self.request(url, 'GET', headers=headers)
+        resp, body = self._time_request(url, 'GET', headers=headers)
         if resp.status in (200, 204):  # in some cases we get No Content
             try:
                 mgmt_header = 'x-server-management-url'
@@ -274,24 +378,22 @@ class HTTPClient(httplib2.Http):
         else:
             raise exceptions.from_response(resp, body)
 
+    def _plugin_auth(self, auth_url):
+        """Load plugin-based authentication"""
+        ep_name = 'openstack.client.authenticate'
+        for ep in pkg_resources.iter_entry_points(ep_name):
+            if ep.name == self.auth_system:
+                return ep.load()(self, auth_url)
+        raise exceptions.AuthSystemNotFound(self.auth_system)
+
     def _v2_auth(self, url):
         """Authenticate against a v2.0 auth service."""
         body = {"auth": {
-                   "passwordCredentials": {"username": self.user,
-                                           "password": self.password}}}
+                "passwordCredentials": {"username": self.user,
+                                        "password": self.password}}}
 
         if self.projectid:
             body['auth']['tenantName'] = self.projectid
-
-        self._authenticate(url, body)
-
-    def _rax_auth(self, url):
-        """Authenticate against the Rackspace auth service."""
-        body = {"auth": {
-                "RAX-KSKEY:apiKeyCredentials": {
-                        "username": self.user,
-                        "apiKey": self.password,
-                        "tenantName": self.projectid}}}
 
         self._authenticate(url, body)
 
@@ -304,7 +406,7 @@ class HTTPClient(httplib2.Http):
         self.follow_all_redirects = True
 
         try:
-            resp, body = self.request(token_url, "POST", body=body)
+            resp, body = self._time_request(token_url, "POST", body=body)
         finally:
             self.follow_all_redirects = tmp_follow_all_redirects
 

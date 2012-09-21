@@ -83,11 +83,23 @@ class Server(base.Resource):
 
     def remove_floating_ip(self, address):
         """
-        Add floating IP to an instance
+        Remove floating IP from an instance
 
-        :param address: The ip address or FloatingIP to add to remove
+        :param address: The ip address or FloatingIP to remove
         """
         self.manager.remove_floating_ip(self, address)
+
+    def stop(self):
+        """
+        Stop -- Stop the running server.
+        """
+        self.manager.stop(self)
+
+    def start(self):
+        """
+        Start -- Start the paused server.
+        """
+        self.manager.start(self)
 
     def pause(self):
         """
@@ -165,14 +177,14 @@ class Server(base.Resource):
         """
         self.manager.change_password(self, password)
 
-    def reboot(self, type=REBOOT_SOFT):
+    def reboot(self, reboot_type=REBOOT_SOFT):
         """
         Reboot the server.
 
-        :param type: either :data:`REBOOT_SOFT` for a software-level reboot,
-                     or `REBOOT_HARD` for a virtual power cycle hard reboot.
+        :param reboot_type: either :data:`REBOOT_SOFT` for a software-level
+                reboot, or `REBOOT_HARD` for a virtual power cycle hard reboot.
         """
-        self.manager.reboot(self, type)
+        self.manager.reboot(self, reboot_type)
 
     def rebuild(self, image, password=None, **kwargs):
         """
@@ -239,6 +251,24 @@ class Server(base.Resource):
         self.manager.live_migrate(self, host,
                                   block_migration,
                                   disk_over_commit)
+
+    def reset_state(self, state='error'):
+        """
+        Reset the state of an instance to active or error.
+        """
+        self.manager.reset_state(self, state)
+
+    def add_security_group(self, security_group):
+        """
+        Add a security group to an instance.
+        """
+        self.manager.add_security_group(self, security_group)
+
+    def remove_security_group(self, security_group):
+        """
+        Remova a security group from an instance.
+        """
+        self.manager.remove_security_group(self, security_group)
 
 
 class ServerManager(local_base.BootingManagerWithFind):
@@ -328,6 +358,18 @@ class ServerManager(local_base.BootingManagerWithFind):
 
         return self._action('os-getVNCConsole', server,
                             {'type': console_type})[1]
+
+    def stop(self, server):
+        """
+        Stop the server.
+        """
+        return self._action('os-stop', server, None)
+
+    def start(self, server):
+        """
+        Start the server.
+        """
+        self._action('os-start', server, None)
 
     def pause(self, server):
         """
@@ -421,7 +463,7 @@ class ServerManager(local_base.BootingManagerWithFind):
                       device mappings for this server.
         :param nics:  (optional extension) an ordered list of nics to be
                       added to this server, with information about
-                      connected networks, fixed ips, etc.
+                      connected networks, fixed ips, port etc.
         :param scheduler_hints: (optional extension) arbitrary key-value pairs
                             specified by the client to help boot an instance
         :param config_drive: (optional extension) value for config drive
@@ -485,15 +527,15 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._delete("/servers/%s" % base.getid(server))
 
-    def reboot(self, server, type=REBOOT_SOFT):
+    def reboot(self, server, reboot_type=REBOOT_SOFT):
         """
         Reboot a server.
 
         :param server: The :class:`Server` (or its ID) to share onto.
-        :param type: either :data:`REBOOT_SOFT` for a software-level reboot,
-                     or `REBOOT_HARD` for a virtual power cycle hard reboot.
+        :param reboot_type: either :data:`REBOOT_SOFT` for a software-level
+                reboot, or `REBOOT_HARD` for a virtual power cycle hard reboot.
         """
-        self._action('reboot', server, {'type': type})
+        self._action('reboot', server, {'type': reboot_type})
 
     def rebuild(self, server, image, password=None, **kwargs):
         """
@@ -506,7 +548,7 @@ class ServerManager(local_base.BootingManagerWithFind):
         body = {'imageRef': base.getid(image)}
         if password is not None:
             body['adminPass'] = password
-        resp, body = self._action('rebuild', server, body, **kwargs)
+        _resp, body = self._action('rebuild', server, body, **kwargs)
         return Server(self, body['server'])
 
     def migrate(self, server):
@@ -606,6 +648,36 @@ class ServerManager(local_base.BootingManagerWithFind):
                      {'host': host,
                       'block_migration': block_migration,
                       'disk_over_commit': disk_over_commit})
+
+    def reset_state(self, server, state='error'):
+        """
+        Reset the state of an instance to active or error.
+
+        :param server: ID of the instance to reset the state of.
+        :param state: Desired state; either 'active' or 'error'.
+                      Defaults to 'error'.
+        """
+        self._action('os-resetState', server, dict(state=state))
+
+    def add_security_group(self, server, security_group):
+        """
+        Add a Security Group to a instance
+
+        :param server: ID of the instance.
+        :param security_grou: The name of security group to add.
+
+        """
+        self._action('addSecurityGroup', server, {'name': security_group})
+
+    def remove_security_group(self, server, security_group):
+        """
+        Add a Security Group to a instance
+
+        :param server: ID of the instance.
+        :param security_grou: The name of security group to remove.
+
+        """
+        self._action('removeSecurityGroup', server, {'name': security_group})
 
     def _action(self, action, server, info=None, **kwargs):
         """
