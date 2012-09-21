@@ -1,7 +1,19 @@
 #!/usr/bin/make -f
 
+DEBVERS := $(shell dpkg-parsechangelog | sed -n -e 's/^Version: //p')
+VERSION := $(shell echo '$(DEBVERS)' | sed -e 's/^[[:digit:]]*://' -e 's/[~-].*//')
+
 %:
 	dh $@ --with python2
+
+override_dh_auto_configure:
+	echo $(VERSION) > novaclient/versioninfo
+	dh_auto_configure
+
+override_dh_auto_clean:
+	echo $(VERSION) > novaclient/versioninfo
+	dh_auto_clean
+	rm -f novaclient/versioninfo
 
 get-orig-source:
 	uscan --verbose --force-download --rename --destdir=../build-area
