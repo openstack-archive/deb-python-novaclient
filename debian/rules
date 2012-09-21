@@ -15,6 +15,10 @@ override_dh_auto_clean:
 	dh_auto_clean
 	rm -f novaclient/versioninfo
 
+override_dh_auto_install:
+	dh_auto_install
+	rm -rf $(CURDIR)/debian/python-novaclient/usr/novaclient
+
 get-orig-source:
 	uscan --verbose --force-download --rename --destdir=../build-area
 
