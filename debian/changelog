@@ -1,3 +1,9 @@
+python-novaclient (2:2.9.0-1) experimental; urgency=low
+
+  * New upstream version
+
+ -- Mehdi Abaakouk <sileht@sileht.net>  Sat, 29 Sep 2012 08:44:45 +0200
+
 python-novaclient (2:2.8.0-1) experimental; urgency=low
 
   * New upstream version
