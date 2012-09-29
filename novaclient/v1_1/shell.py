@@ -18,6 +18,7 @@
 import argparse
 import datetime
 import getpass
+import locale
 import os
 import sys
 import time
@@ -314,8 +315,16 @@ def _translate_flavor_keys(collection):
                 setattr(item, to_key, item._info[from_key])
 
 
-def _print_flavor_list(flavors):
+def _print_flavor_extra_specs(flavor):
+    try:
+        return flavor.get_keys()
+    except exceptions.NotFound:
+        return "N/A"
+
+
+def _print_flavor_list(cs, flavors):
     _translate_flavor_keys(flavors)
+    formatters = {'extra_specs': _print_flavor_extra_specs}
     utils.print_list(flavors, [
         'ID',
         'Name',
@@ -325,7 +334,8 @@ def _print_flavor_list(flavors):
         'Swap',
         'VCPUs',
         'RXTX_Factor',
-        'Is_Public'])
+        'Is_Public',
+        'extra_specs'], formatters)
 
 
 def do_flavor_list(cs, _args):
@@ -334,7 +344,7 @@ def do_flavor_list(cs, _args):
     for flavor in flavors:
         # int needed for numerical sort
         flavor.id = int(flavor.id)
-    _print_flavor_list(flavors)
+    _print_flavor_list(cs, flavors)
 
 
 @utils.arg('id',
@@ -351,7 +361,7 @@ def do_flavor_delete(cs, args):
 def do_flavor_show(cs, args):
     """Show details about the given flavor."""
     flavor = _find_flavor(cs, args.flavor)
-    _print_flavor(flavor)
+    _print_flavor(cs, flavor)
 
 
 @utils.arg('name',
@@ -391,7 +401,31 @@ def do_flavor_create(cs, args):
     f = cs.flavors.create(args.name, args.ram, args.vcpus, args.disk, args.id,
                           args.ephemeral, args.swap, args.rxtx_factor,
                           args.is_public)
-    _print_flavor_list([f])
+    _print_flavor_list(cs, [f])
+
+
+@utils.arg('flavor',
+    metavar='<flavor>',
+    help="Name or ID of flavor")
+@utils.arg('action',
+    metavar='<action>',
+    choices=['set', 'unset'],
+    help="Actions: 'set' or 'unset'")
+@utils.arg('metadata',
+    metavar='<key=value>',
+    nargs='+',
+    action='append',
+    default=[],
+    help='Extra_specs to set/unset (only key is necessary on unset)')
+def do_flavor_key(cs, args):
+    """Set or unset extra_spec for a flavor."""
+    flavor = _find_flavor(cs, args.flavor)
+    keypair = _extract_metadata(args)
+
+    if args.action == 'set':
+        flavor.set_keys(keypair)
+    elif args.action == 'unset':
+        flavor.unset_keys(keypair.keys())
 
 
 @utils.arg('--flavor',
@@ -449,6 +483,22 @@ def do_flavor_access_remove(cs, args):
     access_list = cs.flavor_access.remove_tenant_access(flavor, args.tenant)
     columns = ['Flavor_ID', 'Tenant_ID']
     utils.print_list(access_list, columns)
+
+
+def do_network_list(cs, _args):
+    """Print a list of available networks."""
+    network_list = cs.networks.list()
+    columns = ['ID', 'Label', 'Cidr']
+    utils.print_list(network_list, columns)
+
+
+@utils.arg('network',
+     metavar='<network>',
+     help="uuid or label of network")
+def do_network_show(cs, args):
+    """Show details about the given network."""
+    network = utils.find_resource(cs.networks, args.network)
+    utils.print_dict(network._info)
 
 
 def do_image_list(cs, _args):
@@ -530,10 +580,11 @@ def _print_image(image):
     utils.print_dict(info)
 
 
-def _print_flavor(flavor):
+def _print_flavor(cs, flavor):
     info = flavor._info.copy()
     # ignore links, we don't need to present those
     info.pop('links')
+    info.update({"extra_specs": _print_flavor_extra_specs(flavor)})
     utils.print_dict(info)
 
 
@@ -680,6 +731,11 @@ def do_reboot(cs, args):
     action="store_true",
     default=False,
     help='Blocks while instance rebuilds so progress can be reported.')
+@utils.arg('--minimal',
+    dest='minimal',
+    action="store_true",
+    default=False,
+    help='Skips flavor/image lookups when showing instances')
 def do_rebuild(cs, args):
     """Shutdown, re-image, and re-boot a server."""
     server = _find_server(cs, args.server)
@@ -692,7 +748,7 @@ def do_rebuild(cs, args):
 
     kwargs = utils.get_resource_manager_extra_kwargs(do_rebuild, args)
     s = server.rebuild(image, _password, **kwargs)
-    _print_server(cs, s)
+    _print_server(cs, args)
 
     if args.poll:
         _poll_for_status(cs.servers.get, server.id, 'rebuilding', ['active'])
@@ -897,14 +953,13 @@ def do_meta(cs, args):
         cs.servers.delete_meta(server, metadata.keys())
 
 
-def _print_server(cs, server):
+def _print_server(cs, args):
     # By default when searching via name we will do a
     # findall(name=blah) and due a REST /details which is not the same
     # as a .get() and doesn't get the information about flavors and
     # images. This fix it as we redo the call with the id which does a
     # .get() to get all informations.
-    if not 'flavor' in server._info:
-        server = _find_server(cs, server.id)
+    server = _find_server(cs, args.server)
 
     networks = server.networks
     info = server._info.copy()
@@ -913,11 +968,22 @@ def _print_server(cs, server):
 
     flavor = info.get('flavor', {})
     flavor_id = flavor.get('id', '')
-    info['flavor'] = '%s (%s)' % (_find_flavor(cs, flavor_id).name, flavor_id)
+    if args.minimal:
+        info['flavor'] = flavor_id
+    else:
+        info['flavor'] = '%s (%s)' % (_find_flavor(cs, flavor_id).name,
+                                      flavor_id)
 
     image = info.get('image', {})
     image_id = image.get('id', '')
-    info['image'] = '%s (%s)' % (_find_image(cs, image_id).name, image_id)
+    if args.minimal:
+        info['image'] = image_id
+    else:
+        try:
+            info['image'] = '%s (%s)' % (_find_image(cs, image_id).name,
+                                         image_id)
+        except Exception:
+            info['image'] = '%s (%s)' % ("Image not found", image_id)
 
     info.pop('links', None)
     info.pop('addresses', None)
@@ -925,11 +991,15 @@ def _print_server(cs, server):
     utils.print_dict(info)
 
 
+@utils.arg('--minimal',
+    dest='minimal',
+    action="store_true",
+    default=False,
+    help='Skips flavor/image lookups when showing instances')
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
 def do_show(cs, args):
     """Show details about the given server."""
-    s = _find_server(cs, args.server)
-    _print_server(cs, s)
+    _print_server(cs, args)
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -1042,6 +1112,10 @@ def do_volume_show(cs, args):
     help='Optional snapshot id to create the volume from. (Default=None)')
 @utils.arg('--snapshot_id',
     help=argparse.SUPPRESS)
+@utils.arg('--image-id',
+    metavar='<image-id>',
+    help='Optional image id to create the volume from. (Default=None)',
+    default=None)
 @utils.arg('--display-name',
     metavar='<display-name>',
     default=None,
@@ -1066,12 +1140,14 @@ def do_volume_show(cs, args):
 @utils.service_type('volume')
 def do_volume_create(cs, args):
     """Add a new volume."""
-    cs.volumes.create(args.size,
-                        args.snapshot_id,
-                        args.display_name,
-                        args.display_description,
-                        args.volume_type,
-                        args.availability_zone)
+    volume = cs.volumes.create(args.size,
+                               args.snapshot_id,
+                               args.display_name,
+                               args.display_description,
+                               args.volume_type,
+                               args.availability_zone,
+                               imageRef=args.image_id)
+    _print_volume(volume)
 
 
 @utils.arg('volume', metavar='<volume>', help='ID of the volume to delete.')
@@ -1154,10 +1230,11 @@ def do_volume_snapshot_show(cs, args):
 @utils.service_type('volume')
 def do_volume_snapshot_create(cs, args):
     """Add a new snapshot."""
-    cs.volume_snapshots.create(args.volume_id,
-                        args.force,
-                        args.display_name,
-                        args.display_description)
+    snapshot = cs.volume_snapshots.create(args.volume_id,
+                                          args.force,
+                                          args.display_name,
+                                          args.display_description)
+    _print_volume_snapshot(snapshot)
 
 
 @utils.arg('snapshot_id',
@@ -1400,6 +1477,10 @@ def _print_secgroups(secgroups):
 
 def _get_secgroup(cs, secgroup):
     for s in cs.security_groups.list():
+        encoding = (locale.getpreferredencoding() or
+            sys.stdin.encoding or
+            'UTF-8')
+        s.name = s.name.encode(encoding)
         if secgroup == s.name:
             return s
     raise exceptions.CommandError("Secgroup %s not found" % secgroup)
@@ -1466,9 +1547,24 @@ def do_secgroup_delete(cs, args):
     cs.security_groups.delete(_get_secgroup(cs, args.secgroup))
 
 
+@utils.arg('--all-tenants',
+    dest='all_tenants',
+    metavar='<0|1>',
+    nargs='?',
+    type=int,
+    const=1,
+    default=0,
+    help='Display information from all tenants (Admin only).')
+@utils.arg('--all_tenants',
+    nargs='?',
+    type=int,
+    const=1,
+    help=argparse.SUPPRESS)
 def do_secgroup_list(cs, args):
     """List security groups for the current tenant."""
-    _print_secgroups(cs.security_groups.list())
+    all_tenants = int(os.environ.get("ALL_TENANTS", args.all_tenants))
+    search_opts = {'all_tenants': all_tenants}
+    _print_secgroups(cs.security_groups.list(search_opts=search_opts))
 
 
 @utils.arg('secgroup', metavar='<secgroup>', help='Name of security group.')

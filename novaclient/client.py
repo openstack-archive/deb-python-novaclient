@@ -46,6 +46,37 @@ def get_auth_system_url(auth_system):
     raise exceptions.AuthSystemNotFound(auth_system)
 
 
+def _get_proxy_info():
+    """Work around httplib2 proxying bug.
+
+    Full details of the bug here:
+
+      http://code.google.com/p/httplib2/issues/detail?id=228
+
+    Basically, in the case of plain old http with httplib2>=0.7.5 we
+    want to ensure that PROXY_TYPE_HTTP_NO_TUNNEL is used.
+    """
+    def get_proxy_info(method):
+        pi = httplib2.ProxyInfo.from_environment(method)
+        if pi is None or method != 'http':
+            return pi
+
+        # We can't rely on httplib2.socks being available
+        # PROXY_TYPE_HTTP_NO_TUNNEL was introduced in 0.7.5
+        if not (hasattr(httplib2, 'socks') and
+                hasattr(httplib2.socks, 'PROXY_TYPE_HTTP_NO_TUNNEL')):
+            return pi
+
+        pi.proxy_type = httplib2.socks.PROXY_TYPE_HTTP_NO_TUNNEL
+        return pi
+
+    # 0.7.3 introduced configuring proxy from the environment
+    if not hasattr(httplib2.ProxyInfo, 'from_environment'):
+        return None
+
+    return get_proxy_info
+
+
 class HTTPClient(httplib2.Http):
 
     USER_AGENT = 'python-novaclient'
@@ -57,7 +88,8 @@ class HTTPClient(httplib2.Http):
                  service_name=None, volume_service_name=None,
                  timings=False, bypass_url=None, no_cache=False,
                  http_log_debug=False, auth_system='keystone'):
-        super(HTTPClient, self).__init__(timeout=timeout)
+        super(HTTPClient, self).__init__(timeout=timeout,
+                                         proxy_info=_get_proxy_info())
         self.user = user
         self.password = password
         self.projectid = projectid
@@ -120,7 +152,7 @@ class HTTPClient(httplib2.Http):
 
         string_parts = ['curl -i']
         for element in args:
-            if element in ('GET', 'POST'):
+            if element in ('GET', 'POST', 'DELETE', 'PUT'):
                 string_parts.append(' -X %s' % element)
             else:
                 string_parts.append(' %s' % element)
@@ -129,9 +161,9 @@ class HTTPClient(httplib2.Http):
             header = ' -H "%s: %s"' % (element, kwargs['headers'][element])
             string_parts.append(header)
 
-        self._logger.debug("\nREQ: %s\n" % "".join(string_parts))
         if 'body' in kwargs:
-            self._logger.debug("REQ BODY: %s\n" % (kwargs['body']))
+            string_parts.append(" -d '%s'" % (kwargs['body']))
+        self._logger.debug("\nREQ: %s\n" % "".join(string_parts))
 
     def http_log_resp(self, resp, body):
         if not self.http_log_debug:
@@ -151,6 +183,14 @@ class HTTPClient(httplib2.Http):
         self.http_log_resp(resp, body)
 
         if body:
+            # NOTE(alaski): Because force_exceptions_to_status_code=True
+            # httplib2 returns a connection refused event as a 400 response.
+            # To determine if it is a bad request or refused connection we need
+            # to check the body.  httplib2 tests check for 'Connection refused'
+            # or 'actively refused' in the body, so that's what we'll do.
+            if resp.status == 400:
+                if 'Connection refused' in body or 'actively refused' in body:
+                    raise exceptions.ConnectionRefused(body)
             try:
                 body = json.loads(body)
             except ValueError:
