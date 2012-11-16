@@ -6,15 +6,14 @@ Uploaders: Julien Danjou <acid@debian.org>,
            Thomas Goirand <zigo@debian.org>,
            Ghe Rivero <ghe.rivero@stackops.com>,
            Mehdi Abaakouk <sileht@sileht.net>
-Build-Depends: debhelper (>= 9),
- python-all (>= 2.6.6-3~),
+Build-Depends: debhelper (>= 9), python-all (>= 2.6.6-3~)
+Build-Depends-Indep: python (>= 2.7) | python-argparse,
  python-distribute,
- python-nose,
- python-prettytable,
- python (>= 2.7) | python-argparse,
- python-mock (>= 0.7),
  python-httplib2,
  python-iso8601,
+ python-mock (>= 0.7),
+ python-nose,
+ python-prettytable,
  python-simplejson,
  python-unittest2
 Standards-Version: 3.9.3
@@ -34,5 +33,11 @@ Depends: ${misc:Depends}, ${python:Depends},
  python-simplejson,
  python-keyring
 Description: client library for OpenStack Compute API
+ OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
+ designed to be modular and easy to extend and adapt. In addition to its
+ "native" OpenStack API, it also supports the Amazon EC2 API, and it supports
+ many different database backends (including SQLite, MySQL, and PostgreSQL),
+ hypervisors (KVM, Xen), and user directory systems (LDAP, SQL).
+ .
  Python novaclient library and nova CLI tool for interacting with OpenStack
  Compute (Nova) through the OpenStack Compute API.
