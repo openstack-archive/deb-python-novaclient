@@ -1,3 +1,9 @@
+python-novaclient (1:2012.1-4) unstable; urgency=low
+
+  * Added Breaks+Replaces: simh (<< 3.8.1-3) (Closes: #694372).
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 28 Nov 2012 19:28:18 +0000
+
 python-novaclient (1:2012.1-3) unstable; urgency=low
 
   [ Ghe Rivero ]

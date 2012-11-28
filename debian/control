@@ -21,6 +21,8 @@ Vcs-Browser: http://git.debian.org/?p=openstack/python-novaclient.git;a=summary
 
 Package: python-novaclient
 Architecture: all
+Breaks: simh (<< 3.8.1-3)
+Replaces: simh (<< 3.8.1-3)
 Depends: ${misc:Depends}, ${python:Depends}, python (>= 2.7) | python-argparse, python (>= 2.6) | python-simplejson, python-pkg-resources, python-prettytable, python-httplib2
 Description: client library for OpenStack Compute API
  Python novaclient library and nova CLI tool for interacting with OpenStack
