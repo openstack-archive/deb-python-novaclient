@@ -5,6 +5,7 @@ Flavor interface.
 
 from novaclient import base
 from novaclient import exceptions
+from novaclient import utils
 
 
 class Flavor(base.Resource):
@@ -103,8 +104,8 @@ class FlavorManager(base.ManagerWithFind):
         """
         self._delete("/flavors/%s" % base.getid(flavor))
 
-    def create(self, name, ram, vcpus, disk, flavorid,
-               ephemeral=0, swap=0, rxtx_factor=1, is_public=True):
+    def create(self, name, ram, vcpus, disk, flavorid=None,
+               ephemeral=0, swap=0, rxtx_factor=1.0, is_public=True):
         """
         Create (allocate) a  floating ip for a tenant
 
@@ -112,23 +113,63 @@ class FlavorManager(base.ManagerWithFind):
         :param ram: Memory in MB for the flavor
         :param vcpu: Number of VCPUs for the flavor
         :param disk: Size of local disk in GB
-        :param flavorid: Integer ID for the flavor
+        :param flavorid: ID for the flavor (optional). You can use the reserved
+                         value ``"auto"`` to have Nova generate a UUID for the
+                         flavor in cases where you cannot simply pass ``None``.
         :param swap: Swap space in MB
         :param rxtx_factor: RX/TX factor
         :rtype: :class:`Flavor`
         """
 
+        try:
+            ram = int(ram)
+        except:
+            raise exceptions.CommandError("Ram must be an integer.")
+
+        try:
+            vcpus = int(vcpus)
+        except:
+            raise exceptions.CommandError("VCPUs must be an integer.")
+
+        try:
+            disk = int(disk)
+        except:
+            raise exceptions.CommandError("Disk must be an integer.")
+
+        if flavorid == "auto":
+            flavorid = None
+
+        try:
+            swap = int(swap)
+        except:
+            raise exceptions.CommandError("Swap must be an integer.")
+
+        try:
+            ephemeral = int(ephemeral)
+        except:
+            raise exceptions.CommandError("Ephemeral must be an integer.")
+
+        try:
+            rxtx_factor = float(rxtx_factor)
+        except:
+            raise exceptions.CommandError("rxtx_factor must be a float.")
+
+        try:
+            is_public = utils.bool_from_str(is_public)
+        except:
+            raise exceptions.CommandError("is_public must be a boolean.")
+
         body = {
             "flavor": {
                 "name": name,
-                "ram": int(ram),
-                "vcpus": int(vcpus),
-                "disk": int(disk),
-                "id": int(flavorid),
-                "swap": int(swap),
-                "OS-FLV-EXT-DATA:ephemeral": int(ephemeral),
-                "rxtx_factor": int(rxtx_factor),
-                "os-flavor-access:is_public": bool(is_public),
+                "ram": ram,
+                "vcpus": vcpus,
+                "disk": disk,
+                "id": flavorid,
+                "swap": swap,
+                "OS-FLV-EXT-DATA:ephemeral": ephemeral,
+                "rxtx_factor": rxtx_factor,
+                "os-flavor-access:is_public": is_public,
             }
         }
 

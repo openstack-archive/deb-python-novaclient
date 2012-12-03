@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
 import httplib2
 import urlparse
 
@@ -25,7 +26,8 @@ class FakeClient(fakes.FakeClient, client.Client):
 
     def __init__(self, *args, **kwargs):
         client.Client.__init__(self, 'username', 'password',
-                               'project_id', 'auth_url')
+                               'project_id', 'auth_url',
+                               extensions=kwargs.get('extensions'))
         self.client = FakeHTTPClient(**kwargs)
 
 
@@ -66,6 +68,53 @@ class FakeHTTPClient(base_client.HTTPClient):
             return httplib2.Response(status), body
         else:
             return httplib2.Response({"status": status}), body
+
+    #
+    # List all extensions
+    #
+
+    def get_extensions(self, **kw):
+        exts = [
+            {
+                "alias": "NMN",
+                "description": "Multiple network support",
+                "links": [],
+                "name": "Multinic",
+                "namespace": ("http://docs.openstack.org/"
+                              "compute/ext/multinic/api/v1.1"),
+                "updated": "2011-06-09T00:00:00+00:00"
+            },
+            {
+                "alias": "OS-DCF",
+                "description": "Disk Management Extension",
+                "links": [],
+                "name": "DiskConfig",
+                "namespace": ("http://docs.openstack.org/"
+                              "compute/ext/disk_config/api/v1.1"),
+                "updated": "2011-09-27T00:00:00+00:00"
+            },
+            {
+                "alias": "OS-EXT-SRV-ATTR",
+                "description": "Extended Server Attributes support.",
+                "links": [],
+                "name": "ExtendedServerAttributes",
+                "namespace": ("http://docs.openstack.org/"
+                              "compute/ext/extended_status/api/v1.1"),
+                "updated": "2011-11-03T00:00:00+00:00"
+            },
+            {
+                "alias": "OS-EXT-STS",
+                "description": "Extended Status support",
+                "links": [],
+                "name": "ExtendedStatus",
+                "namespace": ("http://docs.openstack.org/"
+                              "compute/ext/extended_status/api/v1.1"),
+                "updated": "2011-11-03T00:00:00+00:00"
+            },
+        ]
+        return (200, {
+            "extensions": exts,
+        })
 
     #
     # Limits
@@ -200,6 +249,34 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "metadata": {
                     "Server Label": "DB 1"
                 }
+            },
+            {
+                "id": 9012,
+                "name": "sample-server3",
+                "image": "",
+                "flavor": {
+                    "id": 1,
+                    "name": "256 MB Server",
+                },
+                "hostId": "9e107d9d372bb6826bd81d3542a419d6",
+                "status": "ACTIVE",
+                "addresses": {
+                    "public": [{
+                        "version": 4,
+                        "addr": "4.5.6.7",
+                    },
+                    {
+                        "version": 4,
+                        "addr": "5.6.9.8",
+                    }],
+                    "private": [{
+                        "version": 4,
+                        "addr": "10.13.12.13",
+                    }],
+                },
+                "metadata": {
+                    "Server Label": "DB 1"
+                }
             }
         ]})
 
@@ -213,12 +290,23 @@ class FakeHTTPClient(base_client.HTTPClient):
                 fakes.assert_has_keys(pfile, required=['path', 'contents'])
         return (202, self.get_servers_1234()[1])
 
+    def post_os_volumes_boot(self, body, **kw):
+        assert set(body.keys()) <= set(['server', 'os:scheduler_hints'])
+        fakes.assert_has_keys(body['server'],
+                        required=['name', 'block_device_mapping', 'flavorRef'],
+                        optional=['imageRef'])
+        return (202, self.get_servers_9012()[1])
+
     def get_servers_1234(self, **kw):
         r = {'server': self.get_servers_detail()[1]['servers'][0]}
         return (200, r)
 
     def get_servers_5678(self, **kw):
         r = {'server': self.get_servers_detail()[1]['servers'][1]}
+        return (200, r)
+
+    def get_servers_9012(self, **kw):
+        r = {'server': self.get_servers_detail()[1]['servers'][2]}
         return (200, r)
 
     def put_servers_1234(self, body, **kw):
@@ -345,6 +433,10 @@ class FakeHTTPClient(base_client.HTTPClient):
             assert body[action].keys() == ['name']
         elif action == 'removeSecurityGroup':
             assert body[action].keys() == ['name']
+        elif action == 'createBackup':
+            assert set(body[action].keys()) == set(['name',
+                                                    'backup_type',
+                                                    'rotation'])
         else:
             raise AssertionError("Unexpected server action: %s" % action)
         return (resp, _body)
@@ -360,6 +452,9 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def post_os_cloudpipe(self, **ks):
         return (202, {'instance_id': '9d5824aa-20e6-4b9f-b967-76a699fc51fd'})
+
+    def put_os_cloudpipe_configure_project(self, **kw):
+        return (202, None)
 
     #
     # Flavors
@@ -817,6 +912,48 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (202, None)
 
     #
+    # Services
+    #
+    def get_os_services(self, **kw):
+        host = kw.get('host', 'host1')
+        service = kw.get('service', 'nova-compute')
+        return (200, {'services':
+                     [{'binary': service,
+                       'host': host,
+                       'zone': 'nova',
+                       'status': 'enabled',
+                       'state': 'up',
+                       'updated_at': datetime(2012, 10, 29, 13, 42, 2)},
+                      {'binary': service,
+                       'host': host,
+                       'zone': 'nova',
+                       'status': 'disabled',
+                       'state': 'down',
+                       'updated_at': datetime(2012, 9, 18, 8, 3, 38)},
+                      ]})
+
+    def put_os_services_enable(self, body, **kw):
+        return (200, {'host': body['host'], 'service': body['service'],
+                'disabled': False})
+
+    def put_os_services_disable(self, body, **kw):
+        return (200, {'host': body['host'], 'service': body['service'],
+                'disabled': True})
+
+    #
+    # Fixed IPs
+    #
+    def get_os_fixed_ips_192_168_1_1(self, *kw):
+        return (200, {"fixed_ip":
+                      {'cidr': '192.168.1.0/24',
+                       'address': '192.168.1.1',
+                       'hostname': 'foo',
+                       'host': 'bar'}})
+
+    def post_os_fixed_ips_192_168_1_1_action(self, body, **kw):
+        return (202, None)
+
+    #
     # Hosts
     #
     def get_os_hosts_host(self, *kw):
@@ -829,6 +966,16 @@ class FakeHTTPClient(base_client.HTTPClient):
                   'cpu': 1, 'memory_mb': 2048, 'disk_gb': 30}},
                  {'resource': {'project': 'admin', 'host': 'dummy',
                   'cpu': 1, 'memory_mb': 2048, 'disk_gb': 30}}]})
+
+    def get_os_hosts(self, **kw):
+        zone = kw.get('zone', 'nova1')
+        return (200, {'hosts':
+                    [{'host': 'host1',
+                      'service': 'nova-compute',
+                      'zone': zone},
+                     {'host': 'host1',
+                      'service': 'nova-cert',
+                      'zone': zone}]})
 
     def get_os_hosts_sample_host(self, *kw):
         return (200, {'host': [{'resource': {'host': 'sample_host'}}], })
@@ -988,3 +1135,32 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def post_os_networks_networkdisassociate_action(self, **kw):
         return (202, None)
+
+    def get_os_fping(self, **kw):
+        return (
+            200, {
+                'servers': [
+                    {
+                        "id": "1",
+                        "project_id": "fake-project",
+                        "alive": True,
+                    },
+                    {
+                        "id": "2",
+                        "project_id": "fake-project",
+                        "alive": True,
+                    },
+                ]
+            }
+        )
+
+    def get_os_fping_1(self, **kw):
+        return (
+            200, {
+                'server': {
+                    "id": "1",
+                    "project_id": "fake-project",
+                    "alive": True,
+                }
+            }
+        )

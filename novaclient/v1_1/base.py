@@ -66,12 +66,14 @@ class BootingManagerWithFind(base.ManagerWithFind):
         """
         body = {"server": {
             "name": name,
-            "imageRef": str(base.getid(image)),
+            "imageRef": str(base.getid(image)) if image else '',
             "flavorRef": str(base.getid(flavor)),
         }}
         if userdata:
             if hasattr(userdata, 'read'):
                 userdata = userdata.read()
+            elif isinstance(userdata, unicode):
+                userdata = userdata.encode('utf-8')
             body["server"]["user_data"] = base64.b64encode(userdata)
         if meta:
             body["server"]["metadata"] = meta

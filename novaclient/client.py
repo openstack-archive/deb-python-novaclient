@@ -95,6 +95,8 @@ class HTTPClient(httplib2.Http):
         self.projectid = projectid
         if not auth_url and auth_system and auth_system != 'keystone':
             auth_url = get_auth_system_url(auth_system)
+            if not auth_url:
+                raise exceptions.EndpointNotFound()
         self.auth_url = auth_url.rstrip('/')
         self.version = 'v1.1'
         self.region_name = region_name
@@ -307,7 +309,7 @@ class HTTPClient(httplib2.Http):
 
     def authenticate(self):
         if has_keyring:
-            keys = [self.auth_url, self.user, self.region_name,
+            keys = [self.auth_url, self.projectid, self.user, self.region_name,
                     self.endpoint_type, self.service_type, self.service_name,
                     self.volume_service_name]
             for index, key in enumerate(keys):

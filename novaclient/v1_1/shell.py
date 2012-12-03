@@ -49,7 +49,11 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
         raise exceptions.CommandError("you need to specify a Flavor ID ")
 
     flavor = _find_flavor(cs, args.flavor)
-    image = _find_image(cs, args.image)
+
+    if args.image:
+        image = _find_image(cs, args.image)
+    else:
+        image = None
 
     meta = dict(v.split('=', 1) for v in args.meta)
 
@@ -199,7 +203,7 @@ def _boot(cs, args, reservation_id=None, min_count=None, max_count=None):
         metavar='<key=value>',
         help="Send arbitrary key/value pairs to the scheduler for custom use.")
 @utils.arg('--nic',
-     metavar="<net-id=net-uuid,v4-fixed-ip=ip-addr>",
+     metavar="<net-id=net-uuid,v4-fixed-ip=ip-addr,port-id=port-uuid>",
      action='append',
      dest='nics',
      default=[],
@@ -237,8 +241,11 @@ def do_boot(cs, args):
     info['flavor'] = _find_flavor(cs, flavor_id).name
 
     image = info.get('image', {})
-    image_id = image.get('id', '')
-    info['image'] = _find_image(cs, image_id).name
+    if image:
+        image_id = image.get('id', '')
+        info['image'] = _find_image(cs, image_id).name
+    else:  # Booting from volume
+        info['image'] = "Attempt to boot from volume - no image supplied"
 
     info.pop('links', None)
     info.pop('addresses', None)
@@ -260,6 +267,13 @@ def do_cloudpipe_list(cs, _args):
 def do_cloudpipe_create(cs, args):
     """Create a cloudpipe instance for the given project"""
     cs.cloudpipe.create(args.project)
+
+
+@utils.arg('address', metavar='<ip address>', help='New IP Address.')
+@utils.arg('port', metavar='<port>', help='New Port.')
+def do_cloudpipe_configure(cs, args):
+    """Create a cloudpipe instance for the given project"""
+    cs.cloudpipe.update(args.address, args.port)
 
 
 def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
@@ -341,9 +355,6 @@ def _print_flavor_list(cs, flavors):
 def do_flavor_list(cs, _args):
     """Print a list of available 'flavors' (sizes of servers)."""
     flavors = cs.flavors.list()
-    for flavor in flavors:
-        # int needed for numerical sort
-        flavor.id = int(flavor.id)
     _print_flavor_list(cs, flavors)
 
 
@@ -390,7 +401,7 @@ def do_flavor_show(cs, args):
 @utils.arg('--rxtx-factor',
      metavar='<factor>',
      help="RX/TX factor (default 1)",
-     default=1)
+     default=1.0)
 @utils.arg('--is-public',
      metavar='<is-public>',
      help="Make flavor accessible to the public (default true)",
@@ -620,12 +631,12 @@ def do_image_delete(cs, args):
     dest='ip',
     metavar='<ip-regexp>',
     default=None,
-    help='Search with regular expression match by IP address')
+    help='Search with regular expression match by IP address (Admin only).')
 @utils.arg('--ip6',
     dest='ip6',
     metavar='<ip6-regexp>',
     default=None,
-    help='Search with regular expression match by IPv6 address')
+    help='Search with regular expression match by IPv6 address (Admin only).')
 @utils.arg('--name',
     dest='name',
     metavar='<name-regexp>',
@@ -635,7 +646,7 @@ def do_image_delete(cs, args):
     dest='instance_name',
     metavar='<name-regexp>',
     default=None,
-    help='Search with regular expression match by instance name')
+    help='Search with regular expression match by instance name (Admin only).')
 @utils.arg('--instance_name',
     help=argparse.SUPPRESS)
 @utils.arg('--status',
@@ -658,25 +669,31 @@ def do_image_delete(cs, args):
     dest='host',
     metavar='<hostname>',
     default=None,
-    help='Search instances by hostname to which they are assigned')
+    help='Search instances by hostname to which they are assigned '
+         '(Admin only).')
 @utils.arg('--all-tenants',
     dest='all_tenants',
     metavar='<0|1>',
     nargs='?',
     type=int,
     const=1,
-    default=0,
+    default=int(utils.bool_from_str(os.environ.get("ALL_TENANTS", 'false'))),
     help='Display information from all tenants (Admin only).')
 @utils.arg('--all_tenants',
     nargs='?',
     type=int,
     const=1,
     help=argparse.SUPPRESS)
+@utils.arg('--tenant',
+    #nova db searches by project_id
+    dest='tenant',
+    metavar='<tenant>',
+    nargs='?',
+    help='Display information from single tenant (Admin only).')
 def do_list(cs, args):
     """List active servers."""
-    all_tenants = int(os.environ.get("ALL_TENANTS", args.all_tenants))
     search_opts = {
-            'all_tenants': all_tenants,
+            'all_tenants': args.all_tenants,
             'reservation_id': args.reservation_id,
             'ip': args.ip,
             'ip6': args.ip6,
@@ -684,6 +701,7 @@ def do_list(cs, args):
             'image': args.image,
             'flavor': args.flavor,
             'status': args.status,
+            'project_id': args.tenant,
             'host': args.host,
             'instance_name': args.instance_name}
 
@@ -799,7 +817,7 @@ def do_resize_revert(cs, args):
     default=False,
     help='Blocks while instance migrates so progress can be reported.')
 def do_migrate(cs, args):
-    """Migrate a server."""
+    """Migrate a server. The new host will be selected by the scheduler."""
     server = _find_server(cs, args.server)
     server.migrate()
 
@@ -929,6 +947,19 @@ def do_image_create(cs, args):
                              show_progress=False, silent=True)
 
 
+@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('name', metavar='<name>', help='Name of the backup image.')
+@utils.arg('backup_type', metavar='<backup-type>',
+           help='The backup type, like "daily" or "weekly".')
+@utils.arg('rotation', metavar='<rotation>',
+           help='Int parameter representing how many backups to keep around.')
+def do_backup(cs, args):
+    """ Backup a instance by create a 'backup' type snapshot """
+    _find_server(cs, args.server).backup(args.name,
+                                         args.backup_type,
+                                         args.rotation)
+
+
 @utils.arg('server',
      metavar='<server>',
      help="Name or ID of server")
@@ -975,15 +1006,18 @@ def _print_server(cs, args):
                                       flavor_id)
 
     image = info.get('image', {})
-    image_id = image.get('id', '')
-    if args.minimal:
-        info['image'] = image_id
-    else:
-        try:
-            info['image'] = '%s (%s)' % (_find_image(cs, image_id).name,
-                                         image_id)
-        except Exception:
-            info['image'] = '%s (%s)' % ("Image not found", image_id)
+    if image:
+        image_id = image.get('id', '')
+        if args.minimal:
+            info['image'] = image_id
+        else:
+            try:
+                info['image'] = '%s (%s)' % (_find_image(cs, image_id).name,
+                                             image_id)
+            except Exception:
+                info['image'] = '%s (%s)' % ("Image not found", image_id)
+    else:  # Booted from volume
+        info['image'] = "Attempt to boot from volume - no image supplied"
 
     info.pop('links', None)
     info.pop('addresses', None)
@@ -1002,10 +1036,15 @@ def do_show(cs, args):
     _print_server(cs, args)
 
 
-@utils.arg('server', metavar='<server>', help='Name or ID of server.')
+@utils.arg('server', metavar='<server>', nargs='+',
+           help='Name or ID of server(s).')
 def do_delete(cs, args):
-    """Immediately shut down and delete a server."""
-    _find_server(cs, args.server).delete()
+    """Immediately shut down and delete specified server(s)."""
+    for server in args.server:
+        try:
+            _find_server(cs, server).delete()
+        except Exception, e:
+            print e
 
 
 def _find_server(cs, server):
@@ -1080,10 +1119,24 @@ def _translate_volume_snapshot_keys(collection):
                 setattr(item, to_key, item._info[from_key])
 
 
+@utils.arg('--all-tenants',
+    dest='all_tenants',
+    metavar='<0|1>',
+    nargs='?',
+    type=int,
+    const=1,
+    default=int(utils.bool_from_str(os.environ.get("ALL_TENANTS", 'false'))),
+    help='Display information from all tenants (Admin only).')
+@utils.arg('--all_tenants',
+    nargs='?',
+    type=int,
+    const=1,
+    help=argparse.SUPPRESS)
 @utils.service_type('volume')
-def do_volume_list(cs, _args):
+def do_volume_list(cs, args):
     """List all the volumes."""
-    volumes = cs.volumes.list()
+    search_opts = {'all_tenants': args.all_tenants}
+    volumes = cs.volumes.list(search_opts=search_opts)
     _translate_volume_keys(volumes)
 
     # Create a list of servers to which the volume is attached
@@ -1553,7 +1606,7 @@ def do_secgroup_delete(cs, args):
     nargs='?',
     type=int,
     const=1,
-    default=0,
+    default=int(utils.bool_from_str(os.environ.get("ALL_TENANTS", 'false'))),
     help='Display information from all tenants (Admin only).')
 @utils.arg('--all_tenants',
     nargs='?',
@@ -1562,8 +1615,7 @@ def do_secgroup_delete(cs, args):
     help=argparse.SUPPRESS)
 def do_secgroup_list(cs, args):
     """List security groups for the current tenant."""
-    all_tenants = int(os.environ.get("ALL_TENANTS", args.all_tenants))
-    search_opts = {'all_tenants': all_tenants}
+    search_opts = {'all_tenants': args.all_tenants}
     _print_secgroups(cs.security_groups.list(search_opts=search_opts))
 
 
@@ -1849,7 +1901,7 @@ def do_aggregate_set_metadata(cs, args):
     _print_aggregate_details(aggregate)
 
 
-@utils.arg('id', metavar='<id>', help='Host aggregate id to delete.')
+@utils.arg('id', metavar='<id>', help='Aggregate id.')
 @utils.arg('host', metavar='<host>', help='The host to add to the aggregate.')
 def do_aggregate_add_host(cs, args):
     """Add the host to the specified aggregate."""
@@ -1858,8 +1910,9 @@ def do_aggregate_add_host(cs, args):
     _print_aggregate_details(aggregate)
 
 
-@utils.arg('id', metavar='<id>', help='Host aggregate id to delete.')
-@utils.arg('host', metavar='<host>', help='The host to add to the aggregate.')
+@utils.arg('id', metavar='<id>', help='Aggregate id.')
+@utils.arg('host', metavar='<host>',
+        help='The host to remove from the aggregate.')
 def do_aggregate_remove_host(cs, args):
     """Remove the specified host from the specified aggregate."""
     aggregate = cs.aggregates.remove_host(args.id, args.host)
@@ -1867,7 +1920,7 @@ def do_aggregate_remove_host(cs, args):
     _print_aggregate_details(aggregate)
 
 
-@utils.arg('id', metavar='<id>', help='Host aggregate id to delete.')
+@utils.arg('id', metavar='<id>', help='Aggregate id.')
 def do_aggregate_details(cs, args):
     """Show details of the specified aggregate."""
     _print_aggregate_details(cs.aggregates.get_details(args.id))
@@ -1893,7 +1946,7 @@ def _print_aggregate_details(aggregate):
     action='store_true',
     dest='disk_over_commit',
     default=False,
-    help='Allow overcommit.(Default=Flase)')
+    help='Allow overcommit.(Default=False)')
 @utils.arg('--disk_over_commit',
     action='store_true',
     help=argparse.SUPPRESS)
@@ -1914,6 +1967,52 @@ def do_reset_state(cs, args):
     _find_server(cs, args.server).reset_state(args.state)
 
 
+@utils.arg('--host', metavar='<hostname>', default=None,
+           help='Name of host.')
+@utils.arg('--servicename', metavar='<servicename>', default=None,
+           help='Name of service.')
+def do_service_list(cs, args):
+    """Show a list of all running services. Filter by host & service name."""
+    result = cs.services.list(args.host, args.servicename)
+    columns = ["Binary", "Host", "Zone", "Status", "State", "Updated_at"]
+    utils.print_list(result, columns)
+
+
+@utils.arg('host', metavar='<hostname>', help='Name of host.')
+@utils.arg('service', metavar='<servicename>', help='Name of service.')
+def do_service_enable(cs, args):
+    """Enable the service"""
+    result = cs.services.enable(args.host, args.service)
+    utils.print_list([result], ['Host', 'Service', 'Disabled'])
+
+
+@utils.arg('host', metavar='<hostname>', help='Name of host.')
+@utils.arg('service', metavar='<servicename>', help='Name of service.')
+def do_service_disable(cs, args):
+    """Enable the service"""
+    result = cs.services.disable(args.host, args.service)
+    utils.print_list([result], ['Host', 'Service', 'Disabled'])
+
+
+@utils.arg('fixed_ip', metavar='<fixed_ip>', help='Fixed IP Address.')
+def do_fixed_ip_get(cs, args):
+    """Get info on a fixed ip"""
+    result = cs.fixed_ips.get(args.fixed_ip)
+    utils.print_list([result], ['address', 'cidr', 'hostname', 'host'])
+
+
+@utils.arg('fixed_ip', metavar='<fixed_ip>', help='Fixed IP Address.')
+def do_fixed_ip_reserve(cs, args):
+    """Reserve a fixed ip"""
+    cs.fixed_ips.reserve(args.fixed_ip)
+
+
+@utils.arg('fixed_ip', metavar='<fixed_ip>', help='Fixed IP Address.')
+def do_fixed_ip_unreserve(cs, args):
+    """Unreserve a fixed ip"""
+    cs.fixed_ips.unreserve(args.fixed_ip)
+
+
 @utils.arg('host', metavar='<hostname>', help='Name of host.')
 def do_host_describe(cs, args):
     """Describe a specific host"""
@@ -1922,10 +2021,13 @@ def do_host_describe(cs, args):
     utils.print_list(result, columns)
 
 
+@utils.arg('--zone', metavar='<zone>', default=None,
+           help='Filters the list, returning only those '
+                'hosts in the availability zone <zone>.')
 def do_host_list(cs, args):
     """List all hosts by service"""
-    columns = ["host_name", "service"]
-    result = cs.hosts.list_all()
+    columns = ["host_name", "service", "zone"]
+    result = cs.hosts.list_all(args.zone)
     utils.print_list(result, columns)
 
 
@@ -1989,7 +2091,8 @@ def do_hypervisor_servers(cs, args):
     for hyper in hypers:
         hyper_host = hyper.hypervisor_hostname
         hyper_id = hyper.id
-        instances.extend([InstanceOnHyper(id=serv['uuid'],
+        if hasattr(hyper, 'servers'):
+            instances.extend([InstanceOnHyper(id=serv['uuid'],
                                           name=serv['name'],
                                           hypervisor_hostname=hyper_host,
                                           hypervisor_id=hyper_id)
@@ -2082,6 +2185,10 @@ def do_credentials(cs, _args):
     dest='identity',
     help='Private key file, same as the -i option to the ssh command.',
     default='')
+@utils.arg('--extra-opts',
+    dest='extra',
+    help='Extra options to pass to ssh. see: man ssh',
+    default='')
 def do_ssh(cs, args):
     """SSH into a server."""
     addresses = _find_server(cs, args.server).addresses
@@ -2102,8 +2209,9 @@ def do_ssh(cs, args):
     identity = '-i %s' % args.identity if len(args.identity) else ''
 
     if ip_address:
-        os.system("ssh -%d -p%d %s %s@%s" % (version, args.port, identity,
-                                             args.login, ip_address))
+        os.system("ssh -%d -p%d %s %s@%s %s" % (version, args.port, identity,
+                                                args.login, ip_address,
+                                                args.extra))
     else:
         pretty_version = "IPv%d" % version
         print "ERROR: No %s %s address found." % (address_type,
@@ -2119,7 +2227,10 @@ _quota_resources = ['instances', 'cores', 'ram', 'volumes', 'gigabytes',
 def _quota_show(quotas):
     quota_dict = {}
     for resource in _quota_resources:
-        quota_dict[resource] = getattr(quotas, resource, None)
+        try:
+            quota_dict[resource] = getattr(quotas, resource)
+        except AttributeError:
+            pass
     utils.print_dict(quota_dict)
 
 
@@ -2134,22 +2245,30 @@ def _quota_update(manager, identifier, args):
         manager.update(identifier, **updates)
 
 
-@utils.arg('tenant',
+@utils.arg('--tenant',
     metavar='<tenant-id>',
-    help='UUID of tenant to list the quotas for.')
+    default=None,
+    help='UUID or name of tenant to list the quotas for.')
 def do_quota_show(cs, args):
     """List the quotas for a tenant."""
 
-    _quota_show(cs.quotas.get(args.tenant))
+    if not args.tenant:
+        _quota_show(cs.quotas.get(cs.project_id))
+    else:
+        _quota_show(cs.quotas.get(args.tenant))
 
 
-@utils.arg('tenant',
+@utils.arg('--tenant',
     metavar='<tenant-id>',
-    help='UUID of tenant to list the default quotas for.')
+    default=None,
+    help='UUID or name of tenant to list the default quotas for.')
 def do_quota_defaults(cs, args):
     """List the default quotas for a tenant."""
 
-    _quota_show(cs.quotas.defaults(args.tenant))
+    if not args.tenant:
+        _quota_show(cs.quotas.defaults(cs.project_id))
+    else:
+        _quota_show(cs.quotas.defaults(args.tenant))
 
 
 @utils.arg('tenant',
