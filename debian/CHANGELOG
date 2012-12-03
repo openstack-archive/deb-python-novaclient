@@ -1,3 +1,670 @@
+commit 18deaf47918e5baa655fabb9776d294571363608
+Merge: fef3af7 494040d
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Nov 29 19:11:11 2012 +0000
+
+    Merge "Remove unnecessary casts in flavor create."
+
+commit fef3af70725be74763d4ad95c624407dfde25b2a
+Merge: 926b334 27d7ad9
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Nov 29 19:10:38 2012 +0000
+
+    Merge "Validate that rxtx_factor is a float."
+
+commit 926b334613169d59f91d522218d3418a69952d98
+Merge: c4f0f50 4f6419b
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Nov 29 19:10:19 2012 +0000
+
+    Merge "Adds nova client support for nova-manage vpn command"
+
+commit c4f0f50a2a8f043f66cb010fbcf1e2ec5b7dcd23
+Merge: b2338b9 3839d28
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Nov 29 18:51:08 2012 +0000
+
+    Merge "Adds nova client support for nova-manage fixed command"
+
+commit b2338b9a33547f600233b21bc64e74985327ce70
+Merge: b9d60c1 ff69e4d
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Nov 29 18:50:20 2012 +0000
+
+    Merge "Implement fping calls in nova client"
+
+commit 494040d7fe36ddd00c8813a6e894e53b1abf31be
+Author: Dan Prince <dprince@redhat.com>
+Date:   Tue Nov 27 11:05:53 2012 -0500
+
+    Remove unnecessary casts in flavor create.
+    
+    We already cast and validate these variables above... no
+    need to cast them again.
+    
+    Change-Id: I87b967925ae77c70eb07a42f3ae050703d44a427
+
+commit 27d7ad9d8632bdc67e25757a42a91109e393fbf9
+Author: Dan Prince <dprince@redhat.com>
+Date:   Tue Nov 27 10:59:43 2012 -0500
+
+    Validate that rxtx_factor is a float.
+    
+    Nova stores rxtx_factor as a float internally and as such
+    novaclient should validate that a float is specified
+    when creating a flavor.
+    
+    Fixes LP Bug #1083651.
+    
+    Change-Id: I75f9440d3fe2a0e72ea592f2259640623400ae73
+
+commit 4f6419b5553e853f5720084ba01fc0b4cc1f6220
+Author: Chris Yeoh <cyeoh@au1.ibm.com>
+Date:   Mon Nov 26 14:21:35 2012 +1030
+
+    Adds nova client support for nova-manage vpn command
+    
+    Adds "nova cloudpipe-configure" command
+    Adds shell tests for cloudpipe-list and cloudpipe-create commands which
+    already exist
+    
+    This patch depends on https://review.openstack.org/#/c/15854/
+    
+    Change-Id: I784f5bf0f25a2d8cae4b7c2c6ccf345842ffe352
+    Implements: blueprint apis-for-nova-manage
+
+commit b9d60c1fd2f887992fc1f6c2246b1f0f11efe1a9
+Author: Joe Gordon <jogo@cloudscaling.com>
+Date:   Mon Nov 26 14:26:53 2012 -0800
+
+    Fix aggregate command help messages.
+    
+    Fixes bug 1083343
+    
+    Change-Id: I315a0629bb33480952f2280b053b8db8cb83a1ea
+
+commit 3839d284da8bb269ca392727f0716ddc2238b880
+Author: Chris Yeoh <cyeoh@au1.ibm.com>
+Date:   Thu Nov 22 22:43:59 2012 +1030
+
+    Adds nova client support for nova-manage fixed command
+    
+    Adds the following commands:
+    - "fixed-ip-get <ip_addr>" - displays information about the fixed ip ip_addr
+    - "fixed-ip-reserve <ip_addr>" - reserves the fixed ip ip_addr
+    - "fixed-ip-unreserve <ip_addr>" - unreserves the fixed ip ip_addr
+    
+    Change-Id: I6a5c8b9f7ab359adeb57b86240279649cd421801
+    Implements: blueprint apis-for-nova-manage
+
+commit ff69e4d3830f463afa48ca432600224f29a2c238
+Author: Alessio Ababilov <aababilov@griddynamics.com>
+Date:   Mon Nov 19 11:33:50 2012 +0200
+
+    Implement fping calls in nova client
+    
+    Implements blueprint novaclient-fping
+    
+    Provide fping API calls in nova client as well as unit tests. API is
+    accessed by `fping` field of nova client.
+    Methods:
+    * list(all_tenants=False|True, include=[VM ids], exclude=[VM ids]) -
+      perform fping for all VMs in current project (or all projects if
+      all_tenants==True)
+    * get(server object or id) - perform fping for single instance
+    
+    Change-Id: Ic3eda142781d1a14f2cfc83626672a579fc93a7d
+
+commit dc6285c810b696949597dcde6717bb3f3a6c47c9
+Author: Julie Pichon <jpichon@redhat.com>
+Date:   Wed Nov 21 18:16:17 2012 +0000
+
+    Expand help message for 'migrate' to explain how the new host is selected
+    
+    Fixes bug 1078247
+    
+    Change-Id: Iedfd6fc957fd1c2e53f7685b02bd33e16d9342e9
+
+commit 572c8bbf8020c2bcd3d6e529574ee8866ba3cbea
+Merge: 0173a3c 3fd0c77
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:18:08 2012 +0000
+
+    Merge "Boot from volume without image supplied"
+
+commit 0173a3cd7085502ac1b9cd39858e5cc9de16bb02
+Merge: 1558d5d e9b015c
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:18:01 2012 +0000
+
+    Merge "Cleans up the flavor creation code. Fixes bug 1080891."
+
+commit 1558d5d537d89852339a01a18bb8cbb4198bbb52
+Merge: 92de98c 3ea4ba9
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:12:04 2012 +0000
+
+    Merge "Added --extra-opts to the nova ssh command"
+
+commit 92de98c8f68cc22b88dd164ca473eb86dbf1e45a
+Merge: bc141de 5d5df17
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:12:03 2012 +0000
+
+    Merge "fix hypervisor-servers for hypervisors without servers"
+
+commit bc141de141e5e9796f4b1c0891e90cda65d726f5
+Merge: f790ccc aac4fff
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:12:01 2012 +0000
+
+    Merge "Make sure create_image returns result"
+
+commit f790ccc6bc05a60b378bb7555083d8a8a228fb46
+Merge: 89c46e6 c819c2f
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:10:15 2012 +0000
+
+    Merge "make tenant id optional for quota-defaults and quota-show"
+
+commit 89c46e6325f588069e951397fe2522e28d153c36
+Merge: 47355b7 d037172
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 21 17:09:23 2012 +0000
+
+    Merge "Add nova client support for nova-manage service command"
+
+commit 47355b741b50a63227fb38e6be6b485902efe3e5
+Author: Nikola Dipanov <ndipanov@redhat.com>
+Date:   Fri Nov 16 10:00:46 2012 +0100
+
+    Improved quota output
+    
+    This patch makes the output of quota show a bit more informative
+    by not setting a simple None to a non-existing quota, but not showing it
+    all together.
+    
+    Kind of fixes bug #1078906
+    and also bug #1078089
+    
+    Change-Id: Ic42837d218a80f37e0c6d56625c9804d076f444c
+
+commit 3fd0c77d07419606a81f257b8876394ec5b374de
+Author: Nikola Dipanov <ndipanov@redhat.com>
+Date:   Wed Nov 7 18:58:58 2012 +0100
+
+    Boot from volume without image supplied
+    
+    Allow for booting instances from volume without the image parameter
+    supplied. This change is related to the change
+    I530760cfaa5eb0cae590c7383e0840c6b3f896b9
+    in opnestack/nova. It allows for boot to work with no image supplied
+    to accommodate booting from volumes only.
+    
+    It also makes it possible to interpret show servers that were started
+    without images, so from volumes only
+    
+    Change-Id: I5ba9b0f35a5084aa91eca260f46cac83b8b6591e
+
+commit 3ea4ba9fc97b05ad93af8f9aa6f6bc2a638b9a36
+Author: Nick Shobe <nickshobe@gmail.com>
+Date:   Sat Nov 17 04:26:08 2012 -0600
+
+    Added --extra-opts to the nova ssh command
+    
+    This will allow for remote command execution and advanced ssh options
+    like portforwarding and connection sharing.
+    The goal is to support ssh commands like
+    nova ssh fe55adc9-cb1e-44a4-bd36-6a537b238172 --extra-opts='-NfnMS ~/.ssh/master-fe55adc9-cb1e-44a4-bd36-6a537b238172'
+    and ssh fe55adc9-cb1e-44a4-bd36-6a537b238172 --extra-opts='-t "sudo puppet agent --test"'
+    This will alow easier scripting of the cli... It is not intended
+    however to replace using the nova python api. Therefore I kept it simple.
+    
+    Change-Id: Icce811caf637fc92c6d6374bfb846ea9525a7e05
+
+commit e9b015c7e14843784debc0d68cfe070c9778f80d
+Author: Gabriel Hurley <gabriel@strikeawe.com>
+Date:   Sat Nov 17 18:18:48 2012 -0800
+
+    Cleans up the flavor creation code. Fixes bug 1080891.
+    
+    Change-Id: Idc76cd01d1537ab87723a05ab8dd81015284e3c8
+
+commit aa8d44c551643bb97e039624d602bd4ad07cbe9c
+Author: Paul Voccio <paul.voccio@rackspace.com>
+Date:   Fri Nov 16 11:34:12 2012 -0600
+
+    Adding support to filter instances by tenant from the admin api
+    
+    Change-Id: I37a2c5ad7bbe3e005e96416ea974051a82879adc
+
+commit aac4fff1532cc96302cd1566406c6d3b3fe60e47
+Author: Stanislaw Pitucha <stanislaw.pitucha@hp.com>
+Date:   Fri Nov 9 10:49:02 2012 +0000
+
+    Make sure create_image returns result
+    
+    manager.servers.create_image() returned uuid of the snapshot, but
+    Server.create_image() didn't. Make them work the same.
+    
+    Change-Id: I763197ac8ae542e7ce13569d8ce7e98ec92ccc63
+
+commit c819c2fb50c63554d70f735a6463c911f2f6d8eb
+Author: Christian Berendt <berendt@b1-systems.de>
+Date:   Fri Nov 9 10:52:23 2012 +0100
+
+    make tenant id optional for quota-defaults and quota-show
+    
+    When using quota-defaults or quota-show without specifing a tenant
+    the currently used tenant should be used.
+    
+    Change-Id: I1ef71b68673dd4a95cbf8b5a8dc901fb6eb06865
+
+commit 5d5df1763d83296464a3c4a9c5c82e9a5057edee
+Author: Christian Berendt <berendt@b1-systems.de>
+Date:   Thu Nov 8 17:06:24 2012 +0100
+
+    fix hypervisor-servers for hypervisors without servers
+    
+    At the moment hypervisor-servers throws an AttributeError for
+    hypervisors with no assigned instances. This patch checks first
+    if there are assigned instances before looping through them to
+    avoid the exception.
+    
+    fixes bug 1076435
+    
+    Change-Id: I504e3f234fd041325b63295fab77f9ed3f704db0
+
+commit aa5622147faa0de137f67c6be45dbdb3e11320f6
+Author: melwitt <melwitt@yahoo-inc.com>
+Date:   Wed Nov 7 22:58:32 2012 +0000
+
+    discover extensions via entry points
+    
+    Currently, nova client can only discover extensions in two ways:
+    
+    1. Installing the extension in the novaclient/v1_1/contrib/ directory.
+    2. Installing the extension in the top-level python path or modifying
+       the path to be picked up by pkgutils.iter_modules()
+    
+    This patch allows a third, more flexible option of discovering
+    extensions via entry points. This means the extension can be
+    installed anywhere and entry points can be registered with python
+    to be picked up by pkg_resources.iter_entry_points().
+    To register an entry point, simply add the extension module to
+    the setup() call in setup.py like this:
+    
+    setuptools.setup(
+        name='mydistribution',
+        packages=setuptools.find_packages(),
+        entry_points={
+            'novaclient.extension' : [
+                'foo = mydistribution.mynovaclientexts.foo'
+            ]
+        },
+    )
+    
+    Change-Id: Ic1e223a9173546131e742506897f585f4ac65767
+
+commit 4ad512b50e0c2190fbd4ef077256faf808496e2b
+Author: Christian Berendt <berendt@b1-systems.de>
+Date:   Thu Nov 8 21:03:13 2012 +0100
+
+    show help when calling without arguments
+    
+    When calling nova without arguments you'll receive the following
+    output:
+    
+    error: too few arguments
+    Try 'nova help ' for more information.
+    
+    Changing 'and' to 'or' the help is also shown when calling nova
+    without arguments. I think that's the expected behavior.
+    
+    Change-Id: Id14f0292ad00e6e45ad66dd010f449c3abbf3871
+
+commit d037172b701afd66d1ac187a3c7e4a76130a8f4f
+Author: ivan-zhu <bozhu@linux.vnet.ibm.com>
+Date:   Thu Nov 8 17:56:18 2012 +0800
+
+    Add nova client support for nova-manage service command
+    
+    Implements the one workitem of blueprint apis-for-nova-manage
+    
+    This add three CLI (service-list/sevice-enable/service-diabel) in
+    nova-client.
+    
+    So we can use:
+    "nova service-list" like "nova-manage service list" with two optional
+    parameters. Show a list of all running services. Filter by host and
+    service name.
+    
+    "nova service-enable hostname servicename" like "nova-manage service
+    enable hostname servicename". It will enable the service specified by
+    hostname and serviename.
+    
+    "nova service-disable hostname servicename" like "nova-manage service
+    diable hostname servicename". It will disable the service specified by
+    hostname and serviename.
+    
+    This patch depends on https://review.openstack.org/#/c/15206/
+    
+    Change-Id: I01d4cee4ef95c1783f6181f8b840244e748387e5
+
+commit a84300f020e79adcaad313aff7f7ee11d9c18d1a
+Merge: 40ef419 33b2830
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Nov 7 22:38:54 2012 +0000
+
+    Merge "Allows deletion of multiple servers through CLI"
+
+commit 40ef4197e982b840f9c3363bc83bf16600f763c5
+Merge: a31d285 51faac4
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Tue Nov 6 17:45:56 2012 +0000
+
+    Merge "Add ability of nova client to display availability zones when listing hosts"
+
+commit a31d285f6e7d5516d69319424db06608050107f6
+Merge: 887f831 e9c16ca
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Tue Nov 6 17:13:56 2012 +0000
+
+    Merge "Updated the help text for nova list command."
+
+commit 887f8314689a71144d4f5c5365d2253e8c662921
+Merge: 0dea78c 8be01b6
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Tue Nov 6 06:48:57 2012 +0000
+
+    Merge "Fixes setup compatibility issue on Windows"
+
+commit e9c16ca33ad035fda38d42ec3f7e9e40e56cbf6b
+Author: Unmesh Gurjar <unmesh.gurjar@nttdata.com>
+Date:   Sun Nov 4 23:20:37 2012 -0800
+
+    Updated the help text for nova list command.
+    
+    Few options in the nova list command are admin specific. Updated the help text
+    to specify the admin only options explitcitly.
+    
+    Fixes LP: #1055983
+    
+    Change-Id: Icf8a76e79b9d5399298dacce31b1cc0873f63d71
+
+commit 8be01b650e4669132c0d27481781bdf5688079ec
+Author: Alessandro Pilotti <ap@pilotti.it>
+Date:   Mon Nov 5 17:47:05 2012 +0200
+
+    Fixes setup compatibility issue on Windows
+    
+    Fixes Bug #1052161
+    
+    "python setup.py build" fails on Windows due to a hardcoded shell path:
+    /bin/sh
+    
+    setup.py updated using openstack-common/update.py
+    
+    Change-Id: I9c8cf84ada189d8f27448ecda23f51c021d08818
+
+commit 0dea78c851a7d43df5ffa9c00bbbc09e857560f0
+Author: Jesse Andrews <anotherjesse@gmail.com>
+Date:   Sat Nov 3 16:18:53 2012 -0700
+
+    include projectid in the cache key
+    
+    fixes bug #1074771
+    
+    Change-Id: I0fc1638405c2f4de61255d3efc1b6096ead0742b
+
+commit 7ddc2fdfcdc0bfa6ada3d150a87ab3d930259538
+Author: Nikola Dipanov <ndipanov@redhat.com>
+Date:   Fri Nov 2 18:06:51 2012 +0100
+
+    Fixes utils.findresource checking for integer
+    
+    Fixes the novaclient.utils.find_resource function to properly handle
+    non integer values and not break with an AttributeError.
+    
+    Adds a test case to test a few more non valid inputs.
+    
+    Fixes bug #1065367
+    
+    Change-Id: Iaa2025f4eb580234f754596c3572e2f87872170e
+
+commit 33b2830e9c81f87fb37e51eca65f6e98143d1e06
+Author: Sulochan Acharya <sulochan@gmail.com>
+Date:   Thu Nov 1 17:43:39 2012 -0500
+
+    Allows deletion of multiple servers through CLI
+    
+    Adds nargs to argparse for delete command to allow
+    multiple (optional) positional server argument. This
+    allows users to delete multiple servers using nova delete.
+    For example:
+    nova delete xxx yyy aaa zzz will delete valid servers
+    xxx, yyy and zzz and print exception msg for invalid
+    delete of server aaa.
+    
+    Fixes bug892061
+    
+    Change-Id: I2abe6329e489bfbd3e5ae699e97ef098b38c4537
+
+commit 51faac4a0902ced715c3022985ca4ba7e4aeeaba
+Author: ivan-zhu <bozhu@linux.vnet.ibm.com>
+Date:   Wed Oct 24 17:31:56 2012 +0800
+
+    Add ability of nova client to display availability zones when listing hosts
+    
+    Implements the one workitem of blueprint apis-for-nova-manage
+    
+    Add an optional parameter for nova host-list
+    Now, we can use the command: nova host-list --zone nova
+    It will return the hosts that availability_zone=nova.
+    This patch depends on https://review.openstack.org/#/c/14741/
+    
+    Change-Id: Ide41e75e7d1471e23d19f51e63a8d9951337a411
+
+commit f04a24c6ad397439c7f38e381eac1f3b272eba88
+Merge: 7bf93a5 67d4d7e
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Oct 31 18:07:44 2012 +0000
+
+    Merge "Auto-Assign Flavor ID"
+
+commit 7bf93a52f8828822c8949fe66bc79e8c035d1330
+Author: Russell Cloran <russell@nimbula.com>
+Date:   Mon Oct 29 23:09:26 2012 -0700
+
+    Validate that boolean parameters are boolean
+    
+    Ensure that values which are supposed to be boolean look like correct
+    user input, instead of assuming that any non true-looking input is
+    False.
+    
+    Also, update the flavor manager to raise a CommandError if is_public is
+    not a boolean value.
+    
+    Fixes bug 1059414
+    
+    Change-Id: I3275e4bba103b14081becf91f723f1be060391e5
+
+commit 67d4d7e0fdc6a990484340299a7920b8d64d6a13
+Author: sathish-nagappan <sathish.nagappan@nebula.com>
+Date:   Mon Oct 29 14:26:32 2012 -0700
+
+    Auto-Assign Flavor ID
+    
+    Auto-assign a flavor ID if the user enters "auto" for the ID.
+    
+    Change-Id: I745744b9ca44668477635c20df5e2ece6cbf1c27
+
+commit 05bbe0fa0efc9abe5461e7e2d3fef7b72d625955
+Merge: 8617a88 2f7b032
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Fri Oct 26 17:04:24 2012 +0000
+
+    Merge "Pull in latest openstack-common changes and fix a minor PEP8 issue."
+
+commit 2f7b032910cce500f09a5d2a257595d573bdb116
+Author: Josh Kearney <josh@jk0.org>
+Date:   Thu Oct 25 11:43:56 2012 -0500
+
+    Pull in latest openstack-common changes and fix a minor PEP8 issue.
+    
+    Latest openstack-common commit: d887090b5a31672e4a12f302b3818e2b0933bef0
+    
+    Change-Id: I5a4ffb043ab24f8618a8285112c0c5992ea129e7
+
+commit 8617a88765968341c6dc6e8e44b3d2e6038106a7
+Merge: f100953 805ba8f
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Oct 24 00:33:46 2012 +0000
+
+    Merge "Exception handling for 'nova flavor-create' arguments"
+
+commit f1009534953ed9662e5fe15f71987263c63d6678
+Merge: 4d3f33d 3463559
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Tue Oct 23 15:57:57 2012 +0000
+
+    Merge "Add support for backup instance."
+
+commit 4d3f33d141dfc10c553bfc649dbfebf4fe7dec15
+Author: Doug Hellmann <doug.hellmann@dreamhost.com>
+Date:   Mon Oct 22 18:46:41 2012 -0400
+
+    Add OpenStack trove classifier for PyPI
+    
+    Add trove classifier to have the client listed among the
+    other OpenStack-related projets on PyPI.
+    
+    Change-Id: If9e10b065d0c54825fb9138893c78cda3ef79ca2
+    Signed-off-by: Doug Hellmann <doug.hellmann@dreamhost.com>
+
+commit 805ba8fdc1763306f4a6dbdc3de274b5c2597485
+Author: Sathish Nagappan <sathish.nagappan@nebula.com>
+Date:   Wed Oct 17 21:31:34 2012 -0700
+
+    Exception handling for 'nova flavor-create' arguments
+    
+    Fixes client side Bug #1056935
+    
+    Throws an exception if the user does not input integers for the
+    corresponding parameters.
+    
+    Change-Id: I4c4b8148f6565bc5a3b348dbde8c2cf0da00234a
+
+commit 34635597a68d0626f9806c9b1220600a955e0ea4
+Author: TianTian Gao <gtt116@126.com>
+Date:   Mon Oct 15 14:33:52 2012 +0800
+
+    Add support for backup instance.
+    
+    fix bug: 1066665
+    
+    Change-Id: I1e2c3b2cd9d9e50073b87762973147795059f067
+
+commit e8c22cd130759fc6ab89c027cf34df19333878b9
+Merge: ccabbe7 81c01e5
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Oct 10 16:57:11 2012 +0000
+
+    Merge "Encode user data to utf-8 when creating a server"
+
+commit ccabbe77de4a411f8728236969e9a5a50ec79a65
+Merge: c8696a5 ccc4291
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Wed Oct 10 04:00:52 2012 +0000
+
+    Merge "Add simple os-api extension cli extension"
+
+commit ccc4291c52eb4f68e37691bbe7df34450e89df7a
+Author: Joshua Harlow <harlowja@yahoo-inc.com>
+Date:   Tue Sep 18 16:36:17 2012 -0700
+
+    Add simple os-api extension cli extension
+    
+    Add a useful extension that will show you what
+    openstack api extensions are available for usage
+    and print out the result into a nice little table.
+    
+    Useful as a example for others to base contrib/
+    extensions off of.
+    
+    Example @ http://paste.openstack.org/show/20989/
+    
+    Change-Id: I5b72f5ea73c00f1c1a0f09f670d744c820e05837
+
+commit c8696a59e32ccd0d20dafa86a85379dd7e214a77
+Merge: 6a86308 a9a66ae
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Oct 4 22:52:20 2012 +0000
+
+    Merge "Raises Exception on improper Auth Configuration"
+
+commit 6a8630867f0563e2699caf35d3669f8e83256c5f
+Merge: aa171ca f391591
+Author: Jenkins <jenkins@review.openstack.org>
+Date:   Thu Oct 4 21:47:10 2012 +0000
+
+    Merge "Add missing port-id usage info."
+
+commit a9a66ae7a750e507a0dda4bc9b2f9f62b9cd98a2
+Author: Stef T <stelford@internap.com>
+Date:   Thu Oct 4 16:20:23 2012 -0400
+
+    Raises Exception on improper Auth Configuration
+    
+    Addresses bug 1061848.
+    
+    Basically, this bug comes about from not properly
+    setting up the auth_system for novaclient. In this
+    case, an exception of EndPointNotFound is flung.
+    
+    Change-Id: I12533aefd9d0425dd83e2e4c63f4dd5ff6faae71
+
+commit aa171ca12b336f9a927dbdec0d598f30386b6501
+Author: Vincent Untz <vuntz@suse.com>
+Date:   Fri Sep 28 12:42:37 2012 +0200
+
+    Do not prefer ALL_TENANTS environment variable to command line arguments
+    
+    As pointed out in https://review.openstack.org/#/c/13708/ command line
+    arguments should have higher priority.
+    
+    Also, do not fail if the environment variable is not representing an
+    int.
+    
+    Change-Id: Ie6cd5b2d6aae47236ba0fe6d594d0c8095e9e422
+
+commit 81c01e535cecc54c2e6e847000638b52fec506af
+Author: Vincent Untz <vuntz@suse.com>
+Date:   Fri Sep 28 11:48:38 2012 +0200
+
+    Encode user data to utf-8 when creating a server
+    
+    This is needed for data that we don't read from IO directly, since we're
+    base64-encoding the user data, and this requires ther user data to not
+    be of the unicode type.
+    
+    We're being tolerant, as we'll accept user data that is already in a str
+    object.
+    
+    Fixes: bug 1049161
+    Change-Id: I4320670de564c8029c7aef14da2492c6f8752efe
+
+commit c01fae73700047072a1a27add416eb61ee5cb1b0
+Author: Vincent Untz <vuntz@suse.com>
+Date:   Wed Sep 26 14:54:57 2012 +0200
+
+    Add --all-tenants option to volume-list
+    
+    The list and secgroup-list commands have this option, and
+    nova-volume/cinder respect this search option too nowadays.
+    
+    Change-Id: Ie95432727dec9702e09a0ce314bf418f6a36b799
+
 commit cdebf729b06d9465ab080fd5b15e433f70f8fe45
 Merge: e01c25b 02d3aad
 Author: Jenkins <jenkins@review.openstack.org>
@@ -386,6 +1053,14 @@ Date:   Mon Aug 13 20:25:05 2012 +0800
     https://review.openstack.org/#/c/11270/
     
     Change-Id: Id8d559985f9369f53926e63ee5f5ce23a051e25b
+
+commit f391591713a3bd16c521a68063a2c529c5f62ccb
+Author: Yaguang Tang <heut2008@gmail.com>
+Date:   Mon Aug 27 16:03:46 2012 +0800
+
+    Add missing port-id usage info.
+    
+    Change-Id: I3e5de32265512c0f692bda6d322c95be0d1b8851
 
 commit ae431aba0d3829728d7e7fda6053f8eb4c417759
 Merge: 8ccd905 52d24b1
