@@ -1,8 +1,8 @@
-python-novaclient (2:2.9.0-1) experimental; urgency=low
+python-novaclient (2:2.10.0-1) experimental; urgency=low
 
-  * New upstream version
+  * New upstream version.
 
- -- Mehdi Abaakouk <sileht@sileht.net>  Sat, 29 Sep 2012 08:44:45 +0200
+ -- Thomas Goirand <zigo@debian.org>  Mon, 03 Dec 2012 14:15:48 +0000
 
 python-novaclient (2:2.8.0-1) experimental; urgency=low
 
