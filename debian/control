@@ -14,7 +14,7 @@ Build-Depends-Indep: openstack-pkg-tools,
  python-iso8601,
  python-mock (>= 0.7),
  python-nose,
- python-prettytable,
+ python-prettytable (>= 0.6),
  python-simplejson,
  python-unittest2
 Standards-Version: 3.9.3
@@ -27,13 +27,12 @@ Architecture: all
 Breaks: simh (<< 3.8.1-3)
 Replaces: simh (<< 3.8.1-3)
 Depends: ${misc:Depends}, ${python:Depends}, 
- python (>= 2.7) | python-argparse,
- python (>= 2.6) | python-simplejson,
- python-pkg-resources,
+ python-argparse,
  python-httplib2,
+ python-keyring,
+ python-pkg-resources,
  python-prettytable (>= 0.6),
- python-simplejson,
- python-keyring
+ python-simplejson
 Description: client library for OpenStack Compute API
  OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
  designed to be modular and easy to extend and adapt. In addition to its
