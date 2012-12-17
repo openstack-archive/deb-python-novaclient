@@ -1,15 +1,16 @@
 python-novaclient (2:2.10.0-1) experimental; urgency=low
 
   * New upstream version.
+  * Remove exception_handling and prettytable patches (incorporated upstream).
+  * Now using openstack-pkg-tools for the debian/rules.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 03 Dec 2012 14:15:48 +0000
 
-python-novaclient (2:2.8.0-1) experimental; urgency=low
+python-novaclient (1:2012.1-4) unstable; urgency=low
 
-  * New upstream version
-  * Remove exception_handling and prettytable patches (incorporated upstream)
+  * Added Breaks+Replaces: simh (<< 3.8.1-3) (Closes: #694372).
 
- -- Mehdi Abaakouk <sileht@sileht.net>  Mon, 10 Sep 2012 18:09:15 +0200
+ -- Thomas Goirand <zigo@debian.org>  Wed, 28 Nov 2012 19:28:18 +0000
 
 python-novaclient (1:2012.1-3) unstable; urgency=low
 
