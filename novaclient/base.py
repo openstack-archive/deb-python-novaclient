@@ -1,6 +1,6 @@
 # Copyright 2010 Jacob Kaplan-Moss
 
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -103,7 +103,7 @@ class Manager(utils.HookableMixin):
         cache_dir = os.path.expanduser(os.path.join(base_dir, uniqifier))
 
         try:
-            os.makedirs(cache_dir, 0755)
+            os.makedirs(cache_dir, 0o755)
         except OSError:
             # NOTE(kiall): This is typicaly either permission denied while
             #              attempting to create the directory, or the directory
@@ -136,12 +136,9 @@ class Manager(utils.HookableMixin):
         if cache:
             cache.write("%s\n" % val)
 
-    def _get(self, url, response_key=None):
+    def _get(self, url, response_key):
         _resp, body = self.api.client.get(url)
-        if response_key:
-            return self.resource_class(self, body[response_key], loaded=True)
-        else:
-            return self.resource_class(self, body, loaded=True)
+        return self.resource_class(self, body[response_key], loaded=True)
 
     def _create(self, url, body, response_key, return_raw=False, **kwargs):
         self.run_hooks('modify_body_for_create', body, **kwargs)
@@ -156,10 +153,14 @@ class Manager(utils.HookableMixin):
     def _delete(self, url):
         _resp, _body = self.api.client.delete(url)
 
-    def _update(self, url, body, **kwargs):
+    def _update(self, url, body, response_key=None, **kwargs):
         self.run_hooks('modify_body_for_update', body, **kwargs)
         _resp, body = self.api.client.put(url, body=body)
-        return body
+        if body:
+            if response_key:
+                return self.resource_class(self, body[response_key])
+            else:
+                return self.resource_class(self, body)
 
 
 class ManagerWithFind(Manager):

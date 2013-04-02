@@ -1,30 +1,26 @@
-import httplib2
+import copy
 import json
 import mock
+
+import requests
 
 from novaclient.v1_1 import client
 from novaclient import exceptions
 from tests import utils
 
 
-def to_http_response(resp_dict):
-    """Converts dict of response attributes to httplib response."""
-    resp = httplib2.Response(resp_dict)
-    for k, v in resp_dict['headers'].items():
-        resp[k] = v
-    return resp
-
-
 class AuthenticateAgainstKeystoneTests(utils.TestCase):
     def test_authenticate_success(self):
         cs = client.Client("username", "password", "project_id",
-                           "auth_url/v2.0", service_type='compute',
-                           no_cache=True)
+                           "auth_url/v2.0", service_type='compute')
         resp = {
             "access": {
                 "token": {
                     "expires": "12345",
                     "id": "FAKE_ID",
+                    "tenant": {
+                        "id": "FAKE_TENANT_ID",
+                    }
                 },
                 "serviceCatalog": [
                     {
@@ -41,15 +37,14 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
                 ],
             },
         }
-        auth_response = httplib2.Response({
-            "status": 200,
-            "body": json.dumps(resp),
-            })
+        auth_response = utils.TestResponse({
+            "status_code": 200,
+            "text": json.dumps(resp),
+        })
 
-        mock_request = mock.Mock(return_value=(auth_response,
-                                               json.dumps(resp)))
+        mock_request = mock.Mock(return_value=(auth_response))
 
-        @mock.patch.object(httplib2.Http, "request", mock_request)
+        @mock.patch.object(requests, "request", mock_request)
         def test_auth_call():
             cs.client.authenticate()
             headers = {
@@ -68,9 +63,13 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
             }
 
             token_url = cs.client.auth_url + "/tokens"
-            mock_request.assert_called_with(token_url, "POST",
-                                            headers=headers,
-                                            body=json.dumps(body))
+            mock_request.assert_called_with(
+                "POST",
+                token_url,
+                headers=headers,
+                data=json.dumps(body),
+                allow_redirects=True,
+                **self.TEST_REQUEST_BASE)
 
             endpoints = resp["access"]["serviceCatalog"][0]['endpoints']
             public_url = endpoints[0]["publicURL"].rstrip('/')
@@ -82,17 +81,16 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
     def test_authenticate_failure(self):
         cs = client.Client("username", "password", "project_id",
-                           "auth_url/v2.0", no_cache=True)
+                           "auth_url/v2.0")
         resp = {"unauthorized": {"message": "Unauthorized", "code": "401"}}
-        auth_response = httplib2.Response({
-            "status": 401,
-            "body": json.dumps(resp),
-            })
+        auth_response = utils.TestResponse({
+            "status_code": 401,
+            "text": json.dumps(resp),
+        })
 
-        mock_request = mock.Mock(return_value=(auth_response,
-                                               json.dumps(resp)))
+        mock_request = mock.Mock(return_value=(auth_response))
 
-        @mock.patch.object(httplib2.Http, "request", mock_request)
+        @mock.patch.object(requests, "request", mock_request)
         def test_auth_call():
             self.assertRaises(exceptions.Unauthorized, cs.client.authenticate)
 
@@ -100,13 +98,15 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
     def test_auth_redirect(self):
         cs = client.Client("username", "password", "project_id",
-                           "auth_url/v1.0", service_type='compute',
-                           no_cache=True)
+                           "auth_url/v1.0", service_type='compute')
         dict_correct_response = {
             "access": {
                 "token": {
                     "expires": "12345",
                     "id": "FAKE_ID",
+                    "tenant": {
+                        "id": "FAKE_TENANT_ID",
+                    }
                 },
                 "serviceCatalog": [
                     {
@@ -126,29 +126,28 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
         correct_response = json.dumps(dict_correct_response)
         dict_responses = [
             {"headers": {'location':'http://127.0.0.1:5001'},
-             "status": 305,
-             "body": "Use proxy"},
+             "status_code": 305,
+             "text": "Use proxy"},
             # Configured on admin port, nova redirects to v2.0 port.
             # When trying to connect on it, keystone auth succeed by v1.0
             # protocol (through headers) but tokens are being returned in
             # body (looks like keystone bug). Leaved for compatibility.
             {"headers": {},
-             "status": 200,
-             "body": correct_response},
+             "status_code": 200,
+             "text": correct_response},
             {"headers": {},
-             "status": 200,
-             "body": correct_response}
+             "status_code": 200,
+             "text": correct_response}
         ]
 
-        responses = [(to_http_response(resp), resp['body']) \
-                        for resp in dict_responses]
+        responses = [(utils.TestResponse(resp)) for resp in dict_responses]
 
         def side_effect(*args, **kwargs):
             return responses.pop(0)
 
         mock_request = mock.Mock(side_effect=side_effect)
 
-        @mock.patch.object(httplib2.Http, "request", mock_request)
+        @mock.patch.object(requests, "request", mock_request)
         def test_auth_call():
             cs.client.authenticate()
             headers = {
@@ -167,9 +166,14 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
             }
 
             token_url = cs.client.auth_url + "/tokens"
-            mock_request.assert_called_with(token_url, "POST",
-                                            headers=headers,
-                                            body=json.dumps(body))
+            kwargs = copy.copy(self.TEST_REQUEST_BASE)
+            kwargs['headers'] = headers
+            kwargs['data'] = json.dumps(body)
+            mock_request.assert_called_with(
+                "POST",
+                token_url,
+                allow_redirects=True,
+                **kwargs)
 
             resp = dict_correct_response
             endpoints = resp["access"]["serviceCatalog"][0]['endpoints']
@@ -182,13 +186,15 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
     def test_ambiguous_endpoints(self):
         cs = client.Client("username", "password", "project_id",
-                           "auth_url/v2.0", service_type='compute',
-                           no_cache=True)
+                           "auth_url/v2.0", service_type='compute')
         resp = {
             "access": {
                 "token": {
                     "expires": "12345",
                     "id": "FAKE_ID",
+                    "tenant": {
+                        "id": "FAKE_TENANT_ID",
+                    }
                 },
                 "serviceCatalog": [
                     {
@@ -217,15 +223,14 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
                 ],
             },
         }
-        auth_response = httplib2.Response({
-            "status": 200,
-            "body": json.dumps(resp),
-            })
+        auth_response = utils.TestResponse({
+            "status_code": 200,
+            "text": json.dumps(resp),
+        })
 
-        mock_request = mock.Mock(return_value=(auth_response,
-                                               json.dumps(resp)))
+        mock_request = mock.Mock(return_value=(auth_response))
 
-        @mock.patch.object(httplib2.Http, "request", mock_request)
+        @mock.patch.object(requests, "request", mock_request)
         def test_auth_call():
             self.assertRaises(exceptions.AmbiguousEndpoints,
                               cs.client.authenticate)
@@ -235,17 +240,18 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
 class AuthenticationTests(utils.TestCase):
     def test_authenticate_success(self):
-        cs = client.Client("username", "password", "project_id", "auth_url",
-                           no_cache=True)
+        cs = client.Client("username", "password", "project_id", "auth_url")
         management_url = 'https://localhost/v1.1/443470'
-        auth_response = httplib2.Response({
-            'status': 204,
-            'x-server-management-url': management_url,
-            'x-auth-token': '1b751d74-de0c-46ae-84f0-915744b582d1',
+        auth_response = utils.TestResponse({
+            'status_code': 204,
+            'headers': {
+                'x-server-management-url': management_url,
+                'x-auth-token': '1b751d74-de0c-46ae-84f0-915744b582d1',
+            },
         })
-        mock_request = mock.Mock(return_value=(auth_response, None))
+        mock_request = mock.Mock(return_value=(auth_response))
 
-        @mock.patch.object(httplib2.Http, "request", mock_request)
+        @mock.patch.object(requests, "request", mock_request)
         def test_auth_call():
             cs.client.authenticate()
             headers = {
@@ -255,30 +261,32 @@ class AuthenticationTests(utils.TestCase):
                 'X-Auth-Project-Id': 'project_id',
                 'User-Agent': cs.client.USER_AGENT
             }
-            mock_request.assert_called_with(cs.client.auth_url, 'GET',
-                                            headers=headers)
+            mock_request.assert_called_with(
+                "GET",
+                cs.client.auth_url,
+                headers=headers,
+                **self.TEST_REQUEST_BASE)
+
             self.assertEqual(cs.client.management_url,
-                             auth_response['x-server-management-url'])
+                             auth_response.headers['x-server-management-url'])
             self.assertEqual(cs.client.auth_token,
-                             auth_response['x-auth-token'])
+                             auth_response.headers['x-auth-token'])
 
         test_auth_call()
 
     def test_authenticate_failure(self):
-        cs = client.Client("username", "password", "project_id", "auth_url",
-                           no_cache=True)
-        auth_response = httplib2.Response({'status': 401})
-        mock_request = mock.Mock(return_value=(auth_response, None))
+        cs = client.Client("username", "password", "project_id", "auth_url")
+        auth_response = utils.TestResponse({'status_code': 401})
+        mock_request = mock.Mock(return_value=(auth_response))
 
-        @mock.patch.object(httplib2.Http, "request", mock_request)
+        @mock.patch.object(requests, "request", mock_request)
         def test_auth_call():
             self.assertRaises(exceptions.Unauthorized, cs.client.authenticate)
 
         test_auth_call()
 
     def test_auth_automatic(self):
-        cs = client.Client("username", "password", "project_id", "auth_url",
-                           no_cache=True)
+        cs = client.Client("username", "password", "project_id", "auth_url")
         http_client = cs.client
         http_client.management_url = ''
         mock_request = mock.Mock(return_value=(None, None))
@@ -293,8 +301,7 @@ class AuthenticationTests(utils.TestCase):
         test_auth_call()
 
     def test_auth_manual(self):
-        cs = client.Client("username", "password", "project_id", "auth_url",
-                           no_cache=True)
+        cs = client.Client("username", "password", "project_id", "auth_url")
 
         @mock.patch.object(cs.client, 'authenticate')
         def test_auth_call(m):

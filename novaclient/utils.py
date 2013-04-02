@@ -1,11 +1,13 @@
 import os
 import re
 import sys
+import textwrap
 import uuid
 
 import prettytable
 
 from novaclient import exceptions
+from novaclient.openstack.common import strutils
 
 
 def arg(*args, **kwargs):
@@ -139,7 +141,7 @@ def pretty_choice_list(l):
 
 
 def print_list(objs, fields, formatters={}, sortby_index=0):
-    if sortby_index == None:
+    if sortby_index is None:
         sortby = None
     else:
         sortby = fields[sortby_index]
@@ -161,14 +163,32 @@ def print_list(objs, fields, formatters={}, sortby_index=0):
                 row.append(data)
         pt.add_row(row)
 
-    print pt.get_string(sortby=sortby)
+    if sortby is not None:
+        print(strutils.safe_encode(pt.get_string(sortby=sortby)))
+    else:
+        print(strutils.safe_encode(pt.get_string()))
 
 
-def print_dict(d, dict_property="Property"):
+def print_dict(d, dict_property="Property", wrap=0):
     pt = prettytable.PrettyTable([dict_property, 'Value'], caching=False)
     pt.align = 'l'
-    [pt.add_row(list(r)) for r in d.iteritems()]
-    print pt.get_string(sortby=dict_property)
+    for k, v in d.iteritems():
+        # convert dict to str to check length
+        if isinstance(v, dict):
+            v = str(v)
+        if wrap > 0:
+            v = textwrap.fill(str(v), wrap)
+        # if value has a newline, add in multiple rows
+        # e.g. fault with stacktrace
+        if v and isinstance(v, basestring) and r'\n' in v:
+            lines = v.strip().split(r'\n')
+            col1 = k
+            for line in lines:
+                pt.add_row([col1, line])
+                col1 = ''
+        else:
+            pt.add_row([k, v])
+    print(strutils.safe_encode(pt.get_string()))
 
 
 def find_resource(manager, name_or_id):
@@ -187,10 +207,17 @@ def find_resource(manager, name_or_id):
 
     # now try to get entity as uuid
     try:
-        uuid.UUID(str(name_or_id))
+        uuid.UUID(strutils.safe_encode(name_or_id))
         return manager.get(name_or_id)
-    except (ValueError, exceptions.NotFound):
+    except (TypeError, ValueError, exceptions.NotFound):
         pass
+
+    # for str id which is not uuid (for Flavor search currently)
+    if getattr(manager, 'is_alphanum_id_allowed', False):
+        try:
+            return manager.get(name_or_id)
+        except exceptions.NotFound:
+            pass
 
     try:
         try:
@@ -225,6 +252,46 @@ def _format_servers_list_networks(server):
         output.append(group)
 
     return '; '.join(output)
+
+
+def _format_security_groups(groups):
+    return ', '.join(group['name'] for group in groups)
+
+
+def _format_field_name(attr):
+    """Format an object attribute in a human-friendly way."""
+    # Split at ':' and leave the extension name as-is.
+    parts = attr.rsplit(':', 1)
+    name = parts[-1].replace('_', ' ')
+    # Don't title() on mixed case
+    if name.isupper() or name.islower():
+        name = name.title()
+    parts[-1] = name
+    return ': '.join(parts)
+
+
+def _make_field_formatter(attr, filters=None):
+    """
+    Given an object attribute, return a formatted field name and a
+    formatter suitable for passing to print_list.
+
+    Optionally pass a dict mapping attribute names to a function. The function
+    will be passed the value of the attribute and should return the string to
+    display.
+    """
+    filter_ = None
+    if filters:
+        filter_ = filters.get(attr)
+
+    def get_field(obj):
+        field = getattr(obj, attr, '')
+        if field and filter_:
+            field = filter_(field)
+        return field
+
+    name = _format_field_name(attr)
+    formatter = get_field
+    return name, formatter
 
 
 class HookableMixin(object):
@@ -282,3 +349,23 @@ def slugify(value):
     value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
     value = unicode(_slugify_strip_re.sub('', value).strip().lower())
     return _slugify_hyphenate_re.sub('-', value)
+
+
+def is_uuid_like(val):
+    """
+    The UUID which doesn't contain hyphens or 'A-F' is allowed.
+    """
+    try:
+        if uuid.UUID(val) and val.isalnum() and val.islower():
+            return True
+        else:
+            return False
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def check_uuid_like(val):
+    if not is_uuid_like(val):
+        raise exceptions.CommandError(
+                     "error: Invalid tenant-id %s supplied"
+                       % val)

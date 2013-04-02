@@ -2,6 +2,8 @@
 
 import StringIO
 
+import mock
+
 from novaclient import exceptions
 from novaclient.v1_1 import servers
 from tests import utils
@@ -45,6 +47,38 @@ class ServersTest(utils.TestCase):
         )
         cs.assert_called('POST', '/servers')
         self.assertTrue(isinstance(s, servers.Server))
+
+    def test_create_server_boot_from_volume_with_nics(self):
+        old_boot = cs.servers._boot
+
+        nics = [{'net-id': '11111111-1111-1111-1111-111111111111',
+                 'v4-fixed-ip': '10.0.0.7'}]
+        bdm = {"volume_size": "1",
+               "volume_id": "11111111-1111-1111-1111-111111111111",
+               "delete_on_termination": "0",
+               "device_name": "vda"}
+
+        def wrapped_boot(url, key, *boot_args, **boot_kwargs):
+            self.assertEqual(boot_kwargs['block_device_mapping'], bdm)
+            self.assertEqual(boot_kwargs['nics'], nics)
+            return old_boot(url, key, *boot_args, **boot_kwargs)
+
+        @mock.patch.object(cs.servers, '_boot', wrapped_boot)
+        def test_create_server_from_volume():
+            s = cs.servers.create(
+                name="My server",
+                image=1,
+                flavor=1,
+                meta={'foo': 'bar'},
+                userdata="hello moto",
+                key_name="fakekey",
+                block_device_mapping=bdm,
+                nics=nics
+            )
+            cs.assert_called('POST', '/os-volumes_boot')
+            self.assertTrue(isinstance(s, servers.Server))
+
+        test_create_server_from_volume()
 
     def test_create_server_userdata_file_object(self):
         s = cs.servers.create(
@@ -294,6 +328,16 @@ class ServersTest(utils.TestCase):
         self.assertEqual(cs.servers.get_console_output(s, length=50), success)
         cs.assert_called('POST', '/servers/1234/action')
 
+    def test_get_password(self):
+        s = cs.servers.get(1234)
+        self.assertEqual(s.get_password('/foo/id_rsa'), '')
+        cs.assert_called('GET', '/servers/1234/os-server-password')
+
+    def test_clear_password(self):
+        s = cs.servers.get(1234)
+        s.clear_password()
+        cs.assert_called('DELETE', '/servers/1234/os-server-password')
+
     def test_get_server_actions(self):
         s = cs.servers.get(1234)
         actions = s.actions()
@@ -326,6 +370,14 @@ class ServersTest(utils.TestCase):
         cs.servers.get_vnc_console(s, 'fake')
         cs.assert_called('POST', '/servers/1234/action')
 
+    def test_get_spice_console(self):
+        s = cs.servers.get(1234)
+        s.get_spice_console('fake')
+        cs.assert_called('POST', '/servers/1234/action')
+
+        cs.servers.get_spice_console(s, 'fake')
+        cs.assert_called('POST', '/servers/1234/action')
+
     def test_create_image(self):
         s = cs.servers.get(1234)
         s.create_image('123')
@@ -352,6 +404,13 @@ class ServersTest(utils.TestCase):
         cs.servers.reset_state(s, 'newstate')
         cs.assert_called('POST', '/servers/1234/action')
 
+    def test_reset_network(self):
+        s = cs.servers.get(1234)
+        s.reset_network()
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.reset_network(s)
+        cs.assert_called('POST', '/servers/1234/action')
+
     def test_add_security_group(self):
         s = cs.servers.get(1234)
         s.add_security_group('newsg')
@@ -365,3 +424,25 @@ class ServersTest(utils.TestCase):
         cs.assert_called('POST', '/servers/1234/action')
         cs.servers.remove_security_group(s, 'oldsg')
         cs.assert_called('POST', '/servers/1234/action')
+
+    def test_evacuate(self):
+        s = cs.servers.get(1234)
+        s.evacuate('fake_target_host', 'True')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.evacuate(s, 'fake_target_host', 'False', 'NewAdminPassword')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_interface_list(self):
+        s = cs.servers.get(1234)
+        s.interface_list()
+        cs.assert_called('GET', '/servers/1234/os-interface')
+
+    def test_interface_attach(self):
+        s = cs.servers.get(1234)
+        s.interface_attach(None, None, None)
+        cs.assert_called('POST', '/servers/1234/os-interface')
+
+    def test_interface_detach(self):
+        s = cs.servers.get(1234)
+        s.interface_detach('port-id')
+        cs.assert_called('DELETE', '/servers/1234/os-interface/port-id')

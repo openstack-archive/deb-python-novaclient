@@ -1,4 +1,4 @@
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # Copyright 2011, Piston Cloud Computing, Inc.
 #
 # All Rights Reserved.
@@ -27,6 +27,9 @@ class ServiceCatalog(object):
 
     def get_token(self):
         return self.catalog['access']['token']['id']
+
+    def get_tenant_id(self):
+        return self.catalog['access']['token']['tenant']['id']
 
     def url_for(self, attr=None, filter_value=None,
                     service_type=None, endpoint_type='publicURL',

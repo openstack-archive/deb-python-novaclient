@@ -66,11 +66,14 @@ class ClientException(Exception):
     """
     The base exception class for all exceptions this library raises.
     """
-    def __init__(self, code, message=None, details=None, request_id=None):
+    def __init__(self, code, message=None, details=None, request_id=None,
+                 url=None, method=None):
         self.code = code
         self.message = message or self.__class__.message
         self.details = details
         self.request_id = request_id
+        self.url = url
+        self.method = method
 
     def __str__(self):
         formatted_string = "%s (HTTP %s)" % (self.message, self.code)
@@ -140,19 +143,22 @@ _code_map = dict((c.http_status, c) for c in [BadRequest, Unauthorized,
                    Forbidden, NotFound, OverLimit, HTTPNotImplemented])
 
 
-def from_response(response, body):
+def from_response(response, body, url, method=None):
     """
     Return an instance of an ClientException or subclass
-    based on an httplib2 response.
+    based on an requests response.
 
     Usage::
 
-        resp, body = http.request(...)
-        if resp.status != 200:
-            raise exception_from_response(resp, body)
+        resp, body = requests.request(...)
+        if resp.status_code != 200:
+            raise exception_from_response(resp, rest.text)
     """
-    cls = _code_map.get(response.status, ClientException)
-    request_id = response.get('x-compute-request-id')
+    cls = _code_map.get(response.status_code, ClientException)
+    if response.headers:
+        request_id = response.headers.get('x-compute-request-id')
+    else:
+        request_id = None
     if body:
         message = "n/a"
         details = "n/a"
@@ -160,7 +166,8 @@ def from_response(response, body):
             error = body[body.keys()[0]]
             message = error.get('message', None)
             details = error.get('details', None)
-        return cls(code=response.status, message=message, details=details,
-                   request_id=request_id)
+        return cls(code=response.status_code, message=message, details=details,
+                   request_id=request_id, url=url, method=method)
     else:
-        return cls(code=response.status, request_id=request_id)
+        return cls(code=response.status_code, request_id=request_id, url=url,
+                method=method)

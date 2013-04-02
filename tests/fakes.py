@@ -34,7 +34,9 @@ class FakeClient(object):
                                                (expected + called)
 
         if body is not None:
-            assert self.client.callstack[pos][2] == body
+            if self.client.callstack[pos][2] != body:
+                raise AssertionError('%r != %r' %
+                                     (self.client.callstack[pos][2], body))
 
     def assert_called_anytime(self, method, url, body=None):
         """
@@ -57,9 +59,9 @@ class FakeClient(object):
             try:
                 assert entry[2] == body
             except AssertionError:
-                print entry[2]
-                print "!="
-                print body
+                print(entry[2])
+                print("!=")
+                print(body)
                 raise
 
         self.client.callstack = []

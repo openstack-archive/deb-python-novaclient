@@ -1,5 +1,5 @@
 # Copyright 2010 Jacob Kaplan-Moss
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -18,21 +18,38 @@
 Command-line interface to the OpenStack Nova API.
 """
 
+from __future__ import print_function
 import argparse
+import getpass
 import glob
-import httplib2
 import imp
 import itertools
+import logging
 import os
 import pkg_resources
 import pkgutil
 import sys
-import logging
+
+HAS_KEYRING = False
+try:
+    import keyring
+    HAS_KEYRING = True
+    try:
+        if isinstance(keyring.get_keyring(), keyring.backend.GnomeKeyring):
+            import gnomekeyring
+            KeyringIOError = gnomekeyring.IOError
+        else:
+            KeyringIOError = IOError
+    except Exception:
+        KeyringIOError = IOError
+except ImportError:
+    pass
 
 import novaclient
 from novaclient import client
 from novaclient import exceptions as exc
 import novaclient.extension
+from novaclient.openstack.common import strutils
 from novaclient import utils
 from novaclient.v1_1 import shell as shell_v1_1
 
@@ -41,6 +58,137 @@ DEFAULT_NOVA_ENDPOINT_TYPE = 'publicURL'
 DEFAULT_NOVA_SERVICE_TYPE = 'compute'
 
 logger = logging.getLogger(__name__)
+
+
+def positive_non_zero_float(text):
+    if text is None:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        msg = "%s must be a float" % text
+        raise argparse.ArgumentTypeError(msg)
+    if value <= 0:
+        msg = "%s must be greater than 0" % text
+        raise argparse.ArgumentTypeError(msg)
+    return value
+
+
+class SecretsHelper(object):
+    def __init__(self, args, client):
+        self.args = args
+        self.client = client
+        self.key = None
+
+    def _validate_string(self, text):
+        if text is None or len(text) == 0:
+            return False
+        return True
+
+    def _make_key(self):
+        if self.key is not None:
+            return self.key
+        keys = [
+            self.client.auth_url,
+            self.client.projectid,
+            self.client.user,
+            self.client.region_name,
+            self.client.endpoint_type,
+            self.client.service_type,
+            self.client.service_name,
+            self.client.volume_service_name,
+        ]
+        for (index, key) in enumerate(keys):
+            if key is None:
+                keys[index] = '?'
+            else:
+                keys[index] = str(keys[index])
+        self.key = "/".join(keys)
+        return self.key
+
+    def _prompt_password(self, verify=True):
+        pw = None
+        if hasattr(sys.stdin, 'isatty') and sys.stdin.isatty():
+            # Check for Ctl-D
+            try:
+                while True:
+                    pw1 = getpass.getpass('OS Password: ')
+                    if verify:
+                        pw2 = getpass.getpass('Please verify: ')
+                    else:
+                        pw2 = pw1
+                    if pw1 == pw2 and self._validate_string(pw1):
+                        pw = pw1
+                        break
+            except EOFError:
+                pass
+        return pw
+
+    def save(self, auth_token, management_url, tenant_id):
+        if not HAS_KEYRING or not self.args.os_cache:
+            return
+        if (auth_token == self.auth_token and
+            management_url == self.management_url):
+            # Nothing changed....
+            return
+        if not all([management_url, auth_token, tenant_id]):
+            raise ValueError("Unable to save empty management url/auth token")
+        value = "|".join([str(auth_token),
+                          str(management_url),
+                          str(tenant_id)])
+        keyring.set_password("novaclient_auth", self._make_key(), value)
+
+    @property
+    def password(self):
+        if self._validate_string(self.args.os_password):
+            return self.args.os_password
+        if self._validate_string(self.args.apikey):
+            return self.args.apikey
+        verify_pass = utils.bool_from_str(utils.env("OS_VERIFY_PASSWORD"))
+        return self._prompt_password(verify_pass)
+
+    @property
+    def management_url(self):
+        if not HAS_KEYRING:
+            return None
+        management_url = None
+        try:
+            block = keyring.get_password('novaclient_auth', self._make_key())
+            if block:
+                _token, management_url, _tenant_id = block.split('|', 2)
+        except (KeyringIOError, ValueError):
+            pass
+        return management_url
+
+    @property
+    def auth_token(self):
+        # Now is where it gets complicated since we
+        # want to look into the keyring module, if it
+        # exists and see if anything was provided in that
+        # file that we can use.
+        if not HAS_KEYRING:
+            return None
+        token = None
+        try:
+            block = keyring.get_password('novaclient_auth', self._make_key())
+            if block:
+                token, _management_url, _tenant_id = block.split('|', 2)
+        except (KeyringIOError, ValueError):
+            pass
+        return token
+
+    @property
+    def tenant_id(self):
+        if not HAS_KEYRING:
+            return None
+        tenant_id = None
+        try:
+            block = keyring.get_password('novaclient_auth', self._make_key())
+            if block:
+                _token, _management_url, tenant_id = block.split('|', 2)
+        except (KeyringIOError, ValueError):
+            pass
+        return tenant_id
 
 
 class NovaClientArgumentParser(argparse.ArgumentParser):
@@ -71,7 +219,7 @@ class OpenStackComputeShell(object):
         parser = NovaClientArgumentParser(
             prog='nova',
             description=__doc__.strip(),
-            epilog='See "nova help COMMAND" '\
+            epilog='See "nova help COMMAND" '
                    'for help on a specific command.',
             add_help=False,
             formatter_class=OpenStackHelpFormatter,
@@ -93,16 +241,31 @@ class OpenStackComputeShell(object):
             help="Print debugging output")
 
         parser.add_argument('--no-cache',
-            default=utils.env('OS_NO_CACHE', default=False),
-            action='store_true',
-            help="Don't use the auth token cache.")
-        parser.add_argument('--no_cache',
+            default=not utils.bool_from_str(
+                    utils.env('OS_NO_CACHE', default='true')),
+            action='store_false',
+            dest='os_cache',
             help=argparse.SUPPRESS)
+        parser.add_argument('--no_cache',
+            action='store_false',
+            dest='os_cache',
+            help=argparse.SUPPRESS)
+
+        parser.add_argument('--os-cache',
+            default=utils.env('OS_CACHE', default=False),
+            action='store_true',
+            help="Use the auth token cache.")
 
         parser.add_argument('--timings',
             default=False,
             action='store_true',
             help="Print call timing info")
+
+        parser.add_argument('--timeout',
+            default=600,
+            metavar='<seconds>',
+            type=positive_non_zero_float,
+            help="Set HTTP call timeout (in seconds)")
 
         parser.add_argument('--os-username',
             metavar='<auth-user-name>',
@@ -187,6 +350,13 @@ class OpenStackComputeShell(object):
         parser.add_argument('--os_compute_api_version',
             help=argparse.SUPPRESS)
 
+        parser.add_argument('--os-cacert',
+            metavar='<ca-certificate>',
+            default=utils.env('OS_CACERT', default=None),
+            help='Specify a CA bundle file to use in '
+                 'verifying a TLS (https) server certificate. '
+                 'Defaults to env[OS_CACERT]')
+
         parser.add_argument('--insecure',
             default=utils.env('NOVACLIENT_INSECURE', default=False),
             action='store_true',
@@ -268,12 +438,15 @@ class OpenStackComputeShell(object):
 
     def _discover_via_python_path(self):
         for (module_loader, name, _ispkg) in pkgutil.iter_modules():
-            if name.endswith('python_novaclient_ext'):
+            if name.endswith('_python_novaclient_ext'):
                 if not hasattr(module_loader, 'load_module'):
                     # Python 2.6 compat: actually get an ImpImporter obj
                     module_loader = module_loader.find_module(name)
 
                 module = module_loader.load_module(name)
+                if hasattr(module, 'extension_name'):
+                    name = module.extension_name
+
                 yield name, module
 
     def _discover_via_contrib_path(self, version):
@@ -334,13 +507,11 @@ class OpenStackComputeShell(object):
         if not debug:
             return
 
-        streamhandler = logging.StreamHandler()
         streamformat = "%(levelname)s (%(module)s:%(lineno)d) %(message)s"
-        streamhandler.setFormatter(logging.Formatter(streamformat))
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(streamhandler)
-
-        httplib2.debuglevel = 1
+        # Set up the root logger to debug so that the submodules can
+        # print debug messages
+        logging.basicConfig(level=logging.DEBUG,
+                            format=streamformat)
 
     def main(self, argv):
         # Parse args once to find version and debug settings
@@ -380,19 +551,23 @@ class OpenStackComputeShell(object):
             self.do_bash_completion(args)
             return 0
 
-        (os_username, os_password, os_tenant_name, os_auth_url,
+        (os_username, os_tenant_name, os_auth_url,
                 os_region_name, os_auth_system, endpoint_type, insecure,
                 service_type, service_name, volume_service_name,
-                username, apikey, projectid, url, region_name,
-                bypass_url, no_cache) = (
-                        args.os_username, args.os_password,
+                username, projectid, url, region_name,
+                bypass_url, os_cache, cacert, timeout) = (
+                        args.os_username,
                         args.os_tenant_name, args.os_auth_url,
                         args.os_region_name, args.os_auth_system,
                         args.endpoint_type, args.insecure, args.service_type,
                         args.service_name, args.volume_service_name,
-                        args.username, args.apikey, args.projectid,
+                        args.username, args.projectid,
                         args.url, args.region_name,
-                        args.bypass_url, args.no_cache)
+                        args.bypass_url, args.os_cache,
+                        args.os_cacert, args.timeout)
+
+        # Fetched and set later as needed
+        os_password = None
 
         if not endpoint_type:
             endpoint_type = DEFAULT_NOVA_ENDPOINT_TYPE
@@ -403,7 +578,6 @@ class OpenStackComputeShell(object):
 
         #FIXME(usrleon): Here should be restrict for project id same as
         # for os_username or os_password but for compatibility it is not.
-
         if not utils.isunauthenticated(args.func):
             if not os_username:
                 if not username:
@@ -411,14 +585,6 @@ class OpenStackComputeShell(object):
                             "via either --os-username or env[OS_USERNAME]")
                 else:
                     os_username = username
-
-            if not os_password:
-                if not apikey:
-                    raise exc.CommandError("You must provide a password "
-                            "via either --os-password or via "
-                            "env[OS_PASSWORD]")
-                else:
-                    os_password = apikey
 
             if not os_tenant_name:
                 if not projectid:
@@ -441,7 +607,7 @@ class OpenStackComputeShell(object):
                             "via either --os-auth-url or env[OS_AUTH_URL] "
                             "or specify an auth_system which defines a "
                             "default url with --os-auth-system "
-                            "or env[OS_AUTH_SYSTEM")
+                            "or env[OS_AUTH_SYSTEM]")
 
             if not os_region_name and region_name:
                 os_region_name = region_name
@@ -463,7 +629,43 @@ class OpenStackComputeShell(object):
                 service_name=service_name, auth_system=os_auth_system,
                 volume_service_name=volume_service_name,
                 timings=args.timings, bypass_url=bypass_url,
-                no_cache=no_cache, http_log_debug=options.debug)
+                os_cache=os_cache, http_log_debug=options.debug,
+                cacert=cacert, timeout=timeout)
+
+        # Now check for the password/token of which pieces of the
+        # identifying keyring key can come from the underlying client
+        if not utils.isunauthenticated(args.func):
+            helper = SecretsHelper(args, self.cs.client)
+            use_pw = True
+            tenant_id, auth_token, management_url = (helper.tenant_id,
+                                                     helper.auth_token,
+                                                     helper.management_url)
+            if tenant_id and auth_token and management_url:
+                self.cs.client.tenant_id = tenant_id
+                self.cs.client.auth_token = auth_token
+                self.cs.client.management_url = management_url
+                # Try to auth with the given info, if it fails
+                # go into password mode...
+                try:
+                    self.cs.authenticate()
+                    use_pw = False
+                except (exc.Unauthorized, exc.AuthorizationFailure):
+                    # Likely it expired or just didn't work...
+                    self.cs.client.auth_token = None
+                    self.cs.client.management_url = None
+            if use_pw:
+                # Auth using token must have failed or not happened
+                # at all, so now switch to password mode and save
+                # the token when its gotten... using our keyring
+                # saver
+                os_password = helper.password
+                if not os_password:
+                    raise exc.CommandError(
+                        'Expecting a password provided via either '
+                        '--os-password, env[OS_PASSWORD], or '
+                        'prompted response')
+                self.cs.client.password = os_password
+                self.cs.client.keyring_saver = helper
 
         try:
             if not utils.isunauthenticated(args.func):
@@ -509,7 +711,7 @@ class OpenStackComputeShell(object):
 
         commands.remove('bash-completion')
         commands.remove('bash_completion')
-        print ' '.join(commands | options)
+        print(' '.join(commands | options))
 
     @utils.arg('command', metavar='<subcommand>', nargs='?',
                     help='Display help for <subcommand>')
@@ -537,11 +739,11 @@ class OpenStackHelpFormatter(argparse.HelpFormatter):
 
 def main():
     try:
-        OpenStackComputeShell().main(sys.argv[1:])
+        OpenStackComputeShell().main(map(strutils.safe_decode, sys.argv[1:]))
 
-    except Exception, e:
+    except Exception as e:
         logger.debug(e, exc_info=1)
-        print >> sys.stderr, "ERROR: %s" % unicode(e)
+        print("ERROR: %s" % strutils.safe_encode(unicode(e)), file=sys.stderr)
         sys.exit(1)
 
 

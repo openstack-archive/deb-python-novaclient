@@ -1,4 +1,4 @@
-# Copyright 2012 OpenStack LLC.
+# Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -25,7 +25,7 @@ class QuotaClassSet(base.Resource):
         return self.class_name
 
     def update(self, *args, **kwargs):
-        self.manager.update(self.class_name, *args, **kwargs)
+        return self.manager.update(self.class_name, *args, **kwargs)
 
 
 class QuotaClassSetManager(base.ManagerWithFind):
@@ -36,24 +36,32 @@ class QuotaClassSetManager(base.ManagerWithFind):
                          "quota_class_set")
 
     def update(self, class_name, metadata_items=None,
-               injected_file_content_bytes=None, volumes=None, gigabytes=None,
+               injected_file_content_bytes=None, injected_file_path_bytes=None,
+               volumes=None, gigabytes=None,
                ram=None, floating_ips=None, instances=None,
-               injected_files=None, cores=None):
+               injected_files=None, cores=None, key_pairs=None,
+               security_groups=None, security_group_rules=None):
 
         body = {'quota_class_set': {
                 'class_name': class_name,
                 'metadata_items': metadata_items,
+                'key_pairs': key_pairs,
                 'injected_file_content_bytes': injected_file_content_bytes,
+                'injected_file_path_bytes': injected_file_path_bytes,
                 'volumes': volumes,
                 'gigabytes': gigabytes,
                 'ram': ram,
                 'floating_ips': floating_ips,
                 'instances': instances,
                 'injected_files': injected_files,
-                'cores': cores}}
+                'cores': cores,
+                'security_groups': security_groups,
+                'security_group_rules': security_group_rules}}
 
         for key in body['quota_class_set'].keys():
             if body['quota_class_set'][key] is None:
                 body['quota_class_set'].pop(key)
 
-        self._update('/os-quota-class-sets/%s' % (class_name), body)
+        return self._update('/os-quota-class-sets/%s' % (class_name),
+                            body,
+                            'quota_class_set')

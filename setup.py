@@ -1,4 +1,4 @@
-# Copyright 2011 OpenStack, LLC
+# Copyright 2011 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,8 +34,9 @@ setuptools.setup(
     url="https://github.com/openstack/python-novaclient",
     packages=setuptools.find_packages(exclude=['tests', 'tests.*']),
     install_requires=setup.parse_requirements(),
-    test_suite="nose.collector",
     cmdclass=setup.get_cmdclass(),
+    setup_requires=['setuptools_git>=0.4'],
+    include_package_data=True,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Environment :: Console",
