@@ -8,7 +8,7 @@ Uploaders: Julien Danjou <acid@debian.org>,
            Mehdi Abaakouk <sileht@sileht.net>
 Build-Depends: debhelper (>= 9), python-all (>= 2.6.6-3~)
 Build-Depends-Indep: openstack-pkg-tools,
- python (>= 2.7) | python-argparse,
+ python-argparse,
  python-distribute,
  python-setuptools-git,
  python-httplib2,
@@ -16,6 +16,7 @@ Build-Depends-Indep: openstack-pkg-tools,
  python-mock (>= 0.7),
  python-nose,
  python-prettytable (>= 0.6),
+ python-requests,
  python-simplejson,
  python-unittest2
 Standards-Version: 3.9.3
@@ -34,6 +35,7 @@ Depends: ${misc:Depends}, ${python:Depends},
  python-keyring,
  python-pkg-resources,
  python-prettytable (>= 0.6),
+ python-requests,
  python-simplejson
 Description: client library for OpenStack Compute API
  OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
