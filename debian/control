@@ -6,20 +6,25 @@ Uploaders: Julien Danjou <acid@debian.org>,
            Thomas Goirand <zigo@debian.org>,
            Ghe Rivero <ghe.rivero@stackops.com>,
            Mehdi Abaakouk <sileht@sileht.net>
-Build-Depends: debhelper (>= 9), python-all (>= 2.6.6-3~)
-Build-Depends-Indep: openstack-pkg-tools,
- python-argparse,
+Build-Depends: debhelper (>= 9), python-all (>= 2.6.6-3~), openstack-pkg-tools
+Build-Depends-Indep: python-argparse,
+ python-coverage,
  python-distribute,
- python-setuptools-git,
+ python-fixtures,
  python-httplib2,
  python-iso8601,
+ python-keyring,
  python-mock (>= 0.7),
  python-nose,
  python-prettytable (>= 0.6),
  python-requests,
+ python-setuptools-git,
  python-simplejson,
+ python-sphinx,
+ python-testrepository,
+ python-testtools,
  python-unittest2
-Standards-Version: 3.9.3
+Standards-Version: 3.9.4
 Homepage: https://github.com/openstack/python-novaclient 
 Vcs-Git: git://git.debian.org/openstack/python-novaclient.git
 Vcs-Browser: http://git.debian.org/?p=openstack/python-novaclient.git;a=summary 
