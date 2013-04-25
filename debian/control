@@ -23,7 +23,8 @@ Build-Depends-Indep: python-argparse,
  python-sphinx,
  python-testrepository,
  python-testtools,
- python-unittest2
+ python-unittest2,
+ testrepository
 Standards-Version: 3.9.4
 Homepage: https://github.com/openstack/python-novaclient 
 Vcs-Git: git://git.debian.org/openstack/python-novaclient.git
