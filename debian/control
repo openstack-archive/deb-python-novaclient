@@ -32,6 +32,7 @@ Pre-Depends: dpkg (>= 1.15.6~)
 Depends: ${misc:Depends}, ${python:Depends}, 
  python-argparse,
  python-httplib2,
+ python-iso8601,
  python-keyring,
  python-pkg-resources,
  python-prettytable (>= 0.6),
