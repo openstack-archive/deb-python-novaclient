@@ -916,7 +916,7 @@ def do_list(cs, args):
             'image': imageid,
             'flavor': flavorid,
             'status': args.status,
-            'project_id': args.tenant,
+            'tenant_id': args.tenant,
             'host': args.host,
             'instance_name': args.instance_name}
 
@@ -1127,15 +1127,6 @@ def do_diagnostics(cs, args):
     """Retrieve server diagnostics."""
     server = _find_server(cs, args.server)
     utils.print_dict(cs.servers.diagnostics(server)[1])
-
-
-@utils.arg('server', metavar='<server>', help='Name or ID of server.')
-def do_actions(cs, args):
-    """Retrieve server actions."""
-    server = _find_server(cs, args.server)
-    utils.print_list(
-        cs.servers.actions(server),
-        ["Created_At", "Action", "Error"])
 
 
 @utils.arg('server', metavar='<server>', help='Name or ID of server.')
@@ -1885,7 +1876,8 @@ def do_secgroup_delete_rule(cs, args):
 
     secgroup = _get_secgroup(cs, args.secgroup)
     for rule in secgroup.rules:
-        if (rule['ip_protocol'].upper() == args.ip_proto.upper() and
+        if (rule['ip_protocol'] and
+            rule['ip_protocol'].upper() == args.ip_proto.upper() and
             rule['from_port'] == int(args.from_port) and
             rule['to_port'] == int(args.to_port) and
             rule['ip_range']['cidr'] == args.cidr):
