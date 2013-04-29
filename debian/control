@@ -17,7 +17,7 @@ Build-Depends-Indep: python-argparse,
  python-mock (>= 0.7),
  python-nose,
  python-prettytable (>= 0.6),
- python-requests,
+ python-requests (>= 1.2.0),
  python-setuptools-git,
  python-simplejson,
  python-sphinx,
@@ -42,7 +42,7 @@ Depends: ${misc:Depends}, ${python:Depends},
  python-keyring,
  python-pkg-resources,
  python-prettytable (>= 0.6),
- python-requests,
+ python-requests (>= 1.2.0),
  python-simplejson
 Description: client library for OpenStack Compute API
  OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
