@@ -6,15 +6,26 @@ Uploaders: Julien Danjou <acid@debian.org>,
            Thomas Goirand <zigo@debian.org>,
            Ghe Rivero <ghe.rivero@stackops.com>,
            Mehdi Abaakouk <sileht@sileht.net>
-Build-Depends: debhelper (>= 7.0.50),
- python-all (>= 2.6.6-3~),
+Build-Depends: debhelper (>= 9), python-all (>= 2.6.6-3~), openstack-pkg-tools
+Build-Depends-Indep: python-argparse,
+ python-coverage,
  python-distribute,
- python-nose,
- python-prettytable,
- python (>= 2.7) | python-argparse,
+ python-fixtures,
+ python-httplib2,
+ python-iso8601,
+ python-keyring,
  python-mock (>= 0.7),
- python-httplib2
-Standards-Version: 3.9.3
+ python-nose,
+ python-prettytable (>= 0.6),
+ python-requests (>= 1.2.0),
+ python-setuptools-git,
+ python-simplejson,
+ python-sphinx,
+ python-testrepository,
+ python-testtools,
+ python-unittest2,
+ testrepository
+Standards-Version: 3.9.4
 Homepage: https://github.com/openstack/python-novaclient 
 Vcs-Git: git://git.debian.org/openstack/python-novaclient.git
 Vcs-Browser: http://git.debian.org/?p=openstack/python-novaclient.git;a=summary 
@@ -23,7 +34,22 @@ Package: python-novaclient
 Architecture: all
 Breaks: simh (<< 3.8.1-3)
 Replaces: simh (<< 3.8.1-3)
-Depends: ${misc:Depends}, ${python:Depends}, python (>= 2.7) | python-argparse, python (>= 2.6) | python-simplejson, python-pkg-resources, python-prettytable, python-httplib2
+Pre-Depends: dpkg (>= 1.15.6~)
+Depends: ${misc:Depends}, ${python:Depends}, 
+ python-argparse,
+ python-httplib2,
+ python-iso8601,
+ python-keyring,
+ python-pkg-resources,
+ python-prettytable (>= 0.6),
+ python-requests (>= 1.2.0),
+ python-simplejson
 Description: client library for OpenStack Compute API
+ OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
+ designed to be modular and easy to extend and adapt. In addition to its
+ "native" OpenStack API, it also supports the Amazon EC2 API, and it supports
+ many different database backends (including SQLite, MySQL, and PostgreSQL),
+ hypervisors (KVM, Xen), and user directory systems (LDAP, SQL).
+ .
  Python novaclient library and nova CLI tool for interacting with OpenStack
  Compute (Nova) through the OpenStack Compute API.

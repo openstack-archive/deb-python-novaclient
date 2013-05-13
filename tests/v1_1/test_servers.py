@@ -1,5 +1,10 @@
+# -*- coding: utf-8 -*-
+
 import StringIO
 
+import mock
+
+from novaclient import exceptions
 from novaclient.v1_1 import servers
 from tests import utils
 from tests.v1_1 import fakes
@@ -43,6 +48,38 @@ class ServersTest(utils.TestCase):
         cs.assert_called('POST', '/servers')
         self.assertTrue(isinstance(s, servers.Server))
 
+    def test_create_server_boot_from_volume_with_nics(self):
+        old_boot = cs.servers._boot
+
+        nics = [{'net-id': '11111111-1111-1111-1111-111111111111',
+                 'v4-fixed-ip': '10.0.0.7'}]
+        bdm = {"volume_size": "1",
+               "volume_id": "11111111-1111-1111-1111-111111111111",
+               "delete_on_termination": "0",
+               "device_name": "vda"}
+
+        def wrapped_boot(url, key, *boot_args, **boot_kwargs):
+            self.assertEqual(boot_kwargs['block_device_mapping'], bdm)
+            self.assertEqual(boot_kwargs['nics'], nics)
+            return old_boot(url, key, *boot_args, **boot_kwargs)
+
+        @mock.patch.object(cs.servers, '_boot', wrapped_boot)
+        def test_create_server_from_volume():
+            s = cs.servers.create(
+                name="My server",
+                image=1,
+                flavor=1,
+                meta={'foo': 'bar'},
+                userdata="hello moto",
+                key_name="fakekey",
+                block_device_mapping=bdm,
+                nics=nics
+            )
+            cs.assert_called('POST', '/os-volumes_boot')
+            self.assertTrue(isinstance(s, servers.Server))
+
+        test_create_server_from_volume()
+
     def test_create_server_userdata_file_object(self):
         s = cs.servers.create(
             name="My server",
@@ -50,6 +87,38 @@ class ServersTest(utils.TestCase):
             flavor=1,
             meta={'foo': 'bar'},
             userdata=StringIO.StringIO('hello moto'),
+            files={
+                '/etc/passwd': 'some data',                 # a file
+                '/tmp/foo.txt': StringIO.StringIO('data'),   # a stream
+            },
+        )
+        cs.assert_called('POST', '/servers')
+        self.assertTrue(isinstance(s, servers.Server))
+
+    def test_create_server_userdata_unicode(self):
+        s = cs.servers.create(
+            name="My server",
+            image=1,
+            flavor=1,
+            meta={'foo': 'bar'},
+            userdata=u'こんにちは',
+            key_name="fakekey",
+            files={
+                '/etc/passwd': 'some data',                 # a file
+                '/tmp/foo.txt': StringIO.StringIO('data'),   # a stream
+            },
+        )
+        cs.assert_called('POST', '/servers')
+        self.assertTrue(isinstance(s, servers.Server))
+
+    def test_create_server_userdata_utf8(self):
+        s = cs.servers.create(
+            name="My server",
+            image=1,
+            flavor=1,
+            meta={'foo': 'bar'},
+            userdata='こんにちは',
+            key_name="fakekey",
             files={
                 '/etc/passwd': 'some data',                 # a file
                 '/tmp/foo.txt': StringIO.StringIO('data'),   # a stream
@@ -97,17 +166,17 @@ class ServersTest(utils.TestCase):
         cs.assert_called('GET', '/servers/detail')
         self.assertEqual(s.name, 'sample-server')
 
-        # Find with multiple results arbitraility returns the first item
-        s = cs.servers.find(flavor={"id": 1, "name": "256 MB Server"})
+        self.assertRaises(exceptions.NoUniqueMatch, cs.servers.find,
+                          flavor={"id": 1, "name": "256 MB Server"})
+
         sl = cs.servers.findall(flavor={"id": 1, "name": "256 MB Server"})
-        self.assertEqual(sl[0], s)
-        self.assertEqual([s.id for s in sl], [1234, 5678])
+        self.assertEqual([s.id for s in sl], [1234, 5678, 9012])
 
     def test_reboot_server(self):
         s = cs.servers.get(1234)
         s.reboot()
         cs.assert_called('POST', '/servers/1234/action')
-        cs.servers.reboot(s, type='HARD')
+        cs.servers.reboot(s, reboot_type='HARD')
         cs.assert_called('POST', '/servers/1234/action')
 
     def test_rebuild_server(self):
@@ -187,6 +256,20 @@ class ServersTest(utils.TestCase):
         s.remove_floating_ip(f)
         cs.assert_called('POST', '/servers/1234/action')
 
+    def test_stop(self):
+        s = cs.servers.get(1234)
+        s.stop()
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.stop(s)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_start(self):
+        s = cs.servers.get(1234)
+        s.start()
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.start(s)
+        cs.assert_called('POST', '/servers/1234/action')
+
     def test_rescue(self):
         s = cs.servers.get(1234)
         s.rescue()
@@ -215,6 +298,13 @@ class ServersTest(utils.TestCase):
         cs.servers.unlock(s)
         cs.assert_called('POST', '/servers/1234/action')
 
+    def test_backup(self):
+        s = cs.servers.get(1234)
+        s.backup('back1', 'daily', 1)
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.backup(s, 'back1', 'daily', 2)
+        cs.assert_called('POST', '/servers/1234/action')
+
     def test_get_console_output_without_length(self):
         success = 'foo'
         s = cs.servers.get(1234)
@@ -238,17 +328,15 @@ class ServersTest(utils.TestCase):
         self.assertEqual(cs.servers.get_console_output(s, length=50), success)
         cs.assert_called('POST', '/servers/1234/action')
 
-    def test_get_server_actions(self):
+    def test_get_password(self):
         s = cs.servers.get(1234)
-        actions = s.actions()
-        self.assertTrue(actions is not None)
-        cs.assert_called('GET', '/servers/1234/actions')
+        self.assertEqual(s.get_password('/foo/id_rsa'), '')
+        cs.assert_called('GET', '/servers/1234/os-server-password')
 
-        actions_from_manager = cs.servers.actions(1234)
-        self.assertTrue(actions_from_manager is not None)
-        cs.assert_called('GET', '/servers/1234/actions')
-
-        self.assertEqual(actions, actions_from_manager)
+    def test_clear_password(self):
+        s = cs.servers.get(1234)
+        s.clear_password()
+        cs.assert_called('DELETE', '/servers/1234/os-server-password')
 
     def test_get_server_diagnostics(self):
         s = cs.servers.get(1234)
@@ -270,6 +358,14 @@ class ServersTest(utils.TestCase):
         cs.servers.get_vnc_console(s, 'fake')
         cs.assert_called('POST', '/servers/1234/action')
 
+    def test_get_spice_console(self):
+        s = cs.servers.get(1234)
+        s.get_spice_console('fake')
+        cs.assert_called('POST', '/servers/1234/action')
+
+        cs.servers.get_spice_console(s, 'fake')
+        cs.assert_called('POST', '/servers/1234/action')
+
     def test_create_image(self):
         s = cs.servers.get(1234)
         s.create_image('123')
@@ -288,3 +384,53 @@ class ServersTest(utils.TestCase):
         cs.servers.live_migrate(s, host='hostname', block_migration=False,
                                 disk_over_commit=False)
         cs.assert_called('POST', '/servers/1234/action')
+
+    def test_reset_state(self):
+        s = cs.servers.get(1234)
+        s.reset_state('newstate')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.reset_state(s, 'newstate')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_reset_network(self):
+        s = cs.servers.get(1234)
+        s.reset_network()
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.reset_network(s)
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_add_security_group(self):
+        s = cs.servers.get(1234)
+        s.add_security_group('newsg')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.add_security_group(s, 'newsg')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_remove_security_group(self):
+        s = cs.servers.get(1234)
+        s.remove_security_group('oldsg')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.remove_security_group(s, 'oldsg')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_evacuate(self):
+        s = cs.servers.get(1234)
+        s.evacuate('fake_target_host', 'True')
+        cs.assert_called('POST', '/servers/1234/action')
+        cs.servers.evacuate(s, 'fake_target_host', 'False', 'NewAdminPassword')
+        cs.assert_called('POST', '/servers/1234/action')
+
+    def test_interface_list(self):
+        s = cs.servers.get(1234)
+        s.interface_list()
+        cs.assert_called('GET', '/servers/1234/os-interface')
+
+    def test_interface_attach(self):
+        s = cs.servers.get(1234)
+        s.interface_attach(None, None, None)
+        cs.assert_called('POST', '/servers/1234/os-interface')
+
+    def test_interface_detach(self):
+        s = cs.servers.get(1234)
+        s.interface_detach('port-id')
+        cs.assert_called('DELETE', '/servers/1234/os-interface/port-id')

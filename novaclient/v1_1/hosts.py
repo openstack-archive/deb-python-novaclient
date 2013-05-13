@@ -1,4 +1,4 @@
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -54,10 +54,16 @@ class HostManager(base.ManagerWithFind):
 
     def update(self, host, values):
         """Update status or maintenance mode for the host."""
-        result = self._update("/os-hosts/%s" % host, values)
-        return self.resource_class(self, result)
+        return self._update("/os-hosts/%s" % host, values)
 
     def host_action(self, host, action):
         """Performs an action on a host."""
-        url = "/os-hosts/%s/%s" % (host, action)
-        return self._get(url)
+        body = {action: None}
+        url = '/os-hosts/%s/action' % host
+        return self.api.client.post(url, body=body)
+
+    def list_all(self, zone=None):
+        url = '/os-hosts'
+        if zone:
+            url = '/os-hosts?zone=%s' % zone
+        return self._list(url, "hosts")

@@ -1,4 +1,4 @@
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,7 +16,6 @@
 from tests import utils
 from tests.v1_1 import fakes
 
-
 cs = fakes.FakeClient()
 
 
@@ -28,14 +27,15 @@ class QuotaSetsTest(utils.TestCase):
         cs.assert_called('GET', '/os-quota-sets/%s' % tenant_id)
 
     def test_tenant_quotas_defaults(self):
-        tenant_id = 'test'
+        tenant_id = '97f4c221bff44578b0300df4ef119353'
         cs.quotas.defaults(tenant_id)
         cs.assert_called('GET', '/os-quota-sets/%s/defaults' % tenant_id)
 
     def test_update_quota(self):
-        q = cs.quotas.get('test')
+        q = cs.quotas.get('97f4c221bff44578b0300df4ef119353')
         q.update(volumes=2)
-        cs.assert_called('PUT', '/os-quota-sets/test')
+        cs.assert_called('PUT',
+                   '/os-quota-sets/97f4c221bff44578b0300df4ef119353')
 
     def test_refresh_quota(self):
         q = cs.quotas.get('test')

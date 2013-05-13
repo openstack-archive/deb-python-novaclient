@@ -33,8 +33,8 @@ function process_option {
     -p|--pep8) just_pep8=1;;
     -P|--no-pep8) no_pep8=1;;
     -c|--coverage) coverage=1;;
-    -*) noseopts="$noseopts $1";;
-    *) noseargs="$noseargs $1"
+    -*) testropts="$testropts $1";;
+    *) testrargs="$testrargs $1"
   esac
 }
 
@@ -45,58 +45,73 @@ never_venv=0
 force=0
 no_site_packages=0
 installvenvopts=
-noseargs=
-noseopts=
+testrargs=
+testropts=
 wrapper=""
 just_pep8=0
 no_pep8=0
 coverage=0
 
+LANG=en_US.UTF-8
+LANGUAGE=en_US:en
+LC_ALL=C
+
 for arg in "$@"; do
   process_option $arg
 done
-
-# If enabled, tell nose to collect coverage data
-if [ $coverage -eq 1 ]; then
-    noseopts="$noseopts --with-coverage --cover-package=novaclient"
-fi
 
 if [ $no_site_packages -eq 1 ]; then
   installvenvopts="--no-site-packages"
 fi
 
+function init_testr {
+  if [ ! -d .testrepository ]; then
+    ${wrapper} testr init
+  fi
+}
+
 function run_tests {
+  # Cleanup *pyc
+  ${wrapper} find . -type f -name "*.pyc" -delete
+
+  if [ $coverage -eq 1 ]; then
+    # Do not test test_coverage_ext when gathering coverage.
+    if [ "x$testrargs" = "x" ]; then
+      testrargs="^(?!.*test_coverage_ext).*$"
+    fi
+    export PYTHON="${wrapper} coverage run --source novaclient --parallel-mode"
+  fi
   # Just run the test suites in current environment
-  ${wrapper} $NOSETESTS
-  # If we get some short import error right away, print the error log directly
+  set +e
+  TESTRTESTS="$TESTRTESTS $testrargs"
+  echo "Running \`${wrapper} $TESTRTESTS\`"
+  ${wrapper} $TESTRTESTS
   RESULT=$?
+  set -e
+
+  copy_subunit_log
+
   return $RESULT
+}
+
+function copy_subunit_log {
+  LOGNAME=`cat .testrepository/next-stream`
+  LOGNAME=$(($LOGNAME - 1))
+  LOGNAME=".testrepository/${LOGNAME}"
+  cp $LOGNAME subunit.log
 }
 
 function run_pep8 {
   echo "Running pep8 ..."
-  srcfiles="novaclient tests"
+  srcfiles="--exclude=.venv,.git,.tox,dist,doc,*openstack/common*,*lib/python*"
+  srcfiles+=",*egg,build ."
   # Just run PEP8 in current environment
   #
-  # NOTE(sirp): W602 (deprecated 3-arg raise) is being ignored for the
-  # following reasons:
-  #
-  #  1. It's needed to preserve traceback information when re-raising
-  #     exceptions; this is needed b/c Eventlet will clear exceptions when
-  #     switching contexts.
-  #
-  #  2. There doesn't appear to be an alternative, "pep8-tool" compatible way of doing this
-  #     in Python 2 (in Python 3 `with_traceback` could be used).
-  #
-  #  3. Can find no corroborating evidence that this is deprecated in Python 2
-  #     other than what the PEP8 tool claims. It is deprecated in Python 3, so,
-  #     perhaps the mistake was thinking that the deprecation applied to Python 2
-  #     as well.
-  pep8_opts="--ignore=E202,W602 --repeat"
-  ${wrapper} pep8 ${pep8_opts} ${srcfiles}
+  ignore="--ignore=E12,E711,E721,E712"
+  ${wrapper} pep8 ${ignore} --show-source ${srcfiles}
 }
 
-NOSETESTS="nosetests $noseopts $noseargs"
+TESTRTESTS="testr run --parallel $testropts"
 
 if [ $never_venv -eq 0 ]
 then
@@ -134,13 +149,14 @@ if [ $just_pep8 -eq 1 ]; then
     exit
 fi
 
+init_testr
 run_tests
 
 # NOTE(sirp): we only want to run pep8 when we're running the full-test suite,
 # not when we're running tests individually. To handle this, we need to
 # distinguish between options (noseopts), which begin with a '-', and
-# arguments (noseargs).
-if [ -z "$noseargs" ]; then
+# arguments (testrargs).
+if [ -z "$testrargs" ]; then
   if [ $no_pep8 -eq 0 ]; then
     run_pep8
   fi
@@ -148,5 +164,6 @@ fi
 
 if [ $coverage -eq 1 ]; then
     echo "Generating coverage report in covhtml/"
-    ${wrapper} coverage html -d covhtml -i
+    ${wrapper} coverage combine
+    ${wrapper} coverage html --include='novaclient/*' --omit='novaclient/openstack/common/*' -d covhtml -i
 fi

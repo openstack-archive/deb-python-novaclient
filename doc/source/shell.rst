@@ -11,8 +11,8 @@ First, you'll need an OpenStack Nova account and an API key. You get this
 by using the `nova-manage` command in OpenStack Nova.
 
 You'll need to provide :program:`nova` with your OpenStack username and
-API key. You can do this with the :option:`--os_username`, :option:`--os_password`
-and :option:`--os_tenant_id` options, but it's easier to just set them as
+API key. You can do this with the :option:`--os-username`, :option:`--os-password`
+and :option:`--os-tenant-id` options, but it's easier to just set them as
 environment variables by setting two environment variables:
 
 .. envvar:: OS_USERNAME
@@ -31,7 +31,7 @@ environment variables by setting two environment variables:
 
     The OpenStack API server URL.
 
-.. envvar:: NOVA_VERSION
+.. envvar:: OS_COMPUTE_API_VERSION
 
     The OpenStack API version.
 
@@ -41,7 +41,7 @@ For example, in Bash you'd use::
     export OS_PASSWORD=yadayadayada
     export OS_TENANT_NAME=myproject
     export OS_AUTH_URL=http://...
-    export NOVA_VERSION=1.1
+    export OS_COMPUTE_API_VERSION=1.1
     
 From there, all shell commands take the form::
     

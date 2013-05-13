@@ -1,6 +1,6 @@
 # Copyright 2010 Jacob Kaplan-Moss
 
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,7 +20,6 @@ Base utilities to build API operation managers and objects on top of.
 """
 
 import contextlib
-import errno
 import hashlib
 import os
 from novaclient import exceptions
@@ -38,15 +37,8 @@ except NameError:
 def getid(obj):
     """
     Abstracts the common pattern of allowing both an object or an object's ID
-    (UUID) as a parameter when dealing with relationships.
+    as a parameter when dealing with relationships.
     """
-
-    # Try to return the object's UUID first, if we have a UUID.
-    try:
-        if obj.uuid:
-            return obj.uuid
-    except AttributeError:
-        pass
     try:
         return obj.id
     except AttributeError:
@@ -64,11 +56,10 @@ class Manager(utils.HookableMixin):
         self.api = api
 
     def _list(self, url, response_key, obj_class=None, body=None):
-        resp = None
         if body:
-            resp, body = self.api.client.post(url, body=body)
+            _resp, body = self.api.client.post(url, body=body)
         else:
-            resp, body = self.api.client.get(url)
+            _resp, body = self.api.client.get(url)
 
         if obj_class is None:
             obj_class = self.resource_class
@@ -112,8 +103,8 @@ class Manager(utils.HookableMixin):
         cache_dir = os.path.expanduser(os.path.join(base_dir, uniqifier))
 
         try:
-            os.makedirs(cache_dir, 0755)
-        except OSError as e:
+            os.makedirs(cache_dir, 0o755)
+        except OSError:
             # NOTE(kiall): This is typicaly either permission denied while
             #              attempting to create the directory, or the directory
             #              already exists. Either way, don't fail.
@@ -145,16 +136,13 @@ class Manager(utils.HookableMixin):
         if cache:
             cache.write("%s\n" % val)
 
-    def _get(self, url, response_key=None):
-        resp, body = self.api.client.get(url)
-        if response_key:
-            return self.resource_class(self, body[response_key])
-        else:
-            return self.resource_class(self, body)
+    def _get(self, url, response_key):
+        _resp, body = self.api.client.get(url)
+        return self.resource_class(self, body[response_key], loaded=True)
 
     def _create(self, url, body, response_key, return_raw=False, **kwargs):
         self.run_hooks('modify_body_for_create', body, **kwargs)
-        resp, body = self.api.client.post(url, body=body)
+        _resp, body = self.api.client.post(url, body=body)
         if return_raw:
             return body[response_key]
 
@@ -163,12 +151,16 @@ class Manager(utils.HookableMixin):
                 return self.resource_class(self, body[response_key])
 
     def _delete(self, url):
-        resp, body = self.api.client.delete(url)
+        _resp, _body = self.api.client.delete(url)
 
-    def _update(self, url, body, **kwargs):
+    def _update(self, url, body, response_key=None, **kwargs):
         self.run_hooks('modify_body_for_update', body, **kwargs)
-        resp, body = self.api.client.put(url, body=body)
-        return body
+        _resp, body = self.api.client.put(url, body=body)
+        if body:
+            if response_key:
+                return self.resource_class(self, body[response_key])
+            else:
+                return self.resource_class(self, body)
 
 
 class ManagerWithFind(Manager):
@@ -182,12 +174,15 @@ class ManagerWithFind(Manager):
         This isn't very efficient: it loads the entire list then filters on
         the Python side.
         """
-        rl = self.findall(**kwargs)
-        try:
-            return rl[0]
-        except IndexError:
+        matches = self.findall(**kwargs)
+        num_matches = len(matches)
+        if num_matches == 0:
             msg = "No %s matching %s." % (self.resource_class.__name__, kwargs)
             raise exceptions.NotFound(404, msg)
+        elif num_matches > 1:
+            raise exceptions.NoUniqueMatch
+        else:
+            return matches[0]
 
     def findall(self, **kwargs):
         """
@@ -287,6 +282,7 @@ class Resource(object):
     :param loaded: prevent lazy-loading if set to True
     """
     HUMAN_ID = False
+    NAME_ATTR = 'name'
 
     def __init__(self, manager, info, loaded=False):
         self.manager = manager
@@ -309,8 +305,8 @@ class Resource(object):
         """Subclasses may override this provide a pretty ID which can be used
         for bash completion.
         """
-        if 'name' in self.__dict__ and self.HUMAN_ID:
-            return utils.slugify(self.name)
+        if self.NAME_ATTR in self.__dict__ and self.HUMAN_ID:
+            return utils.slugify(getattr(self, self.NAME_ATTR))
         return None
 
     def _add_details(self, info):

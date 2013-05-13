@@ -1,4 +1,4 @@
-# Copyright 2011 OpenStack, LLC
+# Copyright 2011 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,34 +16,31 @@ import os
 import setuptools
 import sys
 
-
-requirements = ["httplib2", "prettytable"]
-if sys.version_info < (2, 6):
-    requirements.append("simplejson")
-if sys.version_info < (2, 7):
-    requirements.append("argparse")
+from novaclient.openstack.common import setup
 
 
 def read_file(file_name):
     return open(os.path.join(os.path.dirname(__file__), file_name)).read()
-
+project = 'python-novaclient'
 
 setuptools.setup(
-    name="python-novaclient",
-    version="2012.1",
-    author="Rackspace, based on work by Jacob Kaplan-Moss",
-    author_email="github@racklabs.com",
-    description="Client library for OpenStack Nova API.",
+    name=project,
+    version=setup.get_version(project),
+    author='OpenStack',
+    author_email='openstack-dev@lists.openstack.org',
+    description="Client library for OpenStack Compute API.",
     long_description=read_file("README.rst"),
     license="Apache License, Version 2.0",
     url="https://github.com/openstack/python-novaclient",
-    packages=["novaclient", "novaclient.v1_1", "novaclient.v1_1.contrib"],
-    install_requires=requirements,
-    tests_require=["nose", "mock"],
-    test_suite="nose.collector",
+    packages=setuptools.find_packages(exclude=['tests', 'tests.*']),
+    install_requires=setup.parse_requirements(),
+    cmdclass=setup.get_cmdclass(),
+    setup_requires=['setuptools_git>=0.4'],
+    include_package_data=True,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Environment :: Console",
+        "Environment :: OpenStack",
         "Intended Audience :: Developers",
         "Intended Audience :: Information Technology",
         "License :: OSI Approved :: Apache Software License",
@@ -52,5 +49,5 @@ setuptools.setup(
     ],
     entry_points={
         "console_scripts": ["nova = novaclient.shell:main"]
-    }
+    },
 )

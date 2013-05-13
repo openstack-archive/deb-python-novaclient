@@ -1,10 +1,26 @@
 #!/usr/bin/make -f
 
+include /usr/share/openstack-pkg-tools/pkgos.make
+
+export OSLO_PACKAGE_VERSION=$(VERSION)
+
 %:
 	dh $@ --with python2
 
-get-orig-source:
-	uscan --verbose --force-download --rename --destdir=../build-area
+override_dh_auto_configure:
+	echo $(VERSION) > novaclient/versioninfo
+	dh_auto_configure
+
+override_dh_auto_clean:
+	echo $(VERSION) > novaclient/versioninfo
+	dh_auto_clean
+	rm -f novaclient/versioninfo
+	rm -rf setuptools_git-*-py*.egg
+
+override_dh_auto_install:
+	dh_auto_install
+	install -D -m 0644 tools/nova.bash_completion $(CURDIR)/debian/python-novaclient/etc/bash_completion.d/nova.bash_completion
+	rm -rf $(CURDIR)/debian/python-novaclient/usr/novaclient
 
 override_dh_auto_test::
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))

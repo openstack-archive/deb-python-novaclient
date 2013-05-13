@@ -4,7 +4,7 @@
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
 #
-# Copyright 2010 OpenStack, LLC
+# Copyright 2010 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -22,6 +22,7 @@
 Installation script for Nova's development virtualenv
 """
 
+from __future__ import print_function
 import optparse
 import os
 import subprocess
@@ -32,11 +33,12 @@ import platform
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 VENV = os.path.join(ROOT, '.venv')
 PIP_REQUIRES = os.path.join(ROOT, 'tools', 'pip-requires')
+TEST_REQUIRES = os.path.join(ROOT, 'tools', 'test-requires')
 PY_VERSION = "python%s.%s" % (sys.version_info[0], sys.version_info[1])
 
 
 def die(message, *args):
-    print >> sys.stderr, message % args
+    print(message % args, file=sys.stderr)
     sys.exit(1)
 
 
@@ -76,12 +78,12 @@ class Distro(object):
             return
 
         if self.check_cmd('easy_install'):
-            print 'Installing virtualenv via easy_install...',
+            print('Installing virtualenv via easy_install...')
             if run_command(['easy_install', 'virtualenv']):
-                print 'Succeeded'
+                print('Succeeded')
                 return
             else:
-                print 'Failed'
+                print('Failed')
 
         die('ERROR: virtualenv not found.\n\nDevelopment'
             ' requires virtualenv, please install it using your'
@@ -161,17 +163,17 @@ def create_virtualenv(venv=VENV, no_site_packages=True):
     """Creates the virtual environment and installs PIP only into the
     virtual environment
     """
-    print 'Creating venv...',
+    print('Creating venv...')
     if no_site_packages:
         run_command(['virtualenv', '-q', '--no-site-packages', VENV])
     else:
         run_command(['virtualenv', '-q', VENV])
-    print 'done.'
-    print 'Installing pip in virtualenv...',
+    print('done.')
+    print('Installing pip in virtualenv...')
     if not run_command(['tools/with_venv.sh', 'easy_install',
                         'pip>1.0']).strip():
         die("Failed to install pip.")
-    print 'done.'
+    print('done.')
 
 
 def pip_install(*args):
@@ -181,13 +183,14 @@ def pip_install(*args):
 
 
 def install_dependencies(venv=VENV):
-    print 'Installing dependencies with pip (this can take a while)...'
+    print('Installing dependencies with pip (this can take a while)...')
 
     # First things first, make sure our venv has the latest pip and distribute.
     pip_install('pip')
     pip_install('distribute')
 
     pip_install('-r', PIP_REQUIRES)
+    pip_install('-r', TEST_REQUIRES)
 
     # Tell the virtual env how to "import nova"
     pthfile = os.path.join(venv, "lib", PY_VERSION, "site-packages",
@@ -219,7 +222,7 @@ def print_help():
 
     Also, make test will automatically use the virtualenv.
     """
-    print help
+    print(help)
 
 
 def parse_args():

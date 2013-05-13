@@ -1,4 +1,4 @@
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,6 +16,8 @@
 """
 Security group interface (1.1 extension).
 """
+
+import urllib
 
 from novaclient import base
 
@@ -51,20 +53,27 @@ class SecurityGroupManager(base.ManagerWithFind):
         """
         self._delete('/os-security-groups/%s' % base.getid(group))
 
-    def get(self, id):
+    def get(self, group_id):
         """
         Get a security group
 
-        :param group: The security group to get by ID
+        :param group_id: The security group to get by ID
         :rtype: :class:`SecurityGroup`
         """
-        return self._get('/os-security-groups/%s' % id,
+        return self._get('/os-security-groups/%s' % group_id,
                          'security_group')
 
-    def list(self):
+    def list(self, search_opts=None):
         """
         Get a list of all security_groups
 
         :rtype: list of :class:`SecurityGroup`
         """
-        return self._list("/os-security-groups", "security_groups")
+        search_opts = search_opts or {}
+
+        qparams = dict((k, v) for (k, v) in search_opts.iteritems() if v)
+
+        query_string = '?%s' % urllib.urlencode(qparams) if qparams else ''
+
+        return self._list('/os-security-groups%s' % query_string,
+                          'security_groups')

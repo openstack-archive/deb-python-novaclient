@@ -18,6 +18,19 @@ class AuthorizationFailure(Exception):
     pass
 
 
+class NoUniqueMatch(Exception):
+    pass
+
+
+class AuthSystemNotFound(Exception):
+    """When the user specify a AuthSystem but not installed."""
+    def __init__(self, auth_system):
+        self.auth_system = auth_system
+
+    def __str__(self):
+        return "AuthSystemNotFound: %s" % repr(self.auth_system)
+
+
 class NoTokenLookupException(Exception):
     """This form of authentication does not support looking up
        endpoints from an existing token."""
@@ -38,17 +51,36 @@ class AmbiguousEndpoints(Exception):
         return "AmbiguousEndpoints: %s" % repr(self.endpoints)
 
 
+class ConnectionRefused(Exception):
+    """
+    Connection refused: the server refused the connection.
+    """
+    def __init__(self, response=None):
+        self.response = response
+
+    def __str__(self):
+        return "ConnectionRefused: %s" % repr(self.response)
+
+
 class ClientException(Exception):
     """
     The base exception class for all exceptions this library raises.
     """
-    def __init__(self, code, message=None, details=None):
+    def __init__(self, code, message=None, details=None, request_id=None,
+                 url=None, method=None):
         self.code = code
         self.message = message or self.__class__.message
         self.details = details
+        self.request_id = request_id
+        self.url = url
+        self.method = method
 
     def __str__(self):
-        return "%s (HTTP %s)" % (self.message, self.code)
+        formatted_string = "%s (HTTP %s)" % (self.message, self.code)
+        if self.request_id:
+            formatted_string += " (Request-ID: %s)" % self.request_id
+
+        return formatted_string
 
 
 class BadRequest(ClientException):
@@ -111,18 +143,22 @@ _code_map = dict((c.http_status, c) for c in [BadRequest, Unauthorized,
                    Forbidden, NotFound, OverLimit, HTTPNotImplemented])
 
 
-def from_response(response, body):
+def from_response(response, body, url, method=None):
     """
     Return an instance of an ClientException or subclass
-    based on an httplib2 response.
+    based on an requests response.
 
     Usage::
 
-        resp, body = http.request(...)
-        if resp.status != 200:
-            raise exception_from_response(resp, body)
+        resp, body = requests.request(...)
+        if resp.status_code != 200:
+            raise exception_from_response(resp, rest.text)
     """
-    cls = _code_map.get(response.status, ClientException)
+    cls = _code_map.get(response.status_code, ClientException)
+    if response.headers:
+        request_id = response.headers.get('x-compute-request-id')
+    else:
+        request_id = None
     if body:
         message = "n/a"
         details = "n/a"
@@ -130,6 +166,8 @@ def from_response(response, body):
             error = body[body.keys()[0]]
             message = error.get('message', None)
             details = error.get('details', None)
-        return cls(code=response.status, message=message, details=details)
+        return cls(code=response.status_code, message=message, details=details,
+                   request_id=request_id, url=url, method=method)
     else:
-        return cls(code=response.status)
+        return cls(code=response.status_code, request_id=request_id, url=url,
+                method=method)

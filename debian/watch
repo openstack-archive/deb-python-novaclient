@@ -1,3 +1,4 @@
 version=3
-http://nova.openstack.org/tarballs/ python-novaclient-(.*).tar.gz
+opts="uversionmangle=s/^2012/0.0.0/" \
+https://github.com/openstack/python-novaclient/tags .*/(\d[\d\.]+)\.tar\.gz
 

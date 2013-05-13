@@ -1,6 +1,6 @@
 # Copyright 2010 Jacob Kaplan-Moss
 
-# Copyright 2011 OpenStack LLC.
+# Copyright 2011 OpenStack Foundation
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -22,6 +22,7 @@ Server interface.
 import urllib
 
 from novaclient import base
+from novaclient import crypto
 from novaclient.v1_1 import base as local_base
 
 
@@ -65,6 +66,29 @@ class Server(base.Resource):
         """
         return self.manager.get_vnc_console(self, console_type)
 
+    def get_spice_console(self, console_type):
+        """
+        Get spice console for a Server.
+
+        :param console_type: Type of console ('spice-html5')
+        """
+        return self.manager.get_spice_console(self, console_type)
+
+    def get_password(self, private_key):
+        """
+        Get password for a Server.
+
+        :param private_key: Path to private key file for decryption
+        """
+        return self.manager.get_password(self, private_key)
+
+    def clear_password(self):
+        """
+        Get password for a Server.
+
+        """
+        return self.manager.clear_password(self)
+
     def add_fixed_ip(self, network_id):
         """
         Add an IP address on a network.
@@ -83,11 +107,23 @@ class Server(base.Resource):
 
     def remove_floating_ip(self, address):
         """
-        Add floating IP to an instance
+        Remove floating IP from an instance
 
-        :param address: The ip address or FloatingIP to add to remove
+        :param address: The ip address or FloatingIP to remove
         """
         self.manager.remove_floating_ip(self, address)
+
+    def stop(self):
+        """
+        Stop -- Stop the running server.
+        """
+        self.manager.stop(self)
+
+    def start(self):
+        """
+        Start -- Start the paused server.
+        """
+        self.manager.start(self)
 
     def pause(self):
         """
@@ -141,10 +177,6 @@ class Server(base.Resource):
         """Diagnostics -- Retrieve server diagnostics."""
         return self.manager.diagnostics(self)
 
-    def actions(self):
-        """Actions -- Retrieve server actions."""
-        return self.manager.actions(self)
-
     def migrate(self):
         """
         Migrate a server to a new host.
@@ -165,14 +197,14 @@ class Server(base.Resource):
         """
         self.manager.change_password(self, password)
 
-    def reboot(self, type=REBOOT_SOFT):
+    def reboot(self, reboot_type=REBOOT_SOFT):
         """
         Reboot the server.
 
-        :param type: either :data:`REBOOT_SOFT` for a software-level reboot,
-                     or `REBOOT_HARD` for a virtual power cycle hard reboot.
+        :param reboot_type: either :data:`REBOOT_SOFT` for a software-level
+                reboot, or `REBOOT_HARD` for a virtual power cycle hard reboot.
         """
-        self.manager.reboot(self, type)
+        self.manager.reboot(self, reboot_type)
 
     def rebuild(self, image, password=None, **kwargs):
         """
@@ -203,7 +235,18 @@ class Server(base.Resource):
         :param image_name: The name to assign the newly create image.
         :param metadata: Metadata to assign to the image.
         """
-        self.manager.create_image(self, image_name, metadata)
+        return self.manager.create_image(self, image_name, metadata)
+
+    def backup(self, backup_name, backup_type, rotation):
+        """
+        Backup a server instance.
+
+        :param backup_name: Name of the backup image
+        :param backup_type: The backup type, like 'daily' or 'weekly'
+        :param rotation: Int parameter representing how many backups to
+                        keep around.
+        """
+        self.manager.backup(self, backup_name, backup_type, rotation)
 
     def confirm_resize(self):
         """
@@ -230,7 +273,7 @@ class Server(base.Resource):
         except Exception:
             return {}
 
-    def live_migrate(self, host,
+    def live_migrate(self, host=None,
                      block_migration=False,
                      disk_over_commit=False):
         """
@@ -239,6 +282,59 @@ class Server(base.Resource):
         self.manager.live_migrate(self, host,
                                   block_migration,
                                   disk_over_commit)
+
+    def reset_state(self, state='error'):
+        """
+        Reset the state of an instance to active or error.
+        """
+        self.manager.reset_state(self, state)
+
+    def reset_network(self):
+        """
+        Reset network of an instance.
+        """
+        self.manager.reset_network(self)
+
+    def add_security_group(self, security_group):
+        """
+        Add a security group to an instance.
+        """
+        self.manager.add_security_group(self, security_group)
+
+    def remove_security_group(self, security_group):
+        """
+        Remova a security group from an instance.
+        """
+        self.manager.remove_security_group(self, security_group)
+
+    def evacuate(self, host, on_shared_storage, password=None):
+        """
+        Evacuate an instance from failed host to specified host.
+
+        :param host: Name of the target host
+        :param on_shared_storage: Specifies whether instance files located
+                        on shared storage
+        :param password: string to set as password on the evacuated server.
+        """
+        return self.manager.evacuate(self, host, on_shared_storage, password)
+
+    def interface_list(self):
+        """
+        List interfaces attached to an instance.
+        """
+        return self.manager.interface_list(self)
+
+    def interface_attach(self, port_id, net_id, fixed_ip):
+        """
+        Attach a network interface to an instance.
+        """
+        return self.manager.interface_attach(self, port_id, net_id, fixed_ip)
+
+    def interface_detach(self, port_id):
+        """
+        Detach a network interface from an instance.
+        """
+        return self.manager.interface_detach(self, port_id)
 
 
 class ServerManager(local_base.BootingManagerWithFind):
@@ -329,6 +425,58 @@ class ServerManager(local_base.BootingManagerWithFind):
         return self._action('os-getVNCConsole', server,
                             {'type': console_type})[1]
 
+    def get_spice_console(self, server, console_type):
+        """
+        Get a spice console for an instance
+
+        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param console_type: Type of spice console to get ('spice-html5')
+        """
+
+        return self._action('os-getSPICEConsole', server,
+                            {'type': console_type})[1]
+
+    def get_password(self, server, private_key):
+        """
+        Get password for an instance
+
+        Requires that openssl in installed and in the path
+
+        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param private_key: The private key to decrypt password
+        """
+
+        _resp, body = self.api.client.get("/servers/%s/os-server-password"
+                                          % base.getid(server))
+        if body and body.get('password'):
+            try:
+                return crypto.decrypt_password(private_key, body['password'])
+            except Exception as exc:
+                return '%sFailed to decrypt:\n%s' % (exc, body['password'])
+        return ''
+
+    def clear_password(self, server):
+        """
+        Clear password for an instance
+
+        :param server: The :class:`Server` (or its ID) to add an IP to.
+        """
+
+        return self._delete("/servers/%s/os-server-password"
+                            % base.getid(server))
+
+    def stop(self, server):
+        """
+        Stop the server.
+        """
+        return self._action('os-stop', server, None)
+
+    def start(self, server):
+        """
+        Start the server.
+        """
+        self._action('os-start', server, None)
+
     def pause(self, server):
         """
         Pause the server.
@@ -382,11 +530,6 @@ class ServerManager(local_base.BootingManagerWithFind):
         return self.api.client.get("/servers/%s/diagnostics" %
                                    base.getid(server))
 
-    def actions(self, server):
-        """Retrieve server actions."""
-        return self._list("/servers/%s/actions" % base.getid(server),
-                          "actions")
-
     def create(self, name, image, flavor, meta=None, files=None,
                reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
@@ -421,7 +564,7 @@ class ServerManager(local_base.BootingManagerWithFind):
                       device mappings for this server.
         :param nics:  (optional extension) an ordered list of nics to be
                       added to this server, with information about
-                      connected networks, fixed ips, etc.
+                      connected networks, fixed ips, port etc.
         :param scheduler_hints: (optional extension) arbitrary key-value pairs
                             specified by the client to help boot an instance
         :param config_drive: (optional extension) value for config drive
@@ -449,6 +592,7 @@ class ServerManager(local_base.BootingManagerWithFind):
             boot_kwargs['block_device_mapping'] = block_device_mapping
         else:
             resource_url = "/servers"
+        if nics:
             boot_kwargs['nics'] = nics
 
         response_key = "server"
@@ -471,7 +615,7 @@ class ServerManager(local_base.BootingManagerWithFind):
             },
         }
 
-        self._update("/servers/%s" % base.getid(server), body)
+        return self._update("/servers/%s" % base.getid(server), body, "server")
 
     def change_password(self, server, password):
         """
@@ -485,15 +629,15 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._delete("/servers/%s" % base.getid(server))
 
-    def reboot(self, server, type=REBOOT_SOFT):
+    def reboot(self, server, reboot_type=REBOOT_SOFT):
         """
         Reboot a server.
 
         :param server: The :class:`Server` (or its ID) to share onto.
-        :param type: either :data:`REBOOT_SOFT` for a software-level reboot,
-                     or `REBOOT_HARD` for a virtual power cycle hard reboot.
+        :param reboot_type: either :data:`REBOOT_SOFT` for a software-level
+                reboot, or `REBOOT_HARD` for a virtual power cycle hard reboot.
         """
-        self._action('reboot', server, {'type': type})
+        self._action('reboot', server, {'type': reboot_type})
 
     def rebuild(self, server, image, password=None, **kwargs):
         """
@@ -506,7 +650,7 @@ class ServerManager(local_base.BootingManagerWithFind):
         body = {'imageRef': base.getid(image)}
         if password is not None:
             body['adminPass'] = password
-        resp, body = self._action('rebuild', server, body, **kwargs)
+        _resp, body = self._action('rebuild', server, body, **kwargs)
         return Server(self, body['server'])
 
     def migrate(self, server):
@@ -557,9 +701,25 @@ class ServerManager(local_base.BootingManagerWithFind):
         :param meta: Metadata to give newly-created image entity
         """
         body = {'name': image_name, 'metadata': metadata or {}}
-        location = self._action('createImage', server, body)[0]['location']
+        resp = self._action('createImage', server, body)[0]
+        location = resp.headers['location']
         image_uuid = location.split('/')[-1]
         return image_uuid
+
+    def backup(self, server, backup_name, backup_type, rotation):
+        """
+        Backup a server instance.
+
+        :param server: The :class:`Server` (or its ID) to share onto.
+        :param backup_name: Name of the backup image
+        :param backup_type: The backup type, like 'daily' or 'weekly'
+        :param rotation: Int parameter representing how many backups to
+                        keep around.
+        """
+        body = {'name': backup_name,
+                'backup_type': backup_type,
+                'rotation': rotation}
+        self._action('createBackup', server, body)
 
     def set_meta(self, server, metadata):
         """
@@ -606,6 +766,101 @@ class ServerManager(local_base.BootingManagerWithFind):
                      {'host': host,
                       'block_migration': block_migration,
                       'disk_over_commit': disk_over_commit})
+
+    def reset_state(self, server, state='error'):
+        """
+        Reset the state of an instance to active or error.
+
+        :param server: ID of the instance to reset the state of.
+        :param state: Desired state; either 'active' or 'error'.
+                      Defaults to 'error'.
+        """
+        self._action('os-resetState', server, dict(state=state))
+
+    def reset_network(self, server):
+        """
+        Reset network of an instance.
+        """
+        self._action('resetNetwork', server)
+
+    def add_security_group(self, server, security_group):
+        """
+        Add a Security Group to a instance
+
+        :param server: ID of the instance.
+        :param security_grou: The name of security group to add.
+
+        """
+        self._action('addSecurityGroup', server, {'name': security_group})
+
+    def remove_security_group(self, server, security_group):
+        """
+        Add a Security Group to a instance
+
+        :param server: ID of the instance.
+        :param security_grou: The name of security group to remove.
+
+        """
+        self._action('removeSecurityGroup', server, {'name': security_group})
+
+    def evacuate(self, server, host, on_shared_storage, password=None):
+        """
+        Evacuate a server instance.
+
+        :param server: The :class:`Server` (or its ID) to share onto.
+        :param host: Name of the target host.
+        :param on_shared_storage: Specifies whether instance files located
+                        on shared storage
+        :param password: string to set as password on the evacuated server.
+        """
+        body = {
+                'host': host,
+                'onSharedStorage': on_shared_storage,
+                }
+
+        if password is not None:
+            body['adminPass'] = password
+
+        return self._action('evacuate', server, body)
+
+    def interface_list(self, server):
+        """
+        List attached network interfaces
+
+        :param server: The :class:`Server` (or its ID) to query.
+        """
+        return self._list('/servers/%s/os-interface' % base.getid(server),
+                          'interfaceAttachments')
+
+    def interface_attach(self, server, port_id, net_id, fixed_ip):
+        """
+        Attach a network_interface to an instance.
+
+        :param server: The :class:`Server` (or its ID) to attach to.
+        :param port_id: The port to attach.
+        """
+
+        body = {'interfaceAttachment': {}}
+        if port_id:
+            body['interfaceAttachment']['port_id'] = port_id
+        if net_id:
+            body['interfaceAttachment']['net_id'] = net_id
+        if fixed_ip:
+            body['interfaceAttachment']['fixed_ips'] = [
+                {'ip_address': fixed_ip}]
+
+        return self._create('/servers/%s/os-interface' % base.getid(server),
+                            body, 'interfaceAttachment')
+
+    def interface_detach(self, server, port_id):
+        """
+        Detach a network_interface from an instance.
+
+        :param server: The :class:`Server` (or its ID) to detach from.
+        :param port_id: The port to detach.
+        """
+        self._delete('/servers/%s/os-interface/%s' % (base.getid(server),
+                                                      port_id))
 
     def _action(self, action, server, info=None, **kwargs):
         """
