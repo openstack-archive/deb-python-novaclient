@@ -26,9 +26,11 @@ import imp
 import itertools
 import logging
 import os
-import pkg_resources
 import pkgutil
 import sys
+
+import pkg_resources
+import six
 
 HAS_KEYRING = False
 all_errors = ValueError
@@ -54,6 +56,7 @@ import novaclient.extension
 from novaclient.openstack.common import strutils
 from novaclient import utils
 from novaclient.v1_1 import shell as shell_v1_1
+from novaclient.v3 import shell as shell_v3
 
 DEFAULT_OS_COMPUTE_API_VERSION = "1.1"
 DEFAULT_NOVA_ENDPOINT_TYPE = 'publicURL'
@@ -144,8 +147,6 @@ class SecretsHelper(object):
     def password(self):
         if self._validate_string(self.args.os_password):
             return self.args.os_password
-        if self._validate_string(self.args.apikey):
-            return self.args.apikey
         verify_pass = utils.bool_from_str(utils.env("OS_VERIFY_PASSWORD"))
         return self._prompt_password(verify_pass)
 
@@ -290,6 +291,11 @@ class OpenStackComputeShell(object):
         parser.add_argument('--os_tenant_name',
             help=argparse.SUPPRESS)
 
+        parser.add_argument('--os-tenant-id',
+            metavar='<auth-tenant-id>',
+            default=utils.env('OS_TENANT_ID'),
+            help='Defaults to env[OS_TENANT_ID].')
+
         parser.add_argument('--os-auth-url',
             metavar='<auth-url>',
             default=utils.env('OS_AUTH_URL', 'NOVA_URL'),
@@ -348,7 +354,8 @@ class OpenStackComputeShell(object):
             metavar='<compute-api-ver>',
             default=utils.env('OS_COMPUTE_API_VERSION',
                 default=DEFAULT_OS_COMPUTE_API_VERSION),
-            help='Accepts 1.1, defaults to env[OS_COMPUTE_API_VERSION].')
+            help='Accepts 1.1 or 3, '
+                 'defaults to env[OS_COMPUTE_API_VERSION].')
         parser.add_argument('--os_compute_api_version',
             help=argparse.SUPPRESS)
 
@@ -366,32 +373,6 @@ class OpenStackComputeShell(object):
                  "SSL (https) requests. The server's certificate will "
                  "not be verified against any certificate authorities. "
                  "This option should be used with caution.")
-
-        # FIXME(dtroyer): The args below are here for diablo compatibility,
-        #                 remove them in folsum cycle
-
-        # alias for --os-username, left in for backwards compatibility
-        parser.add_argument('--username',
-            help=argparse.SUPPRESS)
-
-        # alias for --os-region-name, left in for backwards compatibility
-        parser.add_argument('--region_name',
-            help=argparse.SUPPRESS)
-
-        # alias for --os-password, left in for backwards compatibility
-        parser.add_argument('--apikey', '--password', dest='apikey',
-            default=utils.env('NOVA_API_KEY'),
-            help=argparse.SUPPRESS)
-
-        # alias for --os-tenant-name, left in for backward compatibility
-        parser.add_argument('--projectid', '--tenant_name', dest='projectid',
-            default=utils.env('NOVA_PROJECT_ID'),
-            help=argparse.SUPPRESS)
-
-        # alias for --os-auth-url, left in for backward compatibility
-        parser.add_argument('--url', '--auth_url', dest='url',
-            default=utils.env('NOVA_URL'),
-            help=argparse.SUPPRESS)
 
         parser.add_argument('--bypass-url',
             metavar='<bypass-url>',
@@ -415,6 +396,7 @@ class OpenStackComputeShell(object):
             actions_module = {
                 '1.1': shell_v1_1,
                 '2': shell_v1_1,
+                '3': shell_v3,
             }[version]
         except KeyError:
             actions_module = shell_v1_1
@@ -490,7 +472,7 @@ class OpenStackComputeShell(object):
             command = attr[3:].replace('_', '-')
             callback = getattr(actions_module, attr)
             desc = callback.__doc__ or ''
-            action_help = desc.strip().split('\n')[0]
+            action_help = desc.strip()
             arguments = getattr(callback, 'arguments', [])
 
             subparser = subparsers.add_parser(command,
@@ -560,18 +542,16 @@ class OpenStackComputeShell(object):
             self.do_bash_completion(args)
             return 0
 
-        (os_username, os_tenant_name, os_auth_url,
+        (os_username, os_tenant_name, os_tenant_id, os_auth_url,
                 os_region_name, os_auth_system, endpoint_type, insecure,
                 service_type, service_name, volume_service_name,
-                username, projectid, url, region_name,
                 bypass_url, os_cache, cacert, timeout) = (
                         args.os_username,
-                        args.os_tenant_name, args.os_auth_url,
+                        args.os_tenant_name, args.os_tenant_id,
+                        args.os_auth_url,
                         args.os_region_name, args.os_auth_system,
                         args.endpoint_type, args.insecure, args.service_type,
                         args.service_name, args.volume_service_name,
-                        args.username, args.projectid,
-                        args.url, args.region_name,
                         args.bypass_url, args.os_cache,
                         args.os_cacert, args.timeout)
 
@@ -598,26 +578,18 @@ class OpenStackComputeShell(object):
 
             if not auth_plugin or not auth_plugin.opts:
                 if not os_username:
-                    if not username:
-                        raise exc.CommandError("You must provide a username "
-                                "via either --os-username or env[OS_USERNAME]")
-                    else:
-                        os_username = username
+                    raise exc.CommandError("You must provide a username "
+                            "via either --os-username or env[OS_USERNAME]")
 
-            if not os_tenant_name:
-                if not projectid:
-                    raise exc.CommandError("You must provide a tenant name "
-                            "via either --os-tenant-name or "
-                            "env[OS_TENANT_NAME]")
-                else:
-                    os_tenant_name = projectid
+            if not os_tenant_name and not os_tenant_id:
+                raise exc.CommandError("You must provide a tenant name "
+                        "or tenant id via --os-tenant-name, "
+                        "--os-tenant-id, env[OS_TENANT_NAME] "
+                        "or env[OS_TENANT_ID]")
 
             if not os_auth_url:
-                if not url:
-                    if os_auth_system and os_auth_system != 'keystone':
-                        os_auth_url = auth_plugin.get_auth_url()
-                else:
-                    os_auth_url = url
+                if os_auth_system and os_auth_system != 'keystone':
+                    os_auth_url = auth_plugin.get_auth_url()
 
             if not os_auth_url:
                     raise exc.CommandError("You must provide an auth url "
@@ -626,21 +598,21 @@ class OpenStackComputeShell(object):
                             "default url with --os-auth-system "
                             "or env[OS_AUTH_SYSTEM]")
 
-            if not os_region_name and region_name:
-                os_region_name = region_name
-
         if (options.os_compute_api_version and
                 options.os_compute_api_version != '1.0'):
-            if not os_tenant_name:
+            if not os_tenant_name and not os_tenant_id:
                 raise exc.CommandError("You must provide a tenant name "
-                        "via either --os-tenant-name or env[OS_TENANT_NAME]")
+                        "or tenant id via --os-tenant-name, "
+                        "--os-tenant-id, env[OS_TENANT_NAME] "
+                        "or env[OS_TENANT_ID]")
 
             if not os_auth_url:
                 raise exc.CommandError("You must provide an auth url "
                         "via either --os-auth-url or env[OS_AUTH_URL]")
 
         self.cs = client.Client(options.os_compute_api_version, os_username,
-                os_password, os_tenant_name, os_auth_url, insecure,
+                os_password, os_tenant_name, tenant_id=os_tenant_id,
+                auth_url=os_auth_url, insecure=insecure,
                 region_name=os_region_name, endpoint_type=endpoint_type,
                 extensions=self.extensions, service_type=service_type,
                 service_name=service_name, auth_system=os_auth_system,
@@ -766,7 +738,8 @@ def main():
 
     except Exception as e:
         logger.debug(e, exc_info=1)
-        print("ERROR: %s" % strutils.safe_encode(unicode(e)), file=sys.stderr)
+        print("ERROR: %s" % strutils.safe_encode(six.text_type(e)),
+              file=sys.stderr)
         sys.exit(1)
 
 

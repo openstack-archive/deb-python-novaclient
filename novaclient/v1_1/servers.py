@@ -19,12 +19,12 @@
 Server interface.
 """
 
-import urllib
+import six
 
 from novaclient import base
 from novaclient import crypto
-from novaclient.v1_1 import base as local_base
-
+from novaclient.openstack.common.py3kcompat import urlutils
+from novaclient.v1_1.security_groups import SecurityGroup
 
 REBOOT_SOFT, REBOOT_HARD = 'SOFT', 'HARD'
 
@@ -97,13 +97,15 @@ class Server(base.Resource):
         """
         self.manager.add_fixed_ip(self, network_id)
 
-    def add_floating_ip(self, address):
+    def add_floating_ip(self, address, fixed_address=None):
         """
         Add floating IP to an instance
 
         :param address: The ip address or FloatingIP to add to the instance
+        :param fixed_address: The fixedIP address the FloatingIP is to be
+               associated with (optional)
         """
-        self.manager.add_floating_ip(self, address)
+        self.manager.add_floating_ip(self, address, fixed_address)
 
     def remove_floating_ip(self, address):
         """
@@ -118,6 +120,18 @@ class Server(base.Resource):
         Stop -- Stop the running server.
         """
         self.manager.stop(self)
+
+    def force_delete(self):
+        """
+        Force delete -- Force delete a server.
+        """
+        self.manager.force_delete(self)
+
+    def restore(self):
+        """
+        Restore -- Restore a server in 'soft-deleted' state.
+        """
+        self.manager.restore(self)
 
     def start(self):
         """
@@ -303,9 +317,15 @@ class Server(base.Resource):
 
     def remove_security_group(self, security_group):
         """
-        Remova a security group from an instance.
+        Remove a security group from an instance.
         """
         self.manager.remove_security_group(self, security_group)
+
+    def list_security_group(self):
+        """
+        List security group(s) of an instance.
+        """
+        return self.manager.list_security_group(self)
 
     def evacuate(self, host, on_shared_storage, password=None):
         """
@@ -337,7 +357,7 @@ class Server(base.Resource):
         return self.manager.interface_detach(self, port_id)
 
 
-class ServerManager(local_base.BootingManagerWithFind):
+class ServerManager(base.BootingManagerWithFind):
     resource_class = Server
 
     def get(self, server):
@@ -349,12 +369,15 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         return self._get("/servers/%s" % base.getid(server), "server")
 
-    def list(self, detailed=True, search_opts=None):
+    def list(self, detailed=True, search_opts=None, marker=None, limit=None):
         """
         Get a list of servers.
-        Optional detailed returns details server info.
-        Optional reservation_id only returns instances with that
-        reservation_id.
+
+        :param detailed: Whether to return detailed server info (optional).
+        :param search_opts: Search options to filter out servers (optional).
+        :param marker: Begin returning servers that appear later in the server
+                       list than that represented by this server id (optional).
+        :param limit: Maximum number of servers to return (optional).
 
         :rtype: list of :class:`Server`
         """
@@ -363,11 +386,17 @@ class ServerManager(local_base.BootingManagerWithFind):
 
         qparams = {}
 
-        for opt, val in search_opts.iteritems():
+        for opt, val in six.iteritems(search_opts):
             if val:
                 qparams[opt] = val
 
-        query_string = "?%s" % urllib.urlencode(qparams) if qparams else ""
+        if marker:
+            qparams['marker'] = marker
+
+        if limit:
+            qparams['limit'] = limit
+
+        query_string = "?%s" % urlutils.urlencode(qparams) if qparams else ""
 
         detail = ""
         if detailed:
@@ -392,16 +421,24 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._action('removeFixedIp', server, {'address': address})
 
-    def add_floating_ip(self, server, address):
+    def add_floating_ip(self, server, address, fixed_address=None):
         """
         Add a floating ip to an instance
 
         :param server: The :class:`Server` (or its ID) to add an IP to.
         :param address: The FloatingIP or string floating address to add.
+        :param fixed_address: The FixedIP the floatingIP should be
+                              associated with (optional)
         """
 
         address = address.ip if hasattr(address, 'ip') else address
-        self._action('addFloatingIp', server, {'address': address})
+        if fixed_address:
+            if hasattr(fixed_address, 'ip'):
+                fixed_address = fixed_address.ip
+            self._action('addFloatingIp', server,
+                         {'address': address, 'fixed_address': fixed_address})
+        else:
+            self._action('addFloatingIp', server, {'address': address})
 
     def remove_floating_ip(self, server, address):
         """
@@ -440,7 +477,7 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         Get password for an instance
 
-        Requires that openssl in installed and in the path
+        Requires that openssl is installed and in the path
 
         :param server: The :class:`Server` (or its ID) to add an IP to.
         :param private_key: The private key to decrypt password
@@ -470,6 +507,18 @@ class ServerManager(local_base.BootingManagerWithFind):
         Stop the server.
         """
         return self._action('os-stop', server, None)
+
+    def force_delete(self, server):
+        """
+        Force delete the server.
+        """
+        return self._action('forceDelete', server, None)
+
+    def restore(self, server):
+        """
+        Restore soft-deleted server.
+        """
+        return self._action('restore', server, None)
 
     def start(self, server):
         """
@@ -534,9 +583,10 @@ class ServerManager(local_base.BootingManagerWithFind):
                reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
                key_name=None, availability_zone=None,
-               block_device_mapping=None, nics=None, scheduler_hints=None,
-               config_drive=None, **kwargs):
-        # TODO: (anthony) indicate in doc string if param is an extension
+               block_device_mapping=None, block_device_mapping_v2=None,
+               nics=None, scheduler_hints=None,
+               config_drive=None, disk_config=None, **kwargs):
+        # TODO(anthony): indicate in doc string if param is an extension
         # and/or optional
         """
         Create (boot) a new server.
@@ -562,6 +612,8 @@ class ServerManager(local_base.BootingManagerWithFind):
                                   placement.
         :param block_device_mapping: (optional extension) A dict of block
                       device mappings for this server.
+        :param block_device_mapping_v2: (optional extension) A dict of block
+                      device mappings for this server.
         :param nics:  (optional extension) an ordered list of nics to be
                       added to this server, with information about
                       connected networks, fixed ips, port etc.
@@ -569,6 +621,9 @@ class ServerManager(local_base.BootingManagerWithFind):
                             specified by the client to help boot an instance
         :param config_drive: (optional extension) value for config drive
                             either boolean, or volume-id
+        :param disk_config: (optional extension) control how the disk is
+                            partitioned when the server is created.  possible
+                            values are 'AUTO' or 'MANUAL'.
         """
         if not min_count:
             min_count = 1
@@ -585,11 +640,14 @@ class ServerManager(local_base.BootingManagerWithFind):
             max_count=max_count, security_groups=security_groups,
             key_name=key_name, availability_zone=availability_zone,
             scheduler_hints=scheduler_hints, config_drive=config_drive,
-            **kwargs)
+            disk_config=disk_config, **kwargs)
 
         if block_device_mapping:
             resource_url = "/os-volumes_boot"
             boot_kwargs['block_device_mapping'] = block_device_mapping
+        elif block_device_mapping_v2:
+            resource_url = "/os-volumes_boot"
+            boot_kwargs['block_device_mapping_v2'] = block_device_mapping_v2
         else:
             resource_url = "/servers"
         if nics:
@@ -639,17 +697,23 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._action('reboot', server, {'type': reboot_type})
 
-    def rebuild(self, server, image, password=None, **kwargs):
+    def rebuild(self, server, image, password=None, disk_config=None,
+                **kwargs):
         """
         Rebuild -- shut down and then re-image -- a server.
 
         :param server: The :class:`Server` (or its ID) to share onto.
         :param image: the :class:`Image` (or its ID) to re-image with.
         :param password: string to set as password on the rebuilt server.
+        :param disk_config: partitioning mode to use on the rebuilt server.
+                            Valid values are 'AUTO' or 'MANUAL'
         """
         body = {'imageRef': base.getid(image)}
         if password is not None:
             body['adminPass'] = password
+        if disk_config is not None:
+            body['OS-DCF:diskConfig'] = disk_config
+
         _resp, body = self._action('rebuild', server, body, **kwargs)
         return Server(self, body['server'])
 
@@ -661,12 +725,14 @@ class ServerManager(local_base.BootingManagerWithFind):
         """
         self._action('migrate', server)
 
-    def resize(self, server, flavor, **kwargs):
+    def resize(self, server, flavor, disk_config=None, **kwargs):
         """
         Resize a server's resources.
 
         :param server: The :class:`Server` (or its ID) to share onto.
         :param flavor: the :class:`Flavor` (or its ID) to resize to.
+        :param disk_config: partitioning mode to use on the rebuilt server.
+                            Valid values are 'AUTO' or 'MANUAL'
 
         Until a resize event is confirmed with :meth:`confirm_resize`, the old
         server will be kept around and you'll be able to roll back to the old
@@ -674,6 +740,9 @@ class ServerManager(local_base.BootingManagerWithFind):
         automatically confirmed after 24 hours.
         """
         info = {'flavorRef': base.getid(flavor)}
+        if disk_config is not None:
+            info['OS-DCF:diskConfig'] = disk_config
+
         self._action('resize', server, info=info, **kwargs)
 
     def confirm_resize(self, server):
@@ -785,23 +854,33 @@ class ServerManager(local_base.BootingManagerWithFind):
 
     def add_security_group(self, server, security_group):
         """
-        Add a Security Group to a instance
+        Add a Security Group to an instance
 
         :param server: ID of the instance.
-        :param security_grou: The name of security group to add.
+        :param security_group: The name of security group to add.
 
         """
         self._action('addSecurityGroup', server, {'name': security_group})
 
     def remove_security_group(self, server, security_group):
         """
-        Add a Security Group to a instance
+        Add a Security Group to an instance
 
         :param server: ID of the instance.
-        :param security_grou: The name of security group to remove.
+        :param security_group: The name of security group to remove.
 
         """
         self._action('removeSecurityGroup', server, {'name': security_group})
+
+    def list_security_group(self, server):
+        """
+        List Security Group(s) of an instance
+
+        :param server: ID of the instance.
+
+        """
+        return self._list('/servers/%s/os-security-groups' %
+                          base.getid(server), 'security_groups', SecurityGroup)
 
     def evacuate(self, server, host, on_shared_storage, password=None):
         """

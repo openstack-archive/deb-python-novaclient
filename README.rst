@@ -109,10 +109,16 @@ You'll find complete documentation on the shell by running
         endpoints           Discover endpoints that get returned from the
                             authenticate services
         evacuate            Evacuate a server from failed host
-        flavor-create       Create a new flavor
-        flavor-delete       Delete a specific flavor
+        flavor-create       Create a new flavor.
+        flavor-delete       Delete a specific flavor.
         flavor-list         Print a list of available 'flavors' (sizes of
                             servers).
+        flavor-show         Show details about the given flavor.
+        flavor-key          Set or unset extra_spec for a flavor.
+        flavor-access-list  Print access information about the given flavor.
+        flavor-access-add   Add flavor access for the given tenant.
+        flavor-access-remove
+                            Remove flavor access for the given tenant.
         floating-ip-create  Allocate a floating IP for the current tenant.
         floating-ip-delete  De-allocate a floating IP.
         floating-ip-list    List floating ips for this tenant.
@@ -154,6 +160,7 @@ You'll find complete documentation on the shell by running
                             Add a source group rule to a security group.
         secgroup-add-rule   Add a rule to a security group.
         secgroup-create     Create a security group.
+        secgroup-update     Update a security group.
         secgroup-delete     Delete a security group.
         secgroup-delete-group-rule
                             Delete a source group rule from a security group.
@@ -191,7 +198,8 @@ You'll find complete documentation on the shell by running
         x509-create-cert    Create x509 cert for a user in tenant
         x509-get-root-cert  Fetches the x509 root cert.
         bash-completion     Prints all of the commands and options to stdout so
-                            that the
+                            that the nova.bash_completion script doesn't have to
+                            hard code them.
         help                Display help about this program or one of its
                             subcommands.
 

@@ -19,19 +19,18 @@
 Base utilities to build API operation managers and objects on top of.
 """
 
+import abc
+import base64
 import contextlib
 import hashlib
+import inspect
 import os
+
+import six
+
 from novaclient import exceptions
+from novaclient.openstack.common import strutils
 from novaclient import utils
-
-
-# Python 2.4 compat
-try:
-    all
-except NameError:
-    def all(iterable):
-        return True not in (not x for x in iterable)
 
 
 def getid(obj):
@@ -98,7 +97,8 @@ class Manager(utils.HookableMixin):
         # pair
         username = utils.env('OS_USERNAME', 'NOVA_USERNAME')
         url = utils.env('OS_URL', 'NOVA_URL')
-        uniqifier = hashlib.md5(username + url).hexdigest()
+        uniqifier = hashlib.md5(username.encode('utf-8') +
+                                url.encode('utf-8')).hexdigest()
 
         cache_dir = os.path.expanduser(os.path.join(base_dir, uniqifier))
 
@@ -167,6 +167,13 @@ class ManagerWithFind(Manager):
     """
     Like a `Manager`, but with additional `find()`/`findall()` methods.
     """
+
+    __metaclass__ = abc.ABCMeta
+
+    @abc.abstractmethod
+    def list(self):
+        pass
+
     def find(self, **kwargs):
         """
         Find a single item with attributes matching ``**kwargs``.
@@ -194,33 +201,87 @@ class ManagerWithFind(Manager):
         found = []
         searches = kwargs.items()
 
-        for obj in self.list():
+        detailed = True
+        list_kwargs = {}
+
+        list_argspec = inspect.getargspec(self.list)
+        if 'detailed' in list_argspec.args:
+            detailed = ("human_id" not in kwargs and
+                        "name" not in kwargs and
+                        "display_name" not in kwargs)
+            list_kwargs['detailed'] = detailed
+
+        if 'is_public' in list_argspec.args and 'is_public' in kwargs:
+            is_public = kwargs['is_public']
+            list_kwargs['is_public'] = is_public
+            if is_public is None:
+                tmp_kwargs = kwargs.copy()
+                del tmp_kwargs['is_public']
+                searches = tmp_kwargs.items()
+
+        listing = self.list(**list_kwargs)
+
+        for obj in listing:
             try:
                 if all(getattr(obj, attr) == value
-                                    for (attr, value) in searches):
-                    found.append(obj)
+                        for (attr, value) in searches):
+                    if detailed:
+                        found.append(obj)
+                    else:
+                        found.append(self.get(obj.id))
             except AttributeError:
                 continue
 
         return found
 
-    def list(self):
-        raise NotImplementedError
-
 
 class BootingManagerWithFind(ManagerWithFind):
     """Like a `ManagerWithFind`, but has the ability to boot servers."""
+
+    def _parse_block_device_mapping(self, block_device_mapping):
+        bdm = []
+
+        for device_name, mapping in six.iteritems(block_device_mapping):
+            #
+            # The mapping is in the format:
+            # <id>:[<type>]:[<size(GB)>]:[<delete_on_terminate>]
+            #
+            bdm_dict = {'device_name': device_name}
+
+            mapping_parts = mapping.split(':')
+            source_id = mapping_parts[0]
+            if len(mapping_parts) == 1:
+                bdm_dict['volume_id'] = source_id
+
+            elif len(mapping_parts) > 1:
+                source_type = mapping_parts[1]
+                if source_type.startswith('snap'):
+                    bdm_dict['snapshot_id'] = source_id
+                else:
+                    bdm_dict['volume_id'] = source_id
+
+            if len(mapping_parts) > 2 and mapping_parts[2]:
+                bdm_dict['volume_size'] = str(int(mapping_parts[2]))
+
+            if len(mapping_parts) > 3:
+                bdm_dict['delete_on_termination'] = mapping_parts[3]
+
+            bdm.append(bdm_dict)
+        return bdm
+
     def _boot(self, resource_url, response_key, name, image, flavor,
-              ipgroup=None, meta=None, files=None,
+              meta=None, files=None, userdata=None,
               reservation_id=None, return_raw=False, min_count=None,
-              max_count=None, **kwargs):
+              max_count=None, security_groups=None, key_name=None,
+              availability_zone=None, block_device_mapping=None,
+              block_device_mapping_v2=None, nics=None, scheduler_hints=None,
+              config_drive=None, admin_pass=None, disk_config=None, **kwargs):
         """
         Create (boot) a new server.
 
         :param name: Something to name the server.
         :param image: The :class:`Image` to boot with.
         :param flavor: The :class:`Flavor` to boot onto.
-        :param ipgroup: An initial :class:`IPGroup` for this server.
         :param meta: A dict of arbitrary key/value metadata to store for this
                      server. A maximum of five entries is allowed, and both
                      keys and values must be 255 characters or less.
@@ -232,25 +293,59 @@ class BootingManagerWithFind(ManagerWithFind):
         :param reservation_id: a UUID for the set of servers being requested.
         :param return_raw: If True, don't try to coearse the result into
                            a Resource object.
+        :param security_groups: list of security group names
+        :param key_name: (optional extension) name of keypair to inject into
+                         the instance
+        :param availability_zone: Name of the availability zone for instance
+                                  placement.
+        :param block_device_mapping: A dict of block device mappings for this
+                                     server.
+        :param block_device_mapping_v2: A dict of block device mappings V2 for
+                                        this server.
+        :param nics:  (optional extension) an ordered list of nics to be
+                      added to this server, with information about
+                      connected networks, fixed ips, etc.
+        :param scheduler_hints: (optional extension) arbitrary key-value pairs
+                              specified by the client to help boot an instance.
+        :param config_drive: (optional extension) value for config drive
+                            either boolean, or volume-id
+        :param admin_pass: admin password for the server.
+        :param disk_config: (optional extension) control how the disk is
+                            partitioned when the server is created.
         """
         body = {"server": {
             "name": name,
-            "imageId": getid(image),
-            "flavorId": getid(flavor),
+            "imageRef": str(getid(image)) if image else '',
+            "flavorRef": str(getid(flavor)),
         }}
-        if ipgroup:
-            body["server"]["sharedIpGroupId"] = getid(ipgroup)
+        if userdata:
+            if hasattr(userdata, 'read'):
+                userdata = userdata.read()
+
+            userdata = strutils.safe_encode(userdata)
+            body["server"]["user_data"] = base64.b64encode(userdata)
         if meta:
             body["server"]["metadata"] = meta
         if reservation_id:
             body["server"]["reservation_id"] = reservation_id
-
+        if key_name:
+            body["server"]["key_name"] = key_name
+        if scheduler_hints:
+            body['os:scheduler_hints'] = scheduler_hints
+        if config_drive:
+            body["server"]["config_drive"] = config_drive
+        if admin_pass:
+            body["server"]["adminPass"] = admin_pass
         if not min_count:
             min_count = 1
         if not max_count:
             max_count = min_count
         body["server"]["min_count"] = min_count
         body["server"]["max_count"] = max_count
+
+        if security_groups:
+            body["server"]["security_groups"] =\
+             [{'name': sg} for sg in security_groups]
 
         # Files are a slight bit tricky. They're passed in a "personality"
         # list to the POST. Each item is a dict giving a file name and the
@@ -267,6 +362,41 @@ class BootingManagerWithFind(ManagerWithFind):
                     'path': filepath,
                     'contents': data.encode('base64'),
                 })
+
+        if availability_zone:
+            body["server"]["availability_zone"] = availability_zone
+
+        # Block device mappings are passed as a list of dictionaries
+        if block_device_mapping:
+            body['server']['block_device_mapping'] = \
+                    self._parse_block_device_mapping(block_device_mapping)
+        elif block_device_mapping_v2:
+            # Append the image to the list only if we have new style BDMs
+            if image:
+                bdm_dict = {'uuid': image.id, 'source_type': 'image',
+                            'destination_type': 'local', 'boot_index': 0,
+                            'delete_on_termination': True}
+                block_device_mapping_v2.insert(0, bdm_dict)
+
+            body['server']['block_device_mapping_v2'] = block_device_mapping_v2
+
+        if nics is not None:
+            # NOTE(tr3buchet): nics can be an empty list
+            all_net_data = []
+            for nic_info in nics:
+                net_data = {}
+                # if value is empty string, do not send value in body
+                if nic_info.get('net-id'):
+                    net_data['uuid'] = nic_info['net-id']
+                if nic_info.get('v4-fixed-ip'):
+                    net_data['fixed_ip'] = nic_info['v4-fixed-ip']
+                if nic_info.get('port-id'):
+                    net_data['port'] = nic_info['port-id']
+                all_net_data.append(net_data)
+            body['server']['networks'] = all_net_data
+
+        if disk_config is not None:
+            body['server']['OS-DCF:diskConfig'] = disk_config
 
         return self._create(resource_url, body, response_key,
                             return_raw=return_raw, **kwargs)
@@ -310,9 +440,10 @@ class Resource(object):
         return None
 
     def _add_details(self, info):
-        for (k, v) in info.iteritems():
+        for (k, v) in six.iteritems(info):
             try:
                 setattr(self, k, v)
+                self._info[k] = v
             except AttributeError:
                 # In this case we already defined the attribute on the class
                 pass

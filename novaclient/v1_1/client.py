@@ -12,7 +12,7 @@
 #    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
-#    under the License
+#    under the License.
 
 from novaclient import client
 from novaclient.v1_1 import agents
@@ -75,11 +75,12 @@ class Client(object):
                   bypass_url=None, os_cache=False, no_cache=True,
                   http_log_debug=False, auth_system='keystone',
                   auth_plugin=None,
-                  cacert=None):
+                  cacert=None, tenant_id=None):
         # FIXME(comstud): Rename the api_key argument above when we
         # know it's not being used as keyword argument
         password = api_key
-        self.project_id = project_id
+        self.projectid = project_id
+        self.tenant_id = tenant_id
         self.flavors = flavors.FlavorManager(self)
         self.flavor_access = flavor_access.FlavorAccessManager(self)
         self.images = images.ImageManager(self)
@@ -128,8 +129,9 @@ class Client(object):
 
         self.client = client.HTTPClient(username,
                                     password,
-                                    project_id,
-                                    auth_url,
+                                    projectid=project_id,
+                                    tenant_id=tenant_id,
+                                    auth_url=auth_url,
                                     insecure=insecure,
                                     timeout=timeout,
                                     auth_system=auth_system,

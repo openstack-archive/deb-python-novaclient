@@ -28,20 +28,25 @@ class QuotaSet(base.Resource):
         return self.manager.update(self.tenant_id, *args, **kwargs)
 
 
-class QuotaSetManager(base.ManagerWithFind):
+class QuotaSetManager(base.Manager):
     resource_class = QuotaSet
 
-    def get(self, tenant_id):
+    def get(self, tenant_id, user_id=None):
         if hasattr(tenant_id, 'tenant_id'):
             tenant_id = tenant_id.tenant_id
-        return self._get("/os-quota-sets/%s" % (tenant_id), "quota_set")
+        if user_id:
+            url = '/os-quota-sets/%s?user_id=%s' % (tenant_id, user_id)
+        else:
+            url = '/os-quota-sets/%s' % tenant_id
+        return self._get(url, "quota_set")
 
     def update(self, tenant_id, metadata_items=None,
                injected_file_content_bytes=None, injected_file_path_bytes=None,
                volumes=None, gigabytes=None,
                ram=None, floating_ips=None, fixed_ips=None, instances=None,
                injected_files=None, cores=None, key_pairs=None,
-               security_groups=None, security_group_rules=None):
+               security_groups=None, security_group_rules=None, force=None,
+               user_id=None):
 
         body = {'quota_set': {
                 'tenant_id': tenant_id,
@@ -58,14 +63,26 @@ class QuotaSetManager(base.ManagerWithFind):
                 'injected_files': injected_files,
                 'cores': cores,
                 'security_groups': security_groups,
-                'security_group_rules': security_group_rules}}
+                'security_group_rules': security_group_rules,
+                'force': force}}
 
         for key in body['quota_set'].keys():
             if body['quota_set'][key] is None:
                 body['quota_set'].pop(key)
 
-        return self._update('/os-quota-sets/%s' % tenant_id, body, 'quota_set')
+        if user_id:
+            url = '/os-quota-sets/%s?user_id=%s' % (tenant_id, user_id)
+        else:
+            url = '/os-quota-sets/%s' % tenant_id
+        return self._update(url, body, 'quota_set')
 
     def defaults(self, tenant_id):
         return self._get('/os-quota-sets/%s/defaults' % tenant_id,
                          'quota_set')
+
+    def delete(self, tenant_id, user_id=None):
+        if user_id:
+            url = '/os-quota-sets/%s?user_id=%s' % (tenant_id, user_id)
+        else:
+            url = '/os-quota-sets/%s' % tenant_id
+        self._delete(url)

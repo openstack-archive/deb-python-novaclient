@@ -9,11 +9,8 @@ OpenStack Client interface. Handles the REST calls and responses.
 
 import logging
 import os
-import sys
 import time
-import urlparse
 
-import pkg_resources
 import requests
 
 try:
@@ -21,21 +18,17 @@ try:
 except ImportError:
     import simplejson as json
 
-# Python 2.5 compat fix
-if not hasattr(urlparse, 'parse_qsl'):
-    import cgi
-    urlparse.parse_qsl = cgi.parse_qsl
-
 from novaclient import exceptions
 from novaclient import service_catalog
 from novaclient import utils
+from novaclient.openstack.common.py3kcompat import urlutils
 
 
 class HTTPClient(object):
 
     USER_AGENT = 'python-novaclient'
 
-    def __init__(self, user, password, projectid, auth_url=None,
+    def __init__(self, user, password, projectid=None, auth_url=None,
                  insecure=False, timeout=None, proxy_tenant_id=None,
                  proxy_token=None, region_name=None,
                  endpoint_type='publicURL', service_type=None,
@@ -44,10 +37,11 @@ class HTTPClient(object):
                  os_cache=False, no_cache=True,
                  http_log_debug=False, auth_system='keystone',
                  auth_plugin=None,
-                 cacert=None):
+                 cacert=None, tenant_id=None):
         self.user = user
         self.password = password
         self.projectid = projectid
+        self.tenant_id = tenant_id
 
         if auth_system and auth_system != 'keystone' and not auth_plugin:
             raise exceptions.AuthSystemNotFound(auth_system)
@@ -93,7 +87,7 @@ class HTTPClient(object):
         self.auth_plugin = auth_plugin
 
         self._logger = logging.getLogger(__name__)
-        if self.http_log_debug:
+        if self.http_log_debug and not self._logger.handlers:
             # Logging level is already set on the root logger
             ch = logging.StreamHandler()
             self._logger.addHandler(ch)
@@ -105,6 +99,8 @@ class HTTPClient(object):
                 # have to set it up here on WARNING (its original level)
                 # otherwise we will get all the requests logging messanges
                 rql.setLevel(logging.WARNING)
+        # requests within the same session can reuse TCP connections from pool
+        self.http = requests.Session()
 
     def use_token_cache(self, use_it):
         self.os_cache = use_it
@@ -163,7 +159,7 @@ class HTTPClient(object):
             kwargs.setdefault('timeout', self.timeout)
 
         self.http_log_req((url, method,), kwargs)
-        resp = requests.request(
+        resp = self.http.request(
             method,
             url,
             verify=self.verify_cert,
@@ -218,6 +214,9 @@ class HTTPClient(object):
             return resp, body
         except exceptions.Unauthorized as e:
             try:
+                # frist discard auth token, to avoid the possibly expired
+                # token being re-used in the re-authentication attempt
+                self.unauthenticate()
                 self.authenticate()
                 kwargs['headers']['X-Auth-Token'] = self.auth_token
                 resp, body = self._time_request(self.management_url + url,
@@ -299,7 +298,7 @@ class HTTPClient(object):
                                              extract_token=False)
 
     def authenticate(self):
-        magic_tuple = urlparse.urlsplit(self.auth_url)
+        magic_tuple = urlutils.urlsplit(self.auth_url)
         scheme, netloc, path, query, frag = magic_tuple
         port = magic_tuple.port
         if port is None:
@@ -313,7 +312,7 @@ class HTTPClient(object):
         # TODO(sandy): Assume admin endpoint is 35357 for now.
         # Ideally this is going to have to be provided by the service catalog.
         new_netloc = netloc.replace(':%d' % port, ':%d' % (35357,))
-        admin_url = urlparse.urlunsplit(
+        admin_url = urlutils.urlunsplit(
             (scheme, new_netloc, path, query, frag))
 
         # FIXME(chmouel): This is to handle backward compatibiliy when
@@ -335,7 +334,10 @@ class HTTPClient(object):
             # existing token? If so, our actual endpoints may
             # be different than that of the admin token.
             if self.proxy_token:
-                self._fetch_endpoints_from_auth(admin_url)
+                if self.bypass_url:
+                    self.set_management_url(self.bypass_url)
+                else:
+                    self._fetch_endpoints_from_auth(admin_url)
                 # Since keystone no longer returns the user token
                 # with the endpoints any more, we need to replace
                 # our service account token with the user token.
@@ -389,7 +391,7 @@ class HTTPClient(object):
             raise exceptions.from_response(resp, body, url)
 
     def _plugin_auth(self, auth_url):
-        self.auth_plugin.authenticate(self, auth_url)
+        return self.auth_plugin.authenticate(self, auth_url)
 
     def _v2_auth(self, url):
         """Authenticate against a v2.0 auth service."""
@@ -401,10 +403,12 @@ class HTTPClient(object):
                     "passwordCredentials": {"username": self.user,
                                             "password": self.password}}}
 
-        if self.projectid:
+        if self.tenant_id:
+            body['auth']['tenantId'] = self.tenant_id
+        elif self.projectid:
             body['auth']['tenantName'] = self.projectid
 
-        self._authenticate(url, body)
+        return self._authenticate(url, body)
 
     def _authenticate(self, url, body, **kwargs):
         """Authenticate and extract the service catalog."""
@@ -425,6 +429,7 @@ def get_client_class(version):
     version_map = {
         '1.1': 'novaclient.v1_1.client.Client',
         '2': 'novaclient.v1_1.client.Client',
+        '3': 'novaclient.v3.client.Client',
     }
     try:
         client_path = version_map[str(version)]

@@ -13,9 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import urllib
-
 from novaclient import base
+from novaclient.openstack.common.py3kcompat import urlutils
 
 
 def _quote_domain(domain):
@@ -25,7 +24,7 @@ def _quote_domain(domain):
     but Routes tends to choke on them, so we need an extra level of
     by-hand quoting here.
     """
-    return urllib.quote(domain.replace('.', '%2E'))
+    return urlutils.quote(domain.replace('.', '%2E'))
 
 
 class FloatingIPDNSDomain(base.Resource):
@@ -47,7 +46,7 @@ class FloatingIPDNSDomain(base.Resource):
         return None
 
 
-class FloatingIPDNSDomainManager(base.ManagerWithFind):
+class FloatingIPDNSDomainManager(base.Manager):
     resource_class = FloatingIPDNSDomain
 
     def domains(self):
@@ -74,7 +73,7 @@ class FloatingIPDNSDomainManager(base.ManagerWithFind):
                             'domain_entry')
 
     def delete(self, fqdomain):
-        """Delete the specified domain"""
+        """Delete the specified domain."""
         self._delete("/os-floating-ip-dns/%s" % _quote_domain(fqdomain))
 
 
@@ -90,7 +89,7 @@ class FloatingIPDNSEntry(base.Resource):
         return self.manager.get(self.domain, self.name)
 
 
-class FloatingIPDNSEntryManager(base.ManagerWithFind):
+class FloatingIPDNSEntryManager(base.Manager):
     resource_class = FloatingIPDNSEntry
 
     def get(self, domain, name):
@@ -102,7 +101,7 @@ class FloatingIPDNSEntryManager(base.ManagerWithFind):
     def get_for_ip(self, domain, ip):
         """Return a list of entries for the given domain and ip or name."""
         qparams = {'ip': ip}
-        params = "?%s" % urllib.urlencode(qparams)
+        params = "?%s" % urlutils.urlencode(qparams)
 
         return self._list("/os-floating-ip-dns/%s/entries%s" %
                               (_quote_domain(domain), params),

@@ -116,12 +116,44 @@ class NotFound(ClientException):
     message = "Not found"
 
 
+class MethodNotAllowed(ClientException):
+    """
+    HTTP 405 - Method Not Allowed
+    """
+    http_status = 405
+    message = "Method Not Allowed"
+
+
+class Conflict(ClientException):
+    """
+    HTTP 409 - Conflict
+    """
+    http_status = 409
+    message = "Conflict"
+
+
 class OverLimit(ClientException):
     """
     HTTP 413 - Over limit: you're over the API limits for this time period.
     """
     http_status = 413
     message = "Over limit"
+
+    def __init__(self, *args, **kwargs):
+        try:
+            self.retry_after = int(kwargs.pop('retry_after'))
+        except (KeyError, ValueError):
+            self.retry_after = 0
+
+        super(OverLimit, self).__init__(*args, **kwargs)
+
+
+class RateLimit(OverLimit):
+    """
+    HTTP 429 - Rate limit: you've sent too many requests for this time period.
+    """
+    http_status = 429
+    message = "Rate limit"
 
 
 # NotImplemented is a python keyword.
@@ -139,8 +171,10 @@ class HTTPNotImplemented(ClientException):
 #                      for c in ClientException.__subclasses__())
 #
 # Instead, we have to hardcode it:
-_code_map = dict((c.http_status, c) for c in [BadRequest, Unauthorized,
-                   Forbidden, NotFound, OverLimit, HTTPNotImplemented])
+_error_classes = [BadRequest, Unauthorized, Forbidden, NotFound,
+                  MethodNotAllowed, Conflict, OverLimit, RateLimit,
+                  HTTPNotImplemented]
+_code_map = dict((c.http_status, c) for c in _error_classes)
 
 
 def from_response(response, body, url, method=None):
@@ -154,20 +188,30 @@ def from_response(response, body, url, method=None):
         if resp.status_code != 200:
             raise exception_from_response(resp, rest.text)
     """
-    cls = _code_map.get(response.status_code, ClientException)
+    kwargs = {
+        'code': response.status_code,
+        'method': method,
+        'url': url,
+        'request_id': None,
+    }
+
     if response.headers:
-        request_id = response.headers.get('x-compute-request-id')
-    else:
-        request_id = None
+        kwargs['request_id'] = response.headers.get('x-compute-request-id')
+
+        if 'retry-after' in response.headers:
+            kwargs['retry_after'] = response.headers.get('retry-after')
+
     if body:
         message = "n/a"
         details = "n/a"
+
         if hasattr(body, 'keys'):
             error = body[body.keys()[0]]
             message = error.get('message', None)
             details = error.get('details', None)
-        return cls(code=response.status_code, message=message, details=details,
-                   request_id=request_id, url=url, method=method)
-    else:
-        return cls(code=response.status_code, request_id=request_id, url=url,
-                method=method)
+
+        kwargs['message'] = message
+        kwargs['details'] = details
+
+    cls = _code_map.get(response.status_code, ClientException)
+    return cls(**kwargs)

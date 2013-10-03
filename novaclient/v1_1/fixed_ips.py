@@ -1,6 +1,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2012 IBM
+# Copyright 2012 IBM Corp.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -27,7 +27,7 @@ class FixedIP(base.Resource):
         return "<FixedIP: %s>" % self.address
 
 
-class FixedIPsManager(base.ManagerWithFind):
+class FixedIPsManager(base.Manager):
     resource_class = FixedIP
 
     def get(self, fixed_ip):

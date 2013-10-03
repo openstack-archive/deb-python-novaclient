@@ -21,7 +21,7 @@ from novaclient import base
 
 class Host(base.Resource):
     def __repr__(self):
-        return "<Host: %s>" % self.host
+        return "<Host: %s>" % self.host_name
 
     def _add_details(self, info):
         dico = 'resource' in info and info['resource'] or info
@@ -57,13 +57,14 @@ class HostManager(base.ManagerWithFind):
         return self._update("/os-hosts/%s" % host, values)
 
     def host_action(self, host, action):
-        """Performs an action on a host."""
-        body = {action: None}
-        url = '/os-hosts/%s/action' % host
-        return self.api.client.post(url, body=body)
+        """Perform an action on a host."""
+        url = '/os-hosts/{0}/{1}'.format(host, action)
+        return self.api.client.get(url)
 
-    def list_all(self, zone=None):
+    def list(self, zone=None):
         url = '/os-hosts'
         if zone:
             url = '/os-hosts?zone=%s' % zone
         return self._list(url, "hosts")
+
+    list_all = list

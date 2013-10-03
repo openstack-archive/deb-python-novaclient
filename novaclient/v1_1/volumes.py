@@ -17,9 +17,10 @@
 Volume interface (1.1 extension).
 """
 
-import urllib
+import six
 
 from novaclient import base
+from novaclient.openstack.common.py3kcompat import urlutils
 
 
 class Volume(base.Resource):
@@ -86,9 +87,9 @@ class VolumeManager(base.ManagerWithFind):
         """
         search_opts = search_opts or {}
 
-        qparams = dict((k, v) for (k, v) in search_opts.iteritems() if v)
+        qparams = dict((k, v) for (k, v) in six.iteritems(search_opts) if v)
 
-        query_string = '?%s' % urllib.urlencode(qparams) if qparams else ''
+        query_string = '?%s' % urlutils.urlencode(qparams) if qparams else ''
 
         if detailed is True:
             return self._list("/volumes/detail%s" % query_string, "volumes")
@@ -116,6 +117,20 @@ class VolumeManager(base.ManagerWithFind):
                             'device': device}}
         return self._create("/servers/%s/os-volume_attachments" % server_id,
             body, "volumeAttachment")
+
+    def update_server_volume(self, server_id, attachment_id, new_volume_id):
+        """
+        Update the volume identified by the attachment ID, that is attached to
+        the given server ID
+
+        :param server_id: The ID of the server
+        :param attachment_id: The ID of the attachment
+        :param new_volume_id: The ID of the new volume to attach
+        :rtype: :class:`Volume`
+        """
+        body = {'volumeAttachment': {'volumeId': new_volume_id}}
+        return self._update("/servers/%s/os-volume_attachments/%s" %
+            (server_id, attachment_id,), body, "volumeAttachment")
 
     def get_server_volume(self, server_id, attachment_id):
         """

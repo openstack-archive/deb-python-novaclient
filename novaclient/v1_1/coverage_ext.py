@@ -1,4 +1,4 @@
-# Copyright 2012 IBM
+# Copyright 2012 IBM Corp.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,8 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import urllib
-
 from novaclient import base
 
 
@@ -23,7 +21,7 @@ class Coverage(base.Resource):
         return "<Coverage: %s>" % self.name
 
 
-class CoverageManager(base.ManagerWithFind):
+class CoverageManager(base.Manager):
 
     resource_class = Coverage
 
@@ -51,6 +49,12 @@ class CoverageManager(base.ManagerWithFind):
             body['report']['xml'] = True
         elif html:
             body['report']['html'] = True
+        self.run_hooks('modify_body_for_action', body)
+        url = '/os-coverage/action'
+        return self.api.client.post(url, body=body)
+
+    def reset(self):
+        body = {'reset': {}}
         self.run_hooks('modify_body_for_action', body)
         url = '/os-coverage/action'
         return self.api.client.post(url, body=body)

@@ -6,6 +6,7 @@ import textwrap
 import uuid
 
 import prettytable
+import six
 
 from novaclient import exceptions
 from novaclient.openstack.common import strutils
@@ -46,7 +47,7 @@ def add_arg(f, *args, **kwargs):
 
 
 def bool_from_str(val):
-    """Convert a string representation of a bool into a bool value"""
+    """Convert a string representation of a bool into a bool value."""
 
     if not val:
         return False
@@ -61,7 +62,7 @@ def bool_from_str(val):
 
 
 def add_resource_manager_extra_kwargs_hook(f, hook):
-    """Adds hook to bind CLI arguments to ResourceManager calls.
+    """Add hook to bind CLI arguments to ResourceManager calls.
 
     The `do_foo` calls in shell.py will receive CLI args and then in turn pass
     them through to the ResourceManager. Before passing through the args, the
@@ -82,13 +83,14 @@ def get_resource_manager_extra_kwargs(f, args, allow_conflicts=False):
     hooks = getattr(f, "resource_manager_kwargs_hooks", [])
     extra_kwargs = {}
     for hook in hooks:
-        hook_name = hook.__name__
         hook_kwargs = hook(args)
 
         conflicting_keys = set(hook_kwargs.keys()) & set(extra_kwargs.keys())
         if conflicting_keys and not allow_conflicts:
             raise Exception("Hook '%(hook_name)s' is attempting to redefine"
-                            " attributes '%(conflicting_keys)s'" % locals())
+                    " attributes '%(conflicting_keys)s'" %
+                    {'hook_name': hook_name,
+                        'conflicting_keys': conflicting_keys})
 
         extra_kwargs.update(hook_kwargs)
 
@@ -141,7 +143,7 @@ def pretty_choice_list(l):
     return ', '.join("'%s'" % i for i in l)
 
 
-def print_list(objs, fields, formatters={}, sortby_index=0):
+def print_list(objs, fields, formatters={}, sortby_index=None):
     if sortby_index is None:
         sortby = None
     else:
@@ -170,10 +172,10 @@ def print_list(objs, fields, formatters={}, sortby_index=0):
         print(strutils.safe_encode(pt.get_string()))
 
 
-def print_dict(d, dict_property="Property", wrap=0):
-    pt = prettytable.PrettyTable([dict_property, 'Value'], caching=False)
+def print_dict(d, dict_property="Property", dict_value="Value", wrap=0):
+    pt = prettytable.PrettyTable([dict_property, dict_value], caching=False)
     pt.align = 'l'
-    for k, v in d.iteritems():
+    for k, v in six.iteritems(d):
         # convert dict to str to check length
         if isinstance(v, dict):
             v = str(v)
@@ -181,7 +183,7 @@ def print_dict(d, dict_property="Property", wrap=0):
             v = textwrap.fill(str(v), wrap)
         # if value has a newline, add in multiple rows
         # e.g. fault with stacktrace
-        if v and isinstance(v, basestring) and r'\n' in v:
+        if v and isinstance(v, six.string_types) and r'\n' in v:
             lines = v.strip().split(r'\n')
             col1 = k
             for line in lines:
@@ -192,19 +194,13 @@ def print_dict(d, dict_property="Property", wrap=0):
     print(strutils.safe_encode(pt.get_string()))
 
 
-def find_resource(manager, name_or_id):
+def find_resource(manager, name_or_id, **find_args):
     """Helper for the _find_* methods."""
     # first try to get entity as integer id
     try:
-        is_intid = isinstance(name_or_id, int) or name_or_id.isdigit()
-    except AttributeError:
-        is_intid = False
-
-    if is_intid:
-        try:
-            return manager.get(int(name_or_id))
-        except exceptions.NotFound:
-            pass
+        return manager.get(int(name_or_id))
+    except (TypeError, ValueError, exceptions.NotFound):
+        pass
 
     # now try to get entity as uuid
     try:
@@ -222,7 +218,7 @@ def find_resource(manager, name_or_id):
 
     try:
         try:
-            return manager.find(human_id=name_or_id)
+            return manager.find(human_id=name_or_id, **find_args)
         except exceptions.NotFound:
             pass
 
@@ -231,6 +227,7 @@ def find_resource(manager, name_or_id):
             resource = getattr(manager, 'resource_class', None)
             name_attr = resource.NAME_ATTR if resource else 'name'
             kwargs = {name_attr: name_or_id}
+            kwargs.update(find_args)
             return manager.find(**kwargs)
         except exceptions.NotFound:
             msg = "No %s with a name or ID of '%s' exists." % \
@@ -345,31 +342,12 @@ def slugify(value):
     From Django's "django/template/defaultfilters.py".
     """
     import unicodedata
-    if not isinstance(value, unicode):
-        value = unicode(value)
-    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
-    value = unicode(_slugify_strip_re.sub('', value).strip().lower())
+    if not isinstance(value, six.text_type):
+        value = six.text_type(value)
+    value = unicodedata.normalize('NFKD', value).encode('ascii',
+                    'ignore').decode("ascii")
+    value = six.text_type(_slugify_strip_re.sub('', value).strip().lower())
     return _slugify_hyphenate_re.sub('-', value)
-
-
-def is_uuid_like(val):
-    """
-    The UUID which doesn't contain hyphens or 'A-F' is allowed.
-    """
-    try:
-        if uuid.UUID(val) and val.isalnum() and val.islower():
-            return True
-        else:
-            return False
-    except (TypeError, ValueError, AttributeError):
-        return False
-
-
-def check_uuid_like(val):
-    if not is_uuid_like(val):
-        raise exceptions.CommandError(
-                     "error: Invalid tenant-id %s supplied"
-                       % val)
 
 
 def _load_entry_point(ep_name, name=None):
@@ -379,3 +357,12 @@ def _load_entry_point(ep_name, name=None):
             return ep.load()
         except (ImportError, pkg_resources.UnknownExtra, AttributeError):
             continue
+
+
+def is_integer_like(val):
+    """Returns validation of a value as an integer."""
+    try:
+        value = int(val)
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False

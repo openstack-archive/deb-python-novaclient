@@ -1,10 +1,11 @@
 # Copyright 2011 OpenStack Foundation
 
 from novaclient import base
+from novaclient.openstack.common.py3kcompat import urlutils
 
 
 class Limits(base.Resource):
-    """A collection of RateLimit and AbsoluteLimit objects"""
+    """A collection of RateLimit and AbsoluteLimit objects."""
 
     def __repr__(self):
         return "<Limits>"
@@ -26,7 +27,7 @@ class Limits(base.Resource):
 
 
 class RateLimit(object):
-    """Data model that represents a flattened view of a single rate limit"""
+    """Data model that represents a flattened view of a single rate limit."""
 
     def __init__(self, verb, uri, regex, value, remain,
                  unit, next_available):
@@ -52,7 +53,7 @@ class RateLimit(object):
 
 
 class AbsoluteLimit(object):
-    """Data model that represents a single absolute limit"""
+    """Data model that represents a single absolute limit."""
 
     def __init__(self, name, value):
         self.name = name
@@ -66,16 +67,21 @@ class AbsoluteLimit(object):
 
 
 class LimitsManager(base.Manager):
-    """Manager object used to interact with limits resource"""
+    """Manager object used to interact with limits resource."""
 
     resource_class = Limits
 
-    def get(self, reserved=False):
+    def get(self, reserved=False, tenant_id=None):
         """
         Get a specific extension.
 
         :rtype: :class:`Limits`
         """
-        query_string = "?reserved=1" if reserved else ""
+        opts = {}
+        if reserved:
+            opts['reserved'] = 1
+        if tenant_id:
+            opts['tenant_id'] = tenant_id
+        query_string = "?%s" % urlutils.urlencode(opts) if opts else ""
 
         return self._get("/limits%s" % query_string, "limits")
