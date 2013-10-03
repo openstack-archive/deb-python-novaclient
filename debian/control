@@ -31,8 +31,8 @@ Build-Depends-Indep: python-argparse,
                      testrepository (>= 0.0.17)
 Standards-Version: 3.9.4
 Homepage: https://github.com/openstack/python-novaclient
-Vcs-Git: git://git.debian.org/openstack/python-novaclient.git
-Vcs-Browser: http://git.debian.org/?p=openstack/python-novaclient.git;a=summary
+Vcs-Git: git://anonscm.debian.org/openstack/python-novaclient.git
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/python-novaclient.git
 
 Package: python-novaclient
 Architecture: all

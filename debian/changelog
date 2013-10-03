@@ -2,6 +2,7 @@ python-novaclient (2:2.15.0-1) unstable; urgency=low
 
   * New upstream release.
   * Review all new (build-)depends.
+  * Fixed VCS URLs to be canonical.
   * Ran wrap-and-sort.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 30 May 2013 14:07:00 +0800
