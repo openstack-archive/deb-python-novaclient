@@ -4,27 +4,31 @@ Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Julien Danjou <acid@debian.org>,
            Thomas Goirand <zigo@debian.org>,
-           Ghe Rivero <ghe.rivero@stackops.com>,
            Mehdi Abaakouk <sileht@sileht.net>
-Build-Depends: debhelper (>= 9), openstack-pkg-tools, python-all (>= 2.6.6-3~)
+Build-Depends: debhelper (>= 9),
+               openstack-pkg-tools,
+               python-all (>= 2.6.6-3~),
+               python-pbr (>= 0.5.21)
 Build-Depends-Indep: python-argparse,
+                     python-babel (>=0.9.6),
                      python-coverage,
                      python-distribute,
-                     python-fixtures,
+                     python-fixtures (>= 0.3.12),
                      python-httplib2,
                      python-iso8601,
-                     python-keyring,
-                     python-mock (>= 0.7),
+                     python-keyring (>= 1.6.1),
+                     python-mock (>= 0.8),
                      python-nose,
                      python-prettytable (>= 0.6),
                      python-requests (>= 1.2.0),
                      python-setuptools-git,
                      python-simplejson,
+                     python-six,
                      python-sphinx,
                      python-testrepository,
-                     python-testtools,
+                     python-testtools (>= 0.9.32),
                      python-unittest2,
-                     testrepository
+                     testrepository (>= 0.0.17)
 Standards-Version: 3.9.4
 Homepage: https://github.com/openstack/python-novaclient
 Vcs-Git: git://git.debian.org/openstack/python-novaclient.git
@@ -39,10 +43,12 @@ Depends: python-argparse,
          python-httplib2,
          python-iso8601,
          python-keyring,
+         python-pbr (>= 0.5.21),
          python-pkg-resources,
          python-prettytable (>= 0.6),
          python-requests (>= 1.2.0),
          python-simplejson,
+         python-six,
          ${misc:Depends},
          ${python:Depends}
 Description: client library for OpenStack Compute API

@@ -1,5 +1,7 @@
-python-novaclient (2:2.13.0-3) UNRELEASED; urgency=low
+python-novaclient (2:2.15.0-1) unstable; urgency=low
 
+  * New upstream release.
+  * Review all new (build-)depends.
   * Ran wrap-and-sort.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 30 May 2013 14:07:00 +0800
