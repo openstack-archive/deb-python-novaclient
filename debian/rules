@@ -15,7 +15,7 @@ override_dh_auto_clean:
 	echo $(VERSION) > novaclient/versioninfo
 	dh_auto_clean
 	rm -f novaclient/versioninfo
-	rm -rf setuptools_git-*-py*.egg
+	rm -rf .testrepository subunit.log
 
 override_dh_auto_install:
 	dh_auto_install

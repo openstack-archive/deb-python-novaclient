@@ -1,3 +1,10 @@
+python-novaclient (2:2.15.0-2) unstable; urgency=medium
+
+  * Applied upstream patch for deprecated Gnome keyring API (Closes: #728470).
+  * Removes .testrepository and subunit.log on clean.
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 04 Jan 2014 01:38:05 +0800
+
 python-novaclient (2:2.15.0-1) unstable; urgency=low
 
   * New upstream release.
