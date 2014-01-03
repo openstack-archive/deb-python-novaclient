@@ -1,3 +1,9 @@
+python-novaclient (2:2.15.0-3) unstable; urgency=medium
+
+  * Using testr to run tests.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 03 Jan 2014 17:56:51 +0000
+
 python-novaclient (2:2.15.0-2) unstable; urgency=medium
 
   * Applied upstream patch for deprecated Gnome keyring API (Closes: #728470).
