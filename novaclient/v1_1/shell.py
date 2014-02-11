@@ -3082,7 +3082,7 @@ def do_ssh(cs, args):
         return
 
 
-_quota_resources = ['instances', 'cores', 'ram', 'volumes', 'gigabytes',
+_quota_resources = ['instances', 'cores', 'ram',
                     'floating_ips', 'fixed_ips', 'metadata_items',
                     'injected_files', 'injected_file_content_bytes',
                     'injected_file_path_bytes', 'key_pairs',
@@ -3174,14 +3174,6 @@ def do_quota_defaults(cs, args):
            metavar='<ram>',
            type=int, default=None,
            help='New value for the "ram" quota.')
-@utils.arg('--volumes',
-           metavar='<volumes>',
-           type=int, default=None,
-           help='New value for the "volumes" quota.')
-@utils.arg('--gigabytes',
-           metavar='<gigabytes>',
-           type=int, default=None,
-           help='New value for the "gigabytes" quota.')
 @utils.arg('--floating-ips',
     metavar='<floating-ips>',
     type=int,
@@ -3289,14 +3281,6 @@ def do_quota_class_show(cs, args):
            metavar='<ram>',
            type=int, default=None,
            help='New value for the "ram" quota.')
-@utils.arg('--volumes',
-           metavar='<volumes>',
-           type=int, default=None,
-           help='New value for the "volumes" quota.')
-@utils.arg('--gigabytes',
-           metavar='<gigabytes>',
-           type=int, default=None,
-           help='New value for the "gigabytes" quota.')
 @utils.arg('--floating-ips',
     metavar='<floating-ips>',
     type=int,
