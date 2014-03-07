@@ -3,6 +3,7 @@ python-novaclient (2:2.16.0-1) unstable; urgency=medium
   * New upstream release.
   * Using testr to run tests.
   * Standards-Version: is now 3.9.5.
+  * Drop gnome keyring patch applied upstream.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 07 Mar 2014 15:38:24 +0800
 
