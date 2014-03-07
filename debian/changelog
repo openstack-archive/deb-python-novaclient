@@ -1,9 +1,10 @@
-python-novaclient (2:2.15.0-3) unstable; urgency=medium
+python-novaclient (2:2.16.0-1) unstable; urgency=medium
 
+  * New upstream release.
   * Using testr to run tests.
   * Standards-Version: is now 3.9.5.
 
- -- Thomas Goirand <zigo@debian.org>  Fri, 03 Jan 2014 17:56:51 +0000
+ -- Thomas Goirand <zigo@debian.org>  Fri, 07 Mar 2014 15:38:24 +0800
 
 python-novaclient (2:2.15.0-2) unstable; urgency=medium
 
