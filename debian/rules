@@ -24,5 +24,9 @@ override_dh_auto_install:
 
 override_dh_auto_test::
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	set -e ; for pyversion in $(shell pyversions -r); do $$pyversion setup.py testr || true ; done
+	set -e && \
+		TEMP_REZ=`mktemp -t` && \
+		python setup.py testr --slowest --testr-args='--subunit  ' | tee $$TEMP_REZ | subunit2pyunit ; \
+		cat $$TEMP_REZ | subunit-filter -s --no-passthrough | subunit-stats ; \
+		rm -f $$TEMP_REZ
 endif
