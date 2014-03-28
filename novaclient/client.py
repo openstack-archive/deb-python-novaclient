@@ -24,21 +24,35 @@ import logging
 import time
 
 import requests
+from requests import adapters
 
 try:
     import json
 except ImportError:
     import simplejson as json
 
+from six.moves.urllib import parse
+
 from novaclient import exceptions
 from novaclient.openstack.common.gettextutils import _
-from novaclient.openstack.common.py3kcompat import urlutils
 from novaclient import service_catalog
 from novaclient import utils
 
 
-class HTTPClient(object):
+_ADAPTERS = {}
 
+
+def _adapter_pool(url):
+    """
+    Store and reuse HTTP adapters per Service URL.
+    """
+    if url not in _ADAPTERS:
+        _ADAPTERS[url] = adapters.HTTPAdapter()
+
+    return _ADAPTERS[url]
+
+
+class HTTPClient(object):
     USER_AGENT = 'python-novaclient'
 
     def __init__(self, user, password, projectid=None, auth_url=None,
@@ -104,8 +118,10 @@ class HTTPClient(object):
 
         self.auth_system = auth_system
         self.auth_plugin = auth_plugin
-
+        self._current_url = None
+        self._http = None
         self._logger = logging.getLogger(__name__)
+
         if self.http_log_debug and not self._logger.handlers:
             # Logging level is already set on the root logger
             ch = logging.StreamHandler()
@@ -118,8 +134,6 @@ class HTTPClient(object):
                 # have to set it up here on WARNING (its original level)
                 # otherwise we will get all the requests logging messages
                 rql.setLevel(logging.WARNING)
-        # requests within the same session can reuse TCP connections from pool
-        self.http = requests.Session()
 
     def use_token_cache(self, use_it):
         self.os_cache = use_it
@@ -166,6 +180,20 @@ class HTTPClient(object):
                                              'headers': resp.headers,
                                              'text': resp.text})
 
+    def http(self, url):
+        magic_tuple = parse.urlsplit(url)
+        scheme, netloc, path, query, frag = magic_tuple
+        service_url = '%s://%s' % (scheme, netloc)
+        if self._current_url != service_url:
+            # Invalidate Session object in case the url is somehow changed
+            if self._http:
+                self._http.close()
+            self._current_url = service_url
+            self._logger.debug("New session created for: (%s)" % service_url)
+            self._http = requests.Session()
+            self._http.mount(service_url, _adapter_pool(service_url))
+        return self._http
+
     def request(self, url, method, **kwargs):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         kwargs['headers']['User-Agent'] = self.USER_AGENT
@@ -179,10 +207,11 @@ class HTTPClient(object):
         kwargs['verify'] = self.verify_cert
 
         self.http_log_req(method, url, kwargs)
-        resp = self.http.request(
+        resp = self.http(url).request(
             method,
             url,
             **kwargs)
+
         self.http_log_resp(resp)
 
         if resp.text:
@@ -325,7 +354,7 @@ class HTTPClient(object):
                                              extract_token=False)
 
     def authenticate(self):
-        magic_tuple = urlutils.urlsplit(self.auth_url)
+        magic_tuple = parse.urlsplit(self.auth_url)
         scheme, netloc, path, query, frag = magic_tuple
         port = magic_tuple.port
         if port is None:
@@ -343,7 +372,7 @@ class HTTPClient(object):
         # TODO(sandy): Assume admin endpoint is 35357 for now.
         # Ideally this is going to have to be provided by the service catalog.
         new_netloc = netloc.replace(':%d' % port, ':%d' % (35357,))
-        admin_url = urlutils.urlunsplit(
+        admin_url = parse.urlunsplit(
             (scheme, new_netloc, path, query, frag))
 
         auth_url = self.auth_url
