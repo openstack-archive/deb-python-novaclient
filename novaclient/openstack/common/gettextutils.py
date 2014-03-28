@@ -432,28 +432,6 @@ class TranslationHandler(handlers.MemoryHandler):
     If the specified locale is not available in the system, the handler will
     log in the default locale.
     """
-    if isinstance(args, tuple):
-        return tuple(translate(v, desired_locale) for v in args)
-    if isinstance(args, dict):
-        translated_dict = {}
-        for (k, v) in six.iteritems(args):
-            translated_v = translate(v, desired_locale)
-            translated_dict[k] = translated_v
-        return translated_dict
-    return translate(args, desired_locale)
-
-
-class TranslationHandler(handlers.MemoryHandler):
-    """Handler that translates records before logging them.
-
-    The TranslationHandler takes a locale and a target logging.Handler object
-    to forward LogRecord objects to after translating them. This handler
-    depends on Message objects being logged, instead of regular strings.
-
-    The handler can be configured declaratively in the logging.conf as follows:
-
-        [handlers]
-        keys = translatedlog, translator
 
     def __init__(self, locale=None, target=None):
         """Initialize a TranslationHandler
