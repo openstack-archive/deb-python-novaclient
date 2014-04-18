@@ -1,3 +1,9 @@
+python-novaclient (2:2.17.0-2) unstable; urgency=medium
+
+  * Uploading to unstable.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 18 Apr 2014 10:13:07 +0800
+
 python-novaclient (2:2.17.0-1) experimental; urgency=medium
 
   * New upstream release.
