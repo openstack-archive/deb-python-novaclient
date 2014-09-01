@@ -1,4 +1,4 @@
-# Copyright IBM Corp. 2013
+# Copyright 2014 NEC Corporation. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -12,14 +12,22 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from novaclient.tests.v1_1 import test_quota_classes
+from novaclient import extension
+from novaclient.tests import utils
 from novaclient.tests.v3 import fakes
+from novaclient.v3 import list_extensions
 
 
-class QuotaClassSetsTest(test_quota_classes.QuotaClassSetsTest):
-    def setUp(self):
-        super(QuotaClassSetsTest, self).setUp()
-        self.cs = self._get_fake_client()
+extensions = [
+    extension.Extension("list_extensions", list_extensions),
+]
+cs = fakes.FakeClient(extensions=extensions)
 
-    def _get_fake_client(self):
-        return fakes.FakeClient()
+
+class ListExtensionsTests(utils.TestCase):
+    def test_list_extensions(self):
+        all_exts = cs.list_extensions.show_all()
+        cs.assert_called('GET', '/extensions')
+        self.assertTrue(len(all_exts) > 0)
+        for r in all_exts:
+            self.assertTrue(len(r.summary) > 0)

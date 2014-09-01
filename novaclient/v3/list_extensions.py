@@ -1,4 +1,4 @@
-# Copyright IBM Corp. 2013
+# Copyright 2014 NEC Corporation. All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -11,13 +11,16 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+"""
+extension interface
+"""
 
-from novaclient.v1_1 import quota_classes
+from novaclient.v1_1.contrib import list_extensions
 
 
-class QuotaClassSet(quota_classes.QuotaClassSet):
+class ListExtResource(list_extensions.ListExtResource):
     pass
 
 
-class QuotaClassSetManager(quota_classes.QuotaClassSetManager):
-    resource_class = QuotaClassSet
+class ListExtManager(list_extensions.ListExtManager):
+    pass
