@@ -2,33 +2,36 @@ Source: python-novaclient
 Section: python
 Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
-Uploaders: Julien Danjou <acid@debian.org>,
-           Thomas Goirand <zigo@debian.org>,
-           Mehdi Abaakouk <sileht@sileht.net>
+Uploaders: Thomas Goirand <zigo@debian.org>
 Build-Depends: debhelper (>= 9),
+               dh-python,
                openstack-pkg-tools,
                python-all (>= 2.6.6-3~),
-               python-pbr (>= 0.6)
+               python-pbr,
+               python-setuptools,
+               python-sphinx,
 Build-Depends-Indep: python-babel (>= 1.3),
                      python-coverage (>= 3.6),
                      python-fixtures (>= 0.3.14),
-                     python-httplib2,
                      python-httpretty (>= 0.8),
-                     python-iso8601 (>= 0.1.8),
+                     python-iso8601 (>= 0.1.9),
                      python-keyring (>= 2.1),
+                     python-keystoneclient (>= 1:1.1.0),
                      python-mock (>= 1.0),
-                     python-keystoneclient (>=0.9.0),
+                     python-oslo.i18n (>= 1.3.0),
+                     python-oslo.serialization (>= 1.2.0),
+                     python-oslo.utils (>= 1.2.0),
+                     python-oslosphinx (>= 2.2.0.0),
                      python-prettytable (>= 0.7),
-                     python-requests (>= 1.2.0),
+                     python-requests (>= 2.2.0),
+                     python-requests-mock (>= 0.5.1),
                      python-simplejson,
-                     python-six (>= 1.5.2),
-                     python-sphinx,
-                     python-subunit (>= 0.0.18),
-                     python-testrepository,
-                     python-testtools (>= 0.9.32),
+                     python-six (>= 1.9.0),
+                     python-tempest-lib (>= 0.3.0),
+                     python-testtools (>= 0.9.36),
                      python-unittest2,
                      subunit (>= 0.0.18),
-                     testrepository (>= 0.0.18)
+                     testrepository (>= 0.0.18),
 Standards-Version: 3.9.5
 Homepage: https://github.com/openstack/python-novaclient
 Vcs-Git: git://anonscm.debian.org/openstack/python-novaclient.git
@@ -40,16 +43,18 @@ Breaks: simh (<< 3.8.1-3)
 Replaces: simh (<< 3.8.1-3)
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: python-babel (>= 1.3),
-         python-httplib2,
-         python-iso8601 (>= 0.1.8),
+         python-iso8601 (>= 0.1.9),
+         python-keystoneclient (>= 1:1.1.0),
+         python-oslo.i18n (>= 1.3.0),
+         python-oslo.serialization (>= 1.2.0),
+         python-oslo.utils (>= 1.2.0),
          python-pbr (>= 0.6),
-         python-pkg-resources,
          python-prettytable (>= 0.7),
-         python-requests (>= 1.2.0),
+         python-requests (>= 2.2.0),
          python-simplejson,
-         python-six (>= 1.5.2),
+         python-six (>= 1.9.0),
          ${misc:Depends},
-         ${python:Depends}
+         ${python:Depends},
 Description: client library for OpenStack Compute API
  OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
  designed to be modular and easy to extend and adapt. In addition to its
