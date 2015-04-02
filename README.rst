@@ -18,7 +18,7 @@ pull requests.
 
 .. _Github: https://github.com/openstack/python-novaclient
 .. _Launchpad: https://launchpad.net/python-novaclient
-.. _Gerrit: http://wiki.openstack.org/GerritWorkflow
+.. _Gerrit: http://docs.openstack.org/infra/manual/developers.html#development-workflow
 
 python-novaclient is licensed under the Apache License like the rest of
 OpenStack.
@@ -46,7 +46,7 @@ and the version of the API with ``--os-compute-api-version``.  Or set them as
 an environment variables as well::
 
     export OS_AUTH_URL=http://example.com:8774/v1.1/
-    export OS_COMPUTE_API_VERSION=1.1
+    export OS_COMPUTE_API_VERSION=2
 
 If you are using Keystone, you need to set the OS_AUTH_URL to the keystone
 endpoint::
@@ -66,10 +66,10 @@ Python API
 There's also a complete Python API, but it has not yet been documented.
 
 
-Quick-start using keystone::
+To use with nova, with keystone as the authentication system::
 
     # use v2.0 auth with http://example.com:5000/v2.0/")
-    >>> from novaclient.v1_1 import client
+    >>> from novaclient.v2 import client
     >>> nt = client.Client(USER, PASS, TENANT, AUTH_URL, service_type="compute")
     >>> nt.flavors.list()
     [...]

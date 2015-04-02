@@ -11,10 +11,27 @@ Usage
 
 First create a client instance with your credentials::
 
-    >>> from novaclient.client import Client
-    >>> nova = Client(VERSION, USERNAME, PASSWORD, PROJECT_ID, AUTH_URL)
+    >>> from novaclient import client
+    >>> nova = client.Client(VERSION, USERNAME, PASSWORD, PROJECT_ID, AUTH_URL)
 
 Here ``VERSION`` can be: ``1.1``, ``2`` and ``3``.
+
+Alternatively, you can create a client instance using the keystoneclient
+session API::
+
+    >>> from keystoneclient.auth.identity import v2
+    >>> from keystoneclient import session
+    >>> from novaclient import client
+    >>> auth = v2.Password(auth_url=AUTH_URL,
+                           username=USERNAME,
+                           password=PASSWORD,
+                           tenant_name=PROJECT_ID)
+    >>> sess = session.Session(auth=auth)
+    >>> nova = client.Client(VERSION, session=sess)
+
+For more information on this keystoneclient API, see `Using Sessions`_.
+
+.. _Using Sessions: http://docs.openstack.org/developer/python-keystoneclient/using-sessions.html
 
 Then call methods on its managers::
 
@@ -43,5 +60,4 @@ For more information, see the reference:
    :maxdepth: 2
 
    ref/index
-   ref/v1_1/index
-   ref/v3/index
+   ref/v2/index

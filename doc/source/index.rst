@@ -1,5 +1,5 @@
 Python bindings to the OpenStack Nova API
-==================================================
+=========================================
 
 This is a client for OpenStack Nova API. There's :doc:`a Python API
 <api>` (the :mod:`novaclient` module), and a :doc:`command-line script
@@ -25,8 +25,7 @@ Contents:
    shell
    api
    ref/index
-   ref/v1_1/index
-   ref/v3/index
+   ref/v2/index
    releases
 
 Contributing
@@ -38,9 +37,16 @@ Code is hosted at `git.openstack.org`_. Submit bugs to the Nova project on
 
 .. _git.openstack.org: https://git.openstack.org/cgit/openstack/python-novaclient
 .. _Launchpad: https://launchpad.net/nova
-.. _Gerrit: http://wiki.openstack.org/GerritWorkflow
+.. _Gerrit: http://docs.openstack.org/infra/manual/developers.html#development-workflow
 
-Run tests with ``python setup.py test``.
+Testing
+-------
+
+The preferred way to run the unit tests is using ``tox``.
+
+See `Consistent Testing Interface`_ for more details.
+
+.. _Consistent Testing Interface: http://git.openstack.org/cgit/openstack/governance/tree/reference/project-testing-interface.rst
 
 Indices and tables
 ==================
