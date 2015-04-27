@@ -33,7 +33,7 @@ Build-Depends-Indep: python-babel,
                      python-unittest2,
                      subunit,
                      testrepository,
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Homepage: https://github.com/openstack/python-novaclient
 Vcs-Git: git://anonscm.debian.org/openstack/python-novaclient.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/python-novaclient.git
