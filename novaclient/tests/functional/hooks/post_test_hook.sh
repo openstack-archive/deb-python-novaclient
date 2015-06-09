@@ -28,14 +28,15 @@ function generate_testr_results {
 
 export NOVACLIENT_DIR="$BASE/new/python-novaclient"
 
-# Get admin credentials
-cd $BASE/new/devstack
-source openrc admin admin
+sudo chown -R jenkins:stack $NOVACLIENT_DIR
+
+# ensure clouds.yaml exists
+mkdir -p ~/.config/openstack
+sudo cp -a ~stack/.config/openstack/clouds.yaml ~/.config/openstack
+sudo chown -R jenkins:stack ~/.config/openstack
 
 # Go to the novaclient dir
 cd $NOVACLIENT_DIR
-
-sudo chown -R jenkins:stack $NOVACLIENT_DIR
 
 # Run tests
 echo "Running novaclient functional test suite"

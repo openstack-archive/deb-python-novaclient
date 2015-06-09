@@ -134,10 +134,12 @@ class SimpleReadOnlyNovaClientTest(base.ClientTestBase):
         self.nova('volume-list')
 
     def test_admin_volume_snapshot_list(self):
-        self.nova('volume-snapshot-list')
+        out = self.nova('volume-snapshot-list', merge_stderr=True)
+        self.assertIn('Command volume-snapshot-list is deprecated', out)
 
     def test_admin_volume_type_list(self):
-        self.nova('volume-type-list')
+        out = self.nova('volume-type-list', merge_stderr=True)
+        self.assertIn('Command volume-type-list is deprecated', out)
 
     def test_admin_help(self):
         self.nova('help')
@@ -156,6 +158,9 @@ class SimpleReadOnlyNovaClientTest(base.ClientTestBase):
         self.nova('migration-list')
         self.nova('migration-list', flags='--debug')
 
+    def test_version_list(self):
+        self.nova('version-list')
+
     # Optional arguments:
 
     def test_admin_version(self):
@@ -169,3 +174,9 @@ class SimpleReadOnlyNovaClientTest(base.ClientTestBase):
 
     def test_admin_timing(self):
         self.nova('list', flags='--timing')
+
+    def test_admin_invalid_bypass_url(self):
+        self.assertRaises(exceptions.CommandFailed,
+                          self.nova,
+                          'list',
+                          flags='--bypass-url badurl')

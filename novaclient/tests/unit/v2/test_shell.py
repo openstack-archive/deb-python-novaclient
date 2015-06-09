@@ -16,13 +16,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import argparse
 import base64
 import datetime
 import os
 
 import fixtures
 import mock
-from oslo.utils import timeutils
+from oslo_utils import timeutils
 import six
 from six.moves import builtins
 
@@ -73,12 +74,13 @@ class ShellTest(utils.TestCase):
             lambda *_: fakes.FakeClient))
 
     @mock.patch('sys.stdout', new_callable=six.StringIO)
-    def run_command(self, cmd, mock_stdout):
+    @mock.patch('sys.stderr', new_callable=six.StringIO)
+    def run_command(self, cmd, mock_stderr, mock_stdout):
         if isinstance(cmd, list):
             self.shell.main(cmd)
         else:
             self.shell.main(cmd.split())
-        return mock_stdout.getvalue()
+        return mock_stdout.getvalue(), mock_stderr.getvalue()
 
     def assert_called(self, method, url, body=None, **kwargs):
         return self.shell.cs.assert_called(method, url, body, **kwargs)
@@ -292,6 +294,13 @@ class ShellTest(utils.TestCase):
                 'flavorRef': '1',
                 'name': 'some-server',
                 'block_device_mapping_v2': [
+                    {
+                        'uuid': 1,
+                        'source_type': 'image',
+                        'destination_type': 'local',
+                        'boot_index': 0,
+                        'delete_on_termination': True,
+                    },
                     {
                         'uuid': 'fake-id',
                         'source_type': 'volume',
@@ -661,10 +670,10 @@ class ShellTest(utils.TestCase):
 
     def test_boot_named_flavor(self):
         self.run_command(["boot", "--image", "1",
-                          "--flavor", "512 mb server",
+                          "--flavor", "512 MB Server",
                           "--max-count", "3", "server"])
         self.assert_called('GET', '/images/1', pos=0)
-        self.assert_called('GET', '/flavors/512 mb server', pos=1)
+        self.assert_called('GET', '/flavors/512 MB Server', pos=1)
         self.assert_called('GET', '/flavors?is_public=None', pos=2)
         self.assert_called('GET', '/flavors/2', pos=3)
         self.assert_called(
@@ -678,6 +687,10 @@ class ShellTest(utils.TestCase):
                     'max_count': 3,
                 }
             }, pos=4)
+
+    def test_boot_invalid_ephemeral_data_format(self):
+        cmd = 'boot --flavor 1 --image 1 --ephemeral 1 some-server'
+        self.assertRaises(argparse.ArgumentTypeError, self.run_command, cmd)
 
     def test_flavor_list(self):
         self.run_command('flavor-list')
@@ -701,15 +714,15 @@ class ShellTest(utils.TestCase):
         self.assert_called_anytime('GET', '/flavors/aa1')
 
     def test_flavor_show_by_name(self):
-        self.run_command(['flavor-show', '128 mb server'])
-        self.assert_called('GET', '/flavors/128 mb server', pos=0)
+        self.run_command(['flavor-show', '128 MB Server'])
+        self.assert_called('GET', '/flavors/128 MB Server', pos=0)
         self.assert_called('GET', '/flavors?is_public=None', pos=1)
         self.assert_called('GET', '/flavors/aa1', pos=2)
         self.assert_called('GET', '/flavors/aa1/os-extra_specs', pos=3)
 
     def test_flavor_show_by_name_priv(self):
-        self.run_command(['flavor-show', '512 mb server'])
-        self.assert_called('GET', '/flavors/512 mb server', pos=0)
+        self.run_command(['flavor-show', '512 MB Server'])
+        self.assert_called('GET', '/flavors/512 MB Server', pos=0)
         self.assert_called('GET', '/flavors?is_public=None', pos=1)
         self.assert_called('GET', '/flavors/2', pos=2)
         self.assert_called('GET', '/flavors/2/os-extra_specs', pos=3)
@@ -746,7 +759,7 @@ class ShellTest(utils.TestCase):
                            {'addTenantAccess': {'tenant': 'proj2'}})
 
     def test_flavor_access_add_by_name(self):
-        self.run_command(['flavor-access-add', '512 mb server', 'proj2'])
+        self.run_command(['flavor-access-add', '512 MB Server', 'proj2'])
         self.assert_called('POST', '/flavors/2/action',
                            {'addTenantAccess': {'tenant': 'proj2'}})
 
@@ -756,7 +769,7 @@ class ShellTest(utils.TestCase):
                            {'removeTenantAccess': {'tenant': 'proj2'}})
 
     def test_flavor_access_remove_by_name(self):
-        self.run_command(['flavor-access-remove', '512 mb server', 'proj2'])
+        self.run_command(['flavor-access-remove', '512 MB Server', 'proj2'])
         self.assert_called('POST', '/flavors/2/action',
                            {'removeTenantAccess': {'tenant': 'proj2'}})
 
@@ -791,7 +804,7 @@ class ShellTest(utils.TestCase):
         )
 
     def test_create_image_show(self):
-        output = self.run_command(
+        output, _ = self.run_command(
             'image-create sample-server mysnapshot --show')
         self.assert_called_anytime(
             'POST', '/servers/1234/action',
@@ -896,7 +909,7 @@ class ShellTest(utils.TestCase):
                     mock.ANY, mock.ANY, mock.ANY, sortby_index=1)
 
     def test_list_fields(self):
-        output = self.run_command(
+        output, _ = self.run_command(
             'list --fields '
             'host,security_groups,OS-EXT-MOD:some_thing')
         self.assert_called('GET', '/servers/detail')
@@ -914,7 +927,7 @@ class ShellTest(utils.TestCase):
                            {'reboot': {'type': 'HARD'}})
 
     def test_rebuild(self):
-        output = self.run_command('rebuild sample-server 1')
+        output, _ = self.run_command('rebuild sample-server 1')
         self.assert_called('GET', '/servers?name=sample-server', pos=-6)
         self.assert_called('GET', '/servers/1234', pos=-5)
         self.assert_called('GET', '/images/1', pos=-4)
@@ -925,8 +938,8 @@ class ShellTest(utils.TestCase):
         self.assertIn('adminPass', output)
 
     def test_rebuild_password(self):
-        output = self.run_command('rebuild sample-server 1'
-                                  ' --rebuild-password asdf')
+        output, _ = self.run_command('rebuild sample-server 1'
+                                     ' --rebuild-password asdf')
         self.assert_called('GET', '/servers?name=sample-server', pos=-6)
         self.assert_called('GET', '/servers/1234', pos=-5)
         self.assert_called('GET', '/images/1', pos=-4)
@@ -1078,6 +1091,18 @@ class ShellTest(utils.TestCase):
         self.assertRaises(exceptions.CommandError,
                           self.run_command, 'show xxx')
 
+    def test_show_unavailable_image_and_flavor(self):
+        output, _ = self.run_command('show 9013')
+        self.assert_called('GET', '/servers/9013', pos=-8)
+        self.assert_called('GET',
+                           '/flavors/80645cf4-6ad3-410a-bbc8-6f3e1e291f51',
+                           pos=-7)
+        self.assert_called('GET',
+                           '/images/3e861307-73a6-4d1f-8d68-f68b03223032',
+                           pos=-3)
+        self.assertIn('Image not found', output)
+        self.assertIn('Flavor not found', output)
+
     @mock.patch('novaclient.v2.shell.utils.print_dict')
     def test_print_server(self, mock_print_dict):
         self.run_command('show 5678')
@@ -1112,14 +1137,26 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/servers/5678', pos=-1)
         self.run_command('delete sample-server sample-server2')
         self.assert_called('GET',
-                           '/servers?all_tenants=1&name=sample-server', pos=-6)
+                           '/servers?name=sample-server', pos=-6)
         self.assert_called('GET', '/servers/1234', pos=-5)
         self.assert_called('DELETE', '/servers/1234', pos=-4)
         self.assert_called('GET',
-                           '/servers?all_tenants=1&name=sample-server2',
+                           '/servers?name=sample-server2',
                            pos=-3)
         self.assert_called('GET', '/servers/5678', pos=-2)
         self.assert_called('DELETE', '/servers/5678', pos=-1)
+
+    def test_delete_two_with_two_existent_all_tenants(self):
+        self.run_command('delete sample-server sample-server2 --all-tenants')
+        self.assert_called('GET',
+                           '/servers?all_tenants=1&name=sample-server', pos=0)
+        self.assert_called('GET', '/servers/1234', pos=1)
+        self.assert_called('DELETE', '/servers/1234', pos=2)
+        self.assert_called('GET',
+                           '/servers?all_tenants=1&name=sample-server2',
+                           pos=3)
+        self.assert_called('GET', '/servers/5678', pos=4)
+        self.assert_called('DELETE', '/servers/5678', pos=5)
 
     def test_delete_two_with_one_nonexistent(self):
         cmd = 'delete 1234 123456789'
@@ -1824,7 +1861,7 @@ class ShellTest(utils.TestCase):
         self.assert_called('GET', '/os-networks')
 
     def test_network_list_fields(self):
-        output = self.run_command(
+        output, _ = self.run_command(
             'network-list --fields '
             'vlan,project_id')
         self.assert_called('GET', '/os-networks')
@@ -1991,6 +2028,20 @@ class ShellTest(utils.TestCase):
         self.run_command('absolute-limits --tenant 1234')
         self.assert_called('GET', '/limits?tenant_id=1234')
 
+    def test_limits(self):
+        self.run_command('limits')
+        self.assert_called('GET', '/limits')
+
+        self.run_command('limits --reserved')
+        self.assert_called('GET', '/limits?reserved=1')
+
+        self.run_command('limits --tenant 1234')
+        self.assert_called('GET', '/limits?tenant_id=1234')
+
+        stdout, _ = self.run_command('limits --tenant 1234')
+        self.assertIn('Verb', stdout)
+        self.assertIn('Name', stdout)
+
     def test_evacuate(self):
         self.run_command('evacuate sample-server new_host')
         self.assert_called('POST', '/servers/1234/action',
@@ -2140,11 +2191,13 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/servers/1234/os-interface/port_id')
 
     def test_volume_list(self):
-        self.run_command('volume-list')
+        _, err = self.run_command('volume-list')
+        self.assertIn('Command volume-list is deprecated', err)
         self.assert_called('GET', '/volumes/detail')
 
     def test_volume_show(self):
-        self.run_command('volume-show Work')
+        _, err = self.run_command('volume-show Work')
+        self.assertIn('Command volume-show is deprecated', err)
         self.assert_called('GET', '/volumes?display_name=Work', pos=-2)
         self.assert_called(
             'GET',
@@ -2153,7 +2206,8 @@ class ShellTest(utils.TestCase):
         )
 
     def test_volume_create(self):
-        self.run_command('volume-create 2 --display-name Work')
+        _, err = self.run_command('volume-create 2 --display-name Work')
+        self.assertIn('Command volume-create is deprecated', err)
         self.assert_called('POST', '/volumes',
                            {'volume':
                                {'display_name': 'Work',
@@ -2165,7 +2219,8 @@ class ShellTest(utils.TestCase):
                                 'size': 2}})
 
     def test_volume_delete(self):
-        self.run_command('volume-delete Work')
+        _, err = self.run_command('volume-delete Work')
+        self.assertIn('Command volume-delete is deprecated', err)
         self.assert_called('DELETE',
                            '/volumes/15e59938-07d5-11e1-90e3-e3dffe0c5983')
 
@@ -2355,6 +2410,14 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/os-server-groups/56789')
         self.assert_called('DELETE', '/os-server-groups/12345', pos=-2)
 
+    def test_list_server_group(self):
+        self.run_command('server-group-list')
+        self.assert_called('GET', '/os-server-groups')
+
+    def test_list_server_group_with_all_projects(self):
+        self.run_command('server-group-list --all-projects')
+        self.assert_called('GET', '/os-server-groups?all_projects')
+
 
 class ShellTestV11(ShellTest):
     FAKE_ENV = {
@@ -2362,17 +2425,6 @@ class ShellTestV11(ShellTest):
         'NOVA_PASSWORD': 'password',
         'NOVA_PROJECT_ID': 'project_id',
         'OS_COMPUTE_API_VERSION': '1.1',
-        'NOVA_URL': 'http://no.where',
-        'OS_AUTH_URL': 'http://no.where/v2.0',
-    }
-
-
-class ShellTestV3(ShellTest):
-    FAKE_ENV = {
-        'NOVA_USERNAME': 'username',
-        'NOVA_PASSWORD': 'password',
-        'NOVA_PROJECT_ID': 'project_id',
-        'OS_COMPUTE_API_VERSION': '3',
         'NOVA_URL': 'http://no.where',
         'OS_AUTH_URL': 'http://no.where/v2.0',
     }

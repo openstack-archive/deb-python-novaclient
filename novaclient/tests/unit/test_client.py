@@ -19,6 +19,7 @@ import logging
 import socket
 
 import fixtures
+from keystoneclient import adapter
 import mock
 import requests
 
@@ -160,10 +161,6 @@ class ClientTest(utils.TestCase):
         self._check_version_url('http://foo.com/nova/v2/%s',
                                 'http://foo.com/nova/')
 
-    def test_get_client_class_v3(self):
-        output = novaclient.client.get_client_class('3')
-        self.assertEqual(output, novaclient.v2.client.Client)
-
     def test_get_client_class_v2(self):
         output = novaclient.client.get_client_class('2')
         self.assertEqual(output, novaclient.v2.client.Client)
@@ -264,6 +261,45 @@ class ClientTest(utils.TestCase):
         self.assertEqual("12345", cs.auth_token)
         self.assertEqual("compute/v100", cs.bypass_url)
         self.assertEqual("compute/v100", cs.management_url)
+
+    def test_service_url_lookup(self):
+        service_type = 'compute'
+        cs = novaclient.client.HTTPClient(None, None, None,
+                                          auth_url='foo/v2',
+                                          service_type=service_type)
+
+        @mock.patch.object(cs, 'get_service_url', return_value='compute/v5')
+        @mock.patch.object(cs, 'request', return_value=(200, '{}'))
+        @mock.patch.object(cs, 'authenticate')
+        def do_test(mock_auth, mock_request, mock_get):
+
+            def set_service_catalog():
+                cs.service_catalog = 'catalog'
+
+            mock_auth.side_effect = set_service_catalog
+            cs.get('/servers')
+            mock_get.assert_called_once_with(service_type)
+            mock_request.assert_called_once_with('compute/v5/servers',
+                                                 'GET', headers=mock.ANY)
+            mock_auth.assert_called_once_with()
+
+        do_test()
+
+    def test_bypass_url_no_service_url_lookup(self):
+        bypass_url = 'compute/v100'
+        cs = novaclient.client.HTTPClient(None, None, None,
+                                          auth_url='foo/v2',
+                                          bypass_url=bypass_url)
+
+        @mock.patch.object(cs, 'get_service_url')
+        @mock.patch.object(cs, 'request', return_value=(200, '{}'))
+        def do_test(mock_request, mock_get):
+            cs.get('/servers')
+            self.assertFalse(mock_get.called)
+            mock_request.assert_called_once_with(bypass_url + '/servers',
+                                                 'GET', headers=mock.ANY)
+
+        do_test()
 
     @mock.patch("novaclient.client.requests.Session")
     def test_session(self, mock_session):
@@ -388,3 +424,34 @@ class ClientTest(utils.TestCase):
         self.assertIn('RESP BODY: {"access": {"token": {"id":'
                       ' "{SHA1}4fc49c6a671ce889078ff6b250f7066cf6d2ada2"}}}',
                       output)
+
+    @mock.patch.object(novaclient.client.HTTPClient, 'request')
+    def test_timings(self, m_request):
+        m_request.return_value = (None, None)
+
+        client = novaclient.client.HTTPClient(user='zqfan', password='')
+        client._time_request("http://no.where", 'GET')
+        self.assertEqual(0, len(client.times))
+
+        client = novaclient.client.HTTPClient(user='zqfan', password='',
+                                              timings=True)
+        client._time_request("http://no.where", 'GET')
+        self.assertEqual(1, len(client.times))
+        self.assertEqual('GET http://no.where', client.times[0][0])
+
+
+class SessionClientTest(utils.TestCase):
+
+    @mock.patch.object(adapter.LegacyJsonAdapter, 'request')
+    def test_timings(self, m_request):
+        m_request.return_value = (mock.MagicMock(status_code=200), None)
+
+        client = novaclient.client.SessionClient(session=mock.MagicMock())
+        client.request("http://no.where", 'GET')
+        self.assertEqual(0, len(client.times))
+
+        client = novaclient.client.SessionClient(session=mock.MagicMock(),
+                                                 timings=True)
+        client.request("http://no.where", 'GET')
+        self.assertEqual(1, len(client.times))
+        self.assertEqual('GET http://no.where', client.times[0][0])

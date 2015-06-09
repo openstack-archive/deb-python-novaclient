@@ -21,7 +21,7 @@ Server interface.
 
 import base64
 
-from oslo.utils import encodeutils
+from oslo_utils import encodeutils
 import six
 from six.moves.urllib import parse
 
@@ -433,10 +433,19 @@ class ServerManager(base.BootingManagerWithFind):
             if hasattr(userdata, 'read'):
                 userdata = userdata.read()
 
+            # NOTE(melwitt): Text file data is converted to bytes prior to
+            # base64 encoding. The utf-8 encoding will fail for binary files.
             if six.PY3:
-                userdata = userdata.encode("utf-8")
+                try:
+                    userdata = userdata.encode("utf-8")
+                except AttributeError:
+                    # In python 3, 'bytes' object has no attribute 'encode'
+                    pass
             else:
-                userdata = encodeutils.safe_encode(userdata)
+                try:
+                    userdata = encodeutils.safe_encode(userdata)
+                except UnicodeDecodeError:
+                    pass
 
             userdata_b64 = base64.b64encode(userdata).decode('utf-8')
             body["server"]["user_data"] = userdata_b64
@@ -492,6 +501,14 @@ class ServerManager(base.BootingManagerWithFind):
             body['server']['block_device_mapping'] = \
                 self._parse_block_device_mapping(block_device_mapping)
         elif block_device_mapping_v2:
+            # Following logic can't be removed because it will leaves
+            # a valid boot with both --image and --block-device
+            # failed , see bug 1433609 for more info
+            if image:
+                bdm_dict = {'uuid': image.id, 'source_type': 'image',
+                            'destination_type': 'local', 'boot_index': 0,
+                            'delete_on_termination': True}
+                block_device_mapping_v2.insert(0, bdm_dict)
             body['server']['block_device_mapping_v2'] = block_device_mapping_v2
 
         if nics is not None:
@@ -811,6 +828,16 @@ class ServerManager(base.BootingManagerWithFind):
         """
         self._action('unshelve', server, None)
 
+    def ips(self, server):
+        """
+        Return IP Addresses associated with the server.
+
+        Often a cheaper call then getting all the details for a server.
+        """
+        _resp, body = self.api.client.get("/servers/%s/ips" %
+                                          base.getid(server))
+        return body['addresses']
+
     def diagnostics(self, server):
         """Retrieve server diagnostics."""
         return self.api.client.get("/servers/%s/diagnostics" %
@@ -832,8 +859,7 @@ class ServerManager(base.BootingManagerWithFind):
         :param image: The :class:`Image` to boot with.
         :param flavor: The :class:`Flavor` to boot onto.
         :param meta: A dict of arbitrary key/value metadata to store for this
-                     server. A maximum of five entries is allowed, and both
-                     keys and values must be 255 characters or less.
+                     server. Both keys and values must be <=255 characters.
         :param files: A dict of files to overrwrite on the server upon boot.
                       Keys are file names (i.e. ``/etc/passwd``) and values
                       are the file contents (either as a string or as a
@@ -954,8 +980,7 @@ class ServerManager(base.BootingManagerWithFind):
             be preserved when rebuilding the instance. Defaults to False.
         :param name: Something to name the server.
         :param meta: A dict of arbitrary key/value metadata to store for this
-                     server. A maximum of five entries is allowed, and both
-                     keys and values must be 255 characters or less.
+                     server. Both keys and values must be <=255 characters.
         :param files: A dict of files to overwrite on the server upon boot.
                       Keys are file names (i.e. ``/etc/passwd``) and values
                       are the file contents (either as a string or as a

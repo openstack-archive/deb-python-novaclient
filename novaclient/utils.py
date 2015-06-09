@@ -11,13 +11,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import contextlib
 import json
 import re
 import textwrap
+import time
 import uuid
 
-from oslo.serialization import jsonutils
-from oslo.utils import encodeutils
+from oslo_serialization import jsonutils
+from oslo_utils import encodeutils
 import pkg_resources
 import prettytable
 import six
@@ -317,7 +319,14 @@ def _load_entry_point(ep_name, name=None):
     """Try to load the entry point ep_name that matches name."""
     for ep in pkg_resources.iter_entry_points(ep_name, name=name):
         try:
-            return ep.load()
+            # FIXME(dhellmann): It would be better to use stevedore
+            # here, since it abstracts this difference in behavior
+            # between versions of setuptools, but this seemed like a
+            # more expedient fix.
+            if hasattr(ep, 'resolve') and hasattr(ep, 'require'):
+                return ep.resolve()
+            else:
+                return ep.load(require=False)
         except (ImportError, pkg_resources.UnknownExtra, AttributeError):
             continue
 
@@ -339,3 +348,23 @@ def validate_flavor_metadata_keys(keys):
                     'numbers, spaces, underscores, periods, colons and '
                     'hyphens.')
             raise exceptions.CommandError(msg % key)
+
+
+@contextlib.contextmanager
+def record_time(times, enabled, *args):
+    """Record the time of a specific action.
+
+    :param times: A list of tuples holds time data.
+    :type times: list
+    :param enabled: Whether timing is enabled.
+    :type enabled: bool
+    :param *args: Other data to be stored besides time data, these args
+                  will be joined to a string.
+    """
+    if not enabled:
+        yield
+    else:
+        start = time.time()
+        yield
+        end = time.time()
+        times.append((' '.join(args), start, end))

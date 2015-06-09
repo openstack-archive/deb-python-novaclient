@@ -21,22 +21,15 @@ Command-line interface to the OpenStack Nova API.
 from __future__ import print_function
 import argparse
 import getpass
-import glob
-import imp
-import itertools
 import logging
-import os
-import pkgutil
 import sys
-import time
 
 from keystoneclient.auth.identity.generic import password
 from keystoneclient.auth.identity.generic import token
 from keystoneclient.auth.identity import v3 as identity
 from keystoneclient import session as ksession
-from oslo.utils import encodeutils
-from oslo.utils import strutils
-import pkg_resources
+from oslo_utils import encodeutils
+from oslo_utils import strutils
 import six
 
 HAS_KEYRING = False
@@ -59,13 +52,7 @@ from novaclient.v2 import shell as shell_v2
 
 DEFAULT_OS_COMPUTE_API_VERSION = "2"
 DEFAULT_NOVA_ENDPOINT_TYPE = 'publicURL'
-# NOTE(cyeoh): Having the service type dependent on the API version
-# is pretty ugly, but we have to do this because traditionally the
-# catalog entry for compute points directly to the V2 API rather than
-# the root, and then doing version discovery.
-DEFAULT_NOVA_SERVICE_TYPE_MAP = {'1.1': 'compute',
-                                 '2': 'compute',
-                                 '3': 'computev3'}
+DEFAULT_NOVA_SERVICE_TYPE = "compute"
 
 logger = logging.getLogger(__name__)
 
@@ -415,7 +402,7 @@ class OpenStackComputeShell(object):
             metavar='<compute-api-ver>',
             default=cliutils.env('OS_COMPUTE_API_VERSION',
                                  default=DEFAULT_OS_COMPUTE_API_VERSION),
-            help=_('Accepts 1.1 or 3, '
+            help=_('Accepts number of API version, '
                    'defaults to env[OS_COMPUTE_API_VERSION].'))
         parser.add_argument(
             '--os_compute_api_version',
@@ -463,56 +450,10 @@ class OpenStackComputeShell(object):
 
         return parser
 
+    # TODO(lyj): Delete this method after heat patched to use
+    #            client.discover_extensions
     def _discover_extensions(self, version):
-        extensions = []
-        for name, module in itertools.chain(
-                self._discover_via_python_path(),
-                self._discover_via_contrib_path(version),
-                self._discover_via_entry_points()):
-
-            extension = novaclient.extension.Extension(name, module)
-            extensions.append(extension)
-
-        return extensions
-
-    def _discover_via_python_path(self):
-        for (module_loader, name, _ispkg) in pkgutil.iter_modules():
-            if name.endswith('_python_novaclient_ext'):
-                if not hasattr(module_loader, 'load_module'):
-                    # Python 2.6 compat: actually get an ImpImporter obj
-                    module_loader = module_loader.find_module(name)
-
-                module = module_loader.load_module(name)
-                if hasattr(module, 'extension_name'):
-                    name = module.extension_name
-
-                yield name, module
-
-    def _discover_via_contrib_path(self, version):
-        module_path = os.path.dirname(os.path.abspath(__file__))
-        version_str = "v%s" % version.replace('.', '_')
-        # NOTE(akurilin): v1.1, v2 and v3 have one implementation, so
-        # we should discover contrib modules in one place.
-        if version_str in ["v1_1", "v3"]:
-            version_str = "v2"
-        ext_path = os.path.join(module_path, version_str, 'contrib')
-        ext_glob = os.path.join(ext_path, "*.py")
-
-        for ext_path in glob.iglob(ext_glob):
-            name = os.path.basename(ext_path)[:-3]
-
-            if name == "__init__":
-                continue
-
-            module = imp.load_source(name, ext_path)
-            yield name, module
-
-    def _discover_via_entry_points(self):
-        for ep in pkg_resources.iter_entry_points('novaclient.extension'):
-            name = ep.name
-            module = ep.load()
-
-            yield name, module
+        return client.discover_extensions(version)
 
     def _add_bash_completion_subparser(self, subparsers):
         subparser = subparsers.add_parser(
@@ -657,15 +598,8 @@ class OpenStackComputeShell(object):
             endpoint_type += 'URL'
 
         if not service_type:
-            os_compute_api_version = (options.os_compute_api_version or
-                                      DEFAULT_OS_COMPUTE_API_VERSION)
-            try:
-                service_type = DEFAULT_NOVA_SERVICE_TYPE_MAP[
-                    os_compute_api_version]
-            except KeyError:
-                service_type = DEFAULT_NOVA_SERVICE_TYPE_MAP[
-                    DEFAULT_OS_COMPUTE_API_VERSION]
-            service_type = cliutils.get_service_type(args.func) or service_type
+            service_type = (cliutils.get_service_type(args.func) or
+                            DEFAULT_NOVA_SERVICE_TYPE)
 
         # If we have an auth token but no management_url, we must auth anyway.
         # Expired tokens are handled by client.py:_cs_request
@@ -717,28 +651,25 @@ class OpenStackComputeShell(object):
             project_name = args.os_project_name or args.os_tenant_name
             if use_session:
                 # Not using Nova auth plugin, so use keystone
-                start_time = time.time()
-                keystone_session = ksession.Session.load_from_cli_options(args)
-                keystone_auth = self._get_keystone_auth(
-                    keystone_session,
-                    args.os_auth_url,
-                    username=args.os_username,
-                    user_id=args.os_user_id,
-                    user_domain_id=args.os_user_domain_id,
-                    user_domain_name=args.os_user_domain_name,
-                    password=args.os_password,
-                    auth_token=args.os_auth_token,
-                    project_id=project_id,
-                    project_name=project_name,
-                    project_domain_id=args.os_project_domain_id,
-                    project_domain_name=args.os_project_domain_name)
-                end_time = time.time()
-                self.times.append(
-                    ('%s %s' % ('auth_url', args.os_auth_url),
-                     start_time, end_time))
+                with utils.record_time(self.times, args.timings,
+                                       'auth_url', args.os_auth_url):
+                    keystone_session = (ksession.Session
+                                        .load_from_cli_options(args))
+                    keystone_auth = self._get_keystone_auth(
+                        keystone_session,
+                        args.os_auth_url,
+                        username=args.os_username,
+                        user_id=args.os_user_id,
+                        user_domain_id=args.os_user_domain_id,
+                        user_domain_name=args.os_user_domain_name,
+                        password=args.os_password,
+                        auth_token=args.os_auth_token,
+                        project_id=project_id,
+                        project_name=project_name,
+                        project_domain_id=args.os_project_domain_id,
+                        project_domain_name=args.os_project_domain_name)
 
-        if (options.os_compute_api_version and
-                options.os_compute_api_version != '1.0'):
+        if options.os_compute_api_version:
             if not any([args.os_tenant_id, args.os_tenant_name,
                         args.os_project_id, args.os_project_name]):
                 raise exc.CommandError(_("You must provide a project name or"
@@ -808,32 +739,6 @@ class OpenStackComputeShell(object):
             raise exc.CommandError(_("Invalid OpenStack Nova credentials."))
         except exc.AuthorizationFailure:
             raise exc.CommandError(_("Unable to authorize user"))
-
-        if options.os_compute_api_version == "3" and service_type != 'image':
-            # NOTE(cyeoh): create an image based client because the
-            # images api is no longer proxied by the V3 API and we
-            # sometimes need to be able to look up images information
-            # via glance when connected to the nova api.
-            image_service_type = 'image'
-            # NOTE(hdd): the password is needed again because creating a new
-            # Client without specifying bypass_url will force authentication.
-            # We can't reuse self.cs's bypass_url, because that's the URL for
-            # the nova service; we need to get glance's URL for this Client
-            if not os_password:
-                os_password = helper.password
-            self.cs.image_cs = client.Client(
-                options.os_compute_api_version, os_username,
-                os_password, os_tenant_name, tenant_id=os_tenant_id,
-                auth_url=os_auth_url, insecure=insecure,
-                region_name=os_region_name, endpoint_type=endpoint_type,
-                extensions=self.extensions, service_type=image_service_type,
-                service_name=service_name, auth_system=os_auth_system,
-                auth_plugin=auth_plugin,
-                volume_service_name=volume_service_name,
-                timings=args.timings, bypass_url=bypass_url,
-                os_cache=os_cache, http_log_debug=options.debug,
-                session=keystone_session, auth=keystone_auth,
-                cacert=cacert, timeout=timeout)
 
         args.func(self.cs, args)
 

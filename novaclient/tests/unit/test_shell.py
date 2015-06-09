@@ -343,10 +343,6 @@ class ShellTest(utils.TestCase):
         self._test_service_type('2', 'compute', mock_client)
 
     @mock.patch('novaclient.client.Client')
-    def test_v3_service_type(self, mock_client):
-        self._test_service_type('3', 'computev3', mock_client)
-
-    @mock.patch('novaclient.client.Client')
     def test_v_unknown_service_type(self, mock_client):
         self._test_service_type('unknown', 'compute', mock_client)
 
@@ -372,6 +368,16 @@ class ShellTest(utils.TestCase):
             novaclient.shell.main()
         except SystemExit as ex:
             self.assertEqual(ex.code, 130)
+
+    @mock.patch.object(novaclient.shell.OpenStackComputeShell, 'times')
+    @requests_mock.Mocker()
+    def test_timing(self, m_times, m_requests):
+        m_times.append.side_effect = RuntimeError('Boom!')
+        self.make_env()
+        self.register_keystone_discovery_fixture(m_requests)
+        self.shell('list')
+        exc = self.assertRaises(RuntimeError, self.shell, '--timings list')
+        self.assertEqual('Boom!', str(exc))
 
 
 class ShellTestKeystoneV3(ShellTest):

@@ -22,15 +22,21 @@ OpenStack Client interface. Handles the REST calls and responses.
 
 import copy
 import functools
+import glob
 import hashlib
+import imp
+import itertools
 import logging
+import os
+import pkgutil
 import re
 import socket
-import time
+import warnings
 
 from keystoneclient import adapter
-from oslo.utils import importutils
-from oslo.utils import netutils
+from oslo_utils import importutils
+from oslo_utils import netutils
+import pkg_resources
 import requests
 from requests import adapters
 
@@ -42,18 +48,23 @@ except ImportError:
 from six.moves.urllib import parse
 
 from novaclient import exceptions
-from novaclient.i18n import _
+from novaclient import extension as ext
+from novaclient.i18n import _, _LW
 from novaclient import service_catalog
+from novaclient import utils
+
+
+# key is a deprecated version and value is an alternative version.
+DEPRECATED_VERSIONS = {"1.1": "2"}
 
 
 class TCPKeepAliveAdapter(adapters.HTTPAdapter):
     """The custom adapter used to set TCP Keep-Alive on all connections."""
     def init_poolmanager(self, *args, **kwargs):
-        if requests.__version__ >= '2.4.1':
-            kwargs.setdefault('socket_options', [
-                (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
-                (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
-            ])
+        kwargs.setdefault('socket_options', [
+            (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+        ])
         super(TCPKeepAliveAdapter, self).init_poolmanager(*args, **kwargs)
 
 
@@ -76,22 +87,18 @@ class SessionClient(adapter.LegacyJsonAdapter):
 
     def __init__(self, *args, **kwargs):
         self.times = []
+        self.timings = kwargs.pop('timings', False)
         super(SessionClient, self).__init__(*args, **kwargs)
 
     def request(self, url, method, **kwargs):
         # NOTE(jamielennox): The standard call raises errors from
         # keystoneclient, where we need to raise the novaclient errors.
         raise_exc = kwargs.pop('raise_exc', True)
-        start_time = time.time()
-        resp, body = super(SessionClient, self).request(url,
-                                                        method,
-                                                        raise_exc=False,
-                                                        **kwargs)
-
-        end_time = time.time()
-        self.times.append(('%s %s' % (method, url),
-                          start_time, end_time))
-
+        with utils.record_time(self.times, self.timings, method, url):
+            resp, body = super(SessionClient, self).request(url,
+                                                            method,
+                                                            raise_exc=False,
+                                                            **kwargs)
         if raise_exc and resp.status_code >= 400:
             raise exceptions.from_response(resp, body, url, method)
 
@@ -212,8 +219,6 @@ class HTTPClient(object):
                 # otherwise we will get all the requests logging messages
                 rql.setLevel(logging.WARNING)
 
-        # NOTE(melwitt): Service catalog is only set if bypass_url isn't
-        #                used. Otherwise, we can cache using services_url.
         self.service_catalog = None
         self.services_url = {}
 
@@ -393,10 +398,8 @@ class HTTPClient(object):
         return resp, body
 
     def _time_request(self, url, method, **kwargs):
-        start_time = time.time()
-        resp, body = self.request(url, method, **kwargs)
-        self.times.append(("%s %s" % (method, url),
-                           start_time, time.time()))
+        with utils.record_time(self.times, self.timings, method, url):
+            resp, body = self.request(url, method, **kwargs)
         return resp, body
 
     def _cs_request(self, url, method, **kwargs):
@@ -410,11 +413,9 @@ class HTTPClient(object):
             path = re.sub(r'v[1-9]/[a-z0-9]+$', '', path)
             url = parse.urlunsplit((scheme, netloc, path, None, None))
         else:
-            if self.service_catalog:
+            if self.service_catalog and not self.bypass_url:
                 url = self.get_service_url(self.service_type) + url
             else:
-                # NOTE(melwitt): The service catalog is not available
-                #                when bypass_url is used.
                 url = self.management_url + url
 
         # Perform the request once. If we get a 401 back then it
@@ -686,6 +687,7 @@ def _construct_http_client(username=None, password=None, project_id=None,
                              region_name=region_name,
                              service_name=service_name,
                              user_agent=user_agent,
+                             timings=timings,
                              **kwargs)
     else:
         # FIXME(jamielennox): username and password are now optional. Need
@@ -716,21 +718,85 @@ def _construct_http_client(username=None, password=None, project_id=None,
                           connection_pool=connection_pool)
 
 
+def discover_extensions(version):
+    extensions = []
+    for name, module in itertools.chain(
+            _discover_via_python_path(),
+            _discover_via_contrib_path(version),
+            _discover_via_entry_points()):
+
+        extension = ext.Extension(name, module)
+        extensions.append(extension)
+
+    return extensions
+
+
+def _discover_via_python_path():
+    for (module_loader, name, _ispkg) in pkgutil.iter_modules():
+        if name.endswith('_python_novaclient_ext'):
+            if not hasattr(module_loader, 'load_module'):
+                # Python 2.6 compat: actually get an ImpImporter obj
+                module_loader = module_loader.find_module(name)
+
+            module = module_loader.load_module(name)
+            if hasattr(module, 'extension_name'):
+                name = module.extension_name
+
+            yield name, module
+
+
+def _discover_via_contrib_path(version):
+    module_path = os.path.dirname(os.path.abspath(__file__))
+    version_str = "v%s" % version.replace('.', '_')
+    # NOTE(andreykurilin): v1.1 uses implementation of v2, so we should
+    # discover contrib modules in novaclient.v2 dir.
+    if version_str == "v1_1":
+        version_str = "v2"
+    ext_path = os.path.join(module_path, version_str, 'contrib')
+    ext_glob = os.path.join(ext_path, "*.py")
+
+    for ext_path in glob.iglob(ext_glob):
+        name = os.path.basename(ext_path)[:-3]
+
+        if name == "__init__":
+            continue
+
+        module = imp.load_source(name, ext_path)
+        yield name, module
+
+
+def _discover_via_entry_points():
+    for ep in pkg_resources.iter_entry_points('novaclient.extension'):
+        name = ep.name
+        module = ep.load()
+
+        yield name, module
+
+
 def get_client_class(version):
-    version_map = {
-        '1.1': 'novaclient.v2.client.Client',
-        '2': 'novaclient.v2.client.Client',
-        '3': 'novaclient.v2.client.Client',
-    }
+    version = str(version)
+    if version in DEPRECATED_VERSIONS:
+        warnings.warn(_LW(
+            "Version %(deprecated_version)s is deprecated, using "
+            "alternative version %(alternative)s instead.") %
+            {"deprecated_version": version,
+             "alternative": DEPRECATED_VERSIONS[version]})
+        version = DEPRECATED_VERSIONS[version]
     try:
-        client_path = version_map[str(version)]
-    except (KeyError, ValueError):
+        return importutils.import_class(
+            "novaclient.v%s.client.Client" % version)
+    except ImportError:
+        # NOTE(andreykurilin): available clients version should not be
+        # hardcoded, so let's discover them.
+        matcher = re.compile(r"v[0-9_]*$")
+        submodules = pkgutil.iter_modules(['novaclient'])
+        available_versions = [
+            name[1:].replace("_", ".") for loader, name, ispkg in submodules
+            if matcher.search(name)]
         msg = _("Invalid client version '%(version)s'. must be one of: "
                 "%(keys)s") % {'version': version,
-                               'keys': ', '.join(version_map.keys())}
+                               'keys': ', '.join(available_versions)}
         raise exceptions.UnsupportedVersion(msg)
-
-    return importutils.import_class(client_path)
 
 
 def Client(version, *args, **kwargs):

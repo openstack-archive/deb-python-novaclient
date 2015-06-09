@@ -17,7 +17,7 @@
 import datetime
 
 import mock
-from oslo.utils import strutils
+from oslo_utils import strutils
 import six
 from six.moves.urllib import parse
 
@@ -64,15 +64,21 @@ class FakeHTTPClient(base_client.HTTPClient):
         elif method == 'PUT':
             assert 'body' in kwargs
 
-        # Call the method
-        args = parse.parse_qsl(parse.urlparse(url)[4])
-        kwargs.update(args)
-        munged_url = url.rsplit('?', 1)[0]
-        munged_url = munged_url.strip('/').replace('/', '_').replace('.', '_')
-        munged_url = munged_url.replace('-', '_')
-        munged_url = munged_url.replace(' ', '_')
+        if url is not None:
+            # Call the method
+            args = parse.parse_qsl(parse.urlparse(url)[4])
+            kwargs.update(args)
+            munged_url = url.rsplit('?', 1)[0]
+            munged_url = munged_url.strip('/').replace('/', '_')
+            munged_url = munged_url.replace('.', '_')
+            munged_url = munged_url.replace('-', '_')
+            munged_url = munged_url.replace(' ', '_')
+            callback = "%s_%s" % (method.lower(), munged_url)
 
-        callback = "%s_%s" % (method.lower(), munged_url)
+        if url is None or callback == "get_http:__nova_api:8774":
+            # To get API version information, it is necessary to GET
+            # a nova endpoint directly without "v2/<tenant-id>".
+            callback = "get_versions"
 
         if not hasattr(self, callback):
             raise AssertionError('Called unknown API method: %s %s, '
@@ -89,6 +95,26 @@ class FakeHTTPClient(base_client.HTTPClient):
             "headers": headers,
         })
         return r, body
+
+    def get_endpoint(self):
+        return "http://nova-api:8774/v2/190a755eef2e4aac9f06aa6be9786385"
+
+    def get_versions(self):
+        return (200, {}, {
+            "versions": [
+                {"status": "SUPPORTED", "updated": "2011-01-21T11:33:21Z",
+                 "links": [{"href": "http://nova-api:8774/v2/",
+                            "rel": "self"}],
+                 "min_version": "",
+                 "version": "",
+                 "id": "v2.0"},
+                {"status": "CURRENT", "updated": "2013-07-23T11:33:21Z",
+                 "links": [{"href": "http://nova-api:8774/v2.1/",
+                            "rel": "self"}],
+                 "min_version": "2.1",
+                 "version": "2.3",
+                 "id": "v2.1"}
+            ]})
 
     #
     # agents
@@ -258,7 +284,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 },
                 "flavor": {
                     "id": 1,
-                    "name": "256 mb server",
+                    "name": "256 MB Server",
                 },
                 "hostId": "e4d909c290d0fb1ca068ffaddf22cbd0",
                 "status": "BUILD",
@@ -299,7 +325,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 },
                 "flavor": {
                     "id": 1,
-                    "name": "256 mb server",
+                    "name": "256 MB Server",
                 },
                 "hostId": "9e107d9d372bb6826bd81d3542a419d6",
                 "status": "ACTIVE",
@@ -340,7 +366,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "image": "",
                 "flavor": {
                     "id": 1,
-                    "name": "256 mb server",
+                    "name": "256 MB Server",
                 },
                 "hostId": "9e107d9d372bb6826bd81d3542a419d6",
                 "status": "ACTIVE",
@@ -362,7 +388,19 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "metadata": {
                     "Server Label": "DB 1"
                 }
-            }
+            },
+            {
+                "id": 9013,
+                "name": "sample-server4",
+                "flavor": {
+                    "id": '80645cf4-6ad3-410a-bbc8-6f3e1e291f51',
+                },
+                "image": {
+                    "id": '3e861307-73a6-4d1f-8d68-f68b03223032',
+                },
+                "hostId": "9e107d9d372bb6826bd81d3542a419d6",
+                "status": "ACTIVE",
+            },
         ]})
 
     def post_servers(self, body, **kw):
@@ -414,6 +452,10 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_servers_9012(self, **kw):
         r = {'server': self.get_servers_detail()[2]['servers'][2]}
+        return (200, {}, r)
+
+    def get_servers_9013(self, **kw):
+        r = {'server': self.get_servers_detail()[2]['servers'][3]}
         return (200, {}, r)
 
     def put_servers_1234(self, body, **kw):
@@ -672,19 +714,19 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_flavors_detail(self, **kw):
         flavors = {'flavors': [
-            {'id': 1, 'name': '256 mb server', 'ram': 256, 'disk': 10,
+            {'id': 1, 'name': '256 MB Server', 'ram': 256, 'disk': 10,
              'OS-FLV-EXT-DATA:ephemeral': 10,
              'os-flavor-access:is_public': True,
              'links': {}},
-            {'id': 2, 'name': '512 mb server', 'ram': 512, 'disk': 20,
+            {'id': 2, 'name': '512 MB Server', 'ram': 512, 'disk': 20,
              'OS-FLV-EXT-DATA:ephemeral': 20,
              'os-flavor-access:is_public': False,
              'links': {}},
-            {'id': 4, 'name': '1024 mb server', 'ram': 1024, 'disk': 10,
+            {'id': 4, 'name': '1024 MB Server', 'ram': 1024, 'disk': 10,
              'OS-FLV-EXT-DATA:ephemeral': 10,
              'os-flavor-access:is_public': True,
              'links': {}},
-            {'id': 'aa1', 'name': '128 mb server', 'ram': 128, 'disk': 0,
+            {'id': 'aa1', 'name': '128 MB Server', 'ram': 128, 'disk': 0,
              'OS-FLV-EXT-DATA:ephemeral': 0,
              'os-flavor-access:is_public': True,
              'links': {}}
@@ -736,16 +778,19 @@ class FakeHTTPClient(base_client.HTTPClient):
             {},
             {'flavor': {
                 'id': 3,
-                'name': '256 mb server',
+                'name': '256 MB Server',
                 'ram': 256,
                 'disk': 10,
             }},
         )
 
-    def get_flavors_512_mb_server(self, **kw):
+    def get_flavors_512_MB_Server(self, **kw):
         raise exceptions.NotFound('404')
 
-    def get_flavors_128_mb_server(self, **kw):
+    def get_flavors_128_MB_Server(self, **kw):
+        raise exceptions.NotFound('404')
+
+    def get_flavors_80645cf4_6ad3_410a_bbc8_6f3e1e291f51(self, **kw):
         raise exceptions.NotFound('404')
 
     def get_flavors_aa1(self, **kw):
@@ -997,6 +1042,9 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_images_456(self, **kw):
         return (200, {}, {'image': self.get_images_detail()[2]['images'][1]})
+
+    def get_images_3e861307_73a6_4d1f_8d68_f68b03223032(self):
+        raise exceptions.NotFound('404')
 
     def post_images(self, body, **kw):
         assert list(body) == ['image']

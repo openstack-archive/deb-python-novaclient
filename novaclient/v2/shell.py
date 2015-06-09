@@ -28,16 +28,16 @@ import os
 import sys
 import time
 
-from oslo.utils import encodeutils
-from oslo.utils import strutils
-from oslo.utils import timeutils
+from oslo_utils import encodeutils
+from oslo_utils import strutils
+from oslo_utils import timeutils
+from oslo_utils import uuidutils
 import six
 
 from novaclient import client
 from novaclient import exceptions
 from novaclient.i18n import _
 from novaclient.openstack.common import cliutils
-from novaclient.openstack.common import uuidutils
 from novaclient import utils
 from novaclient.v2 import availability_zones
 from novaclient.v2 import quotas
@@ -59,6 +59,14 @@ CLIENT_BDM2_KEYS = {
     'type': 'device_type',
     'shutdown': 'delete_on_termination',
 }
+
+
+# NOTE(mriedem): Remove this along with the deprecated commands in the first
+# python-novaclient release AFTER the nova server 2016.1 'M' release.
+def emit_volume_deprecation_warning(command_name):
+    print('WARNING: Command %s is deprecated and will be removed after Nova '
+          '2016.1 is released. Use python-cinderclient or openstackclient '
+          'instead.' % command_name, file=sys.stderr)
 
 
 def _key_value_pairing(text):
@@ -118,8 +126,11 @@ def _parse_block_device_mapping_v2(args, image):
     for ephemeral_spec in args.ephemeral:
         bdm_dict = {'source_type': 'blank', 'destination_type': 'local',
                     'boot_index': -1, 'delete_on_termination': True}
-
-        eph_dict = dict(v.split('=') for v in ephemeral_spec.split(','))
+        try:
+            eph_dict = dict(v.split('=') for v in ephemeral_spec.split(','))
+        except ValueError:
+            err_msg = (_("Invalid ephemeral argument '%s'.") % args.ephemeral)
+            raise argparse.ArgumentTypeError(err_msg)
         if 'size' in eph_dict:
             bdm_dict['volume_size'] = eph_dict['size']
         if 'format' in eph_dict:
@@ -435,8 +446,9 @@ def _boot(cs, args):
            "device=name of the device (e.g. vda, xda, ...; "
            "if omitted, hypervisor driver chooses suitable device "
            "depending on selected bus), "
-           "size=size of the block device in GB (if omitted, "
-           "hypervisor driver calculates size), "
+           "size=size of the block device in MB(for swap) and in "
+           "GB(for other formats) "
+           "(if omitted, hypervisor driver calculates size), "
            "format=device will be formatted (e.g. swap, ntfs, ...; optional), "
            "bootindex=integer used for ordering the boot disks "
            "(for image backed instances it is equal to 0, "
@@ -1829,8 +1841,11 @@ def _print_server(cs, args, server=None):
     if minimal:
         info['flavor'] = flavor_id
     else:
-        info['flavor'] = '%s (%s)' % (_find_flavor(cs, flavor_id).name,
-                                      flavor_id)
+        try:
+            info['flavor'] = '%s (%s)' % (_find_flavor(cs, flavor_id).name,
+                                          flavor_id)
+        except Exception:
+            info['flavor'] = '%s (%s)' % (_("Flavor not found"), flavor_id)
 
     if 'security_groups' in info:
         # when we have multiple nics the info will include the
@@ -1872,11 +1887,17 @@ def do_show(cs, args):
 
 
 @cliutils.arg(
+    '--all-tenants',
+    action='store_const',
+    const=1,
+    default=0,
+    help=_('Delete server(s) in another tenant by name (Admin only).'))
+@cliutils.arg(
     'server', metavar='<server>', nargs='+',
     help=_('Name or ID of server(s).'))
 def do_delete(cs, args):
     """Immediately shut down and delete specified server(s)."""
-    find_args = {'all_tenants': '1'}
+    find_args = {'all_tenants': args.all_tenants}
     utils.do_action_on_many(
         lambda s: _find_server(cs, s, **find_args).delete(),
         args.server,
@@ -1897,17 +1918,6 @@ def _find_image(cs, image):
 def _find_flavor(cs, flavor):
     """Get a flavor by name, ID, or RAM size."""
     try:
-        # isinstance() is being used to check if flavor is an instance of
-        # integer. It will help us to check if the user has entered flavor
-        # name or flavorid. If flavor name has been entered it is being
-        # converted to lowercase using lower(). Incase it is an ID the user
-        # has passed it will not go through the "flavor = flavor.lower()"
-        # code.The reason for checking if it is a flavor name or flavorid is
-        #  that int has no lower() so it will give an error.
-        if isinstance(flavor, six.integer_types):
-            pass
-        else:
-            flavor = flavor.lower()
         return utils.find_resource(cs.flavors, flavor, is_public=None)
     except exceptions.NotFound:
         return cs.flavors.find(ram=flavor)
@@ -1984,7 +1994,8 @@ def _translate_availability_zone_keys(collection):
     const=1,
     help=argparse.SUPPRESS)
 def do_volume_list(cs, args):
-    """List all the volumes."""
+    """DEPRECATED: List all the volumes."""
+    emit_volume_deprecation_warning('volume-list')
     search_opts = {'all_tenants': args.all_tenants}
     volumes = cs.volumes.list(search_opts=search_opts)
     _translate_volume_keys(volumes)
@@ -2002,7 +2013,8 @@ def do_volume_list(cs, args):
     metavar='<volume>',
     help=_('Name or ID of the volume.'))
 def do_volume_show(cs, args):
-    """Show details about a volume."""
+    """DEPRECATED: Show details about a volume."""
+    emit_volume_deprecation_warning('volume-show')
     volume = _find_volume(cs, args.volume)
     _print_volume(volume)
 
@@ -2054,7 +2066,8 @@ def do_volume_show(cs, args):
     help=_('Optional Availability Zone for volume. (Default=None)'),
     default=None)
 def do_volume_create(cs, args):
-    """Add a new volume."""
+    """DEPRECATED: Add a new volume."""
+    emit_volume_deprecation_warning('volume-create')
     volume = cs.volumes.create(args.size,
                                args.snapshot_id,
                                args.display_name,
@@ -2070,7 +2083,8 @@ def do_volume_create(cs, args):
     metavar='<volume>', nargs='+',
     help=_('Name or ID of the volume(s) to delete.'))
 def do_volume_delete(cs, args):
-    """Remove volume(s)."""
+    """DEPRECATED: Remove volume(s)."""
+    emit_volume_deprecation_warning('volume-delete')
     for volume in args.volume:
         try:
             _find_volume(cs, volume).delete()
@@ -2136,7 +2150,8 @@ def do_volume_detach(cs, args):
 
 
 def do_volume_snapshot_list(cs, _args):
-    """List all the snapshots."""
+    """DEPRECATED: List all the snapshots."""
+    emit_volume_deprecation_warning('volume-snapshot-list')
     snapshots = cs.volume_snapshots.list()
     _translate_volume_snapshot_keys(snapshots)
     utils.print_list(snapshots, ['ID', 'Volume ID', 'Status', 'Display Name',
@@ -2148,7 +2163,8 @@ def do_volume_snapshot_list(cs, _args):
     metavar='<snapshot>',
     help=_('Name or ID of the snapshot.'))
 def do_volume_snapshot_show(cs, args):
-    """Show details about a snapshot."""
+    """DEPRECATED: Show details about a snapshot."""
+    emit_volume_deprecation_warning('volume-snapshot-show')
     snapshot = _find_volume_snapshot(cs, args.snapshot)
     _print_volume_snapshot(snapshot)
 
@@ -2180,7 +2196,8 @@ def do_volume_snapshot_show(cs, args):
     '--display_description',
     help=argparse.SUPPRESS)
 def do_volume_snapshot_create(cs, args):
-    """Add a new snapshot."""
+    """DEPRECATED: Add a new snapshot."""
+    emit_volume_deprecation_warning('volume-snapshot-create')
     snapshot = cs.volume_snapshots.create(args.volume_id,
                                           args.force,
                                           args.display_name,
@@ -2193,7 +2210,8 @@ def do_volume_snapshot_create(cs, args):
     metavar='<snapshot>',
     help=_('Name or ID of the snapshot to delete.'))
 def do_volume_snapshot_delete(cs, args):
-    """Remove a snapshot."""
+    """DEPRECATED: Remove a snapshot."""
+    emit_volume_deprecation_warning('volume-snapshot-delete')
     snapshot = _find_volume_snapshot(cs, args.snapshot)
     snapshot.delete()
 
@@ -2203,7 +2221,8 @@ def _print_volume_type_list(vtypes):
 
 
 def do_volume_type_list(cs, args):
-    """Print a list of available 'volume types'."""
+    """DEPRECATED: Print a list of available 'volume types'."""
+    emit_volume_deprecation_warning('volume-type-list')
     vtypes = cs.volume_types.list()
     _print_volume_type_list(vtypes)
 
@@ -2213,7 +2232,8 @@ def do_volume_type_list(cs, args):
     metavar='<name>',
     help=_("Name of the new volume type"))
 def do_volume_type_create(cs, args):
-    """Create a new volume type."""
+    """DEPRECATED: Create a new volume type."""
+    emit_volume_deprecation_warning('volume-type-create')
     vtype = cs.volume_types.create(args.name)
     _print_volume_type_list([vtype])
 
@@ -2223,7 +2243,8 @@ def do_volume_type_create(cs, args):
     metavar='<id>',
     help=_("Unique ID of the volume type to delete"))
 def do_volume_type_delete(cs, args):
-    """Delete a specific volume type."""
+    """DEPRECATED: Delete a specific volume type."""
+    emit_volume_deprecation_warning('volume-type-delete')
     cs.volume_types.delete(args.id)
 
 
@@ -2935,9 +2956,13 @@ def _find_keypair(cs, keypair):
     default=False,
     help=_('Include reservations count.'))
 def do_absolute_limits(cs, args):
-    """Print a list of absolute limits for a user"""
+    """DEPRECATED, use limits instead."""
     limits = cs.limits.get(args.reserved, args.tenant).absolute
+    _print_absolute_limits(limits)
 
+
+def _print_absolute_limits(limits):
+    """Prints absolute limits."""
     class Limit(object):
         def __init__(self, name, used, max, other):
             self.name = name
@@ -2999,10 +3024,35 @@ def do_absolute_limits(cs, args):
 
 
 def do_rate_limits(cs, args):
-    """Print a list of rate limits for a user"""
+    """DEPRECATED, use limits instead."""
     limits = cs.limits.get().rate
+    _print_rate_limits(limits)
+
+
+def _print_rate_limits(limits):
+    """print rate limits."""
     columns = ['Verb', 'URI', 'Value', 'Remain', 'Unit', 'Next_Available']
     utils.print_list(limits, columns)
+
+
+@cliutils.arg(
+    '--tenant',
+    # nova db searches by project_id
+    dest='tenant',
+    metavar='<tenant>',
+    nargs='?',
+    help=_('Display information from single tenant (Admin only).'))
+@cliutils.arg(
+    '--reserved',
+    dest='reserved',
+    action='store_true',
+    default=False,
+    help=_('Include reservations count.'))
+def do_limits(cs, args):
+    """Print rate and absolute limits."""
+    limits = cs.limits.get(args.reserved, args.tenant)
+    _print_rate_limits(limits.rate)
+    _print_absolute_limits(limits.absolute)
 
 
 @cliutils.arg(
@@ -4319,9 +4369,15 @@ def _print_server_group_details(server_group):
     utils.print_list(server_group, columns)
 
 
+@cliutils.arg(
+    '--all-projects',
+    dest='all_projects',
+    action='store_true',
+    default=False,
+    help=_('Display server groups from all projects (Admin only).'))
 def do_server_group_list(cs, args):
     """Print a list of all server groups."""
-    server_groups = cs.server_groups.list()
+    server_groups = cs.server_groups.list(args.all_projects)
     _print_server_group_details(server_groups)
 
 
@@ -4454,5 +4510,8 @@ def do_server_group_get(cs, args):
 def do_version_list(cs, args):
     """List all API versions."""
     result = cs.versions.list()
-    columns = ["Id", "Status", "Updated"]
+    if 'min_version' in dir(result[0]):
+        columns = ["Id", "Status", "Updated", "Min Version", "Version"]
+    else:
+        columns = ["Id", "Status", "Updated"]
     utils.print_list(result, columns)

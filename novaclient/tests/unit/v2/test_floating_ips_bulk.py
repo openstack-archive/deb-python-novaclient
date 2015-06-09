@@ -16,7 +16,7 @@
 from novaclient.tests.unit.fixture_data import client
 from novaclient.tests.unit.fixture_data import floatingips as data
 from novaclient.tests.unit import utils
-from novaclient.v2 import floating_ips_bulk
+from novaclient.v2 import floating_ips
 
 
 class FloatingIPsBulkTest(utils.FixturedTestCase):
@@ -27,14 +27,14 @@ class FloatingIPsBulkTest(utils.FixturedTestCase):
     def test_list_floating_ips_bulk(self):
         fl = self.cs.floating_ips_bulk.list()
         self.assert_called('GET', '/os-floating-ips-bulk')
-        [self.assertIsInstance(f, floating_ips_bulk.FloatingIP)
-         for f in fl]
+        for f in fl:
+            self.assertIsInstance(f, floating_ips.FloatingIP)
 
     def test_list_floating_ips_bulk_host_filter(self):
         fl = self.cs.floating_ips_bulk.list('testHost')
         self.assert_called('GET', '/os-floating-ips-bulk/testHost')
-        [self.assertIsInstance(f, floating_ips_bulk.FloatingIP)
-         for f in fl]
+        for f in fl:
+            self.assertIsInstance(f, floating_ips.FloatingIP)
 
     def test_create_floating_ips_bulk(self):
         fl = self.cs.floating_ips_bulk.create('192.168.1.0/30')
@@ -62,3 +62,8 @@ class FloatingIPsBulkTest(utils.FixturedTestCase):
         body = {'ip_range': '192.168.1.0/30'}
         self.assert_called('PUT', '/os-floating-ips-bulk/delete', body)
         self.assertEqual(fl.floating_ips_bulk_delete, body['ip_range'])
+
+    def test_repr(self):
+        fl = self.cs.floating_ips_bulk.create('192.168.1.0/30', 'poolTest',
+                                              'interfaceTest')
+        self.assertEqual('<FloatingIPRange: 192.168.1.0/30>', "%s" % fl)
