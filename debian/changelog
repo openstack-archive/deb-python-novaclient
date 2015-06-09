@@ -1,3 +1,13 @@
+python-novaclient (2:2.26.0-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+    - d/control: Align requirements with upstream.
+    - d/gbp.conf: Update gbp configuration for liberty branch.
+  * Converge Ubuntu and Debian package:
+    - d/tests/*: Add DEP 8 tests from Ubuntu.
+
+ -- Corey Bryant <corey.bryant@canonical.com>  Tue, 09 Jun 2015 15:00:39 -0400
+
 python-novaclient (2:2.23.0-1) unstable; urgency=medium
 
   * New upstream release.
