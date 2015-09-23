@@ -2,6 +2,7 @@ python-novaclient (2:2.29.0-1) experimental; urgency=medium
 
   * New upstream release.
   * Fixed (build-)depends for this release.
+  * Fixed bash-completion script path.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 23 Sep 2015 18:56:28 +0200
 
