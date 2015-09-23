@@ -97,6 +97,8 @@ def print_list(objs, fields, formatters={}, sortby_index=None):
                 data = getattr(o, field_name, '')
                 if data is None:
                     data = '-'
+                # '\r' would break the table, so remove it.
+                data = str(data).replace("\r", "")
                 row.append(data)
         pt.add_row(row)
 
@@ -163,7 +165,10 @@ def print_dict(d, dict_property="Property", dict_value="Value", wrap=0):
             v = textwrap.fill(str(v), wrap)
         # if value has a newline, add in multiple rows
         # e.g. fault with stacktrace
-        if v and isinstance(v, six.string_types) and r'\n' in v:
+        if v and isinstance(v, six.string_types) and (r'\n' in v or '\r' in v):
+            # '\r' would break the table, so remove it.
+            if '\r' in v:
+                v = v.replace('\r', '')
             lines = v.strip().split(r'\n')
             col1 = k
             for line in lines:
@@ -184,7 +189,8 @@ def print_dict(d, dict_property="Property", dict_value="Value", wrap=0):
 
 def find_resource(manager, name_or_id, **find_args):
     """Helper for the _find_* methods."""
-    # for str id which is not uuid (for Flavor and Keypair search currently)
+    # for str id which is not uuid (for Flavor, Keypair and hypervsior in cells
+    # environments search currently)
     if getattr(manager, 'is_alphanum_id_allowed', False):
         try:
             return manager.get(name_or_id)
@@ -368,3 +374,13 @@ def record_time(times, enabled, *args):
         yield
         end = time.time()
         times.append((' '.join(args), start, end))
+
+
+def get_function_name(func):
+    if six.PY2:
+        if hasattr(func, "im_class"):
+            return "%s.%s" % (func.im_class, func.__name__)
+        else:
+            return "%s.%s" % (func.__module__, func.__name__)
+    else:
+        return "%s.%s" % (func.__module__, func.__qualname__)

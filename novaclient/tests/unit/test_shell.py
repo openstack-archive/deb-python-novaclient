@@ -23,34 +23,40 @@ import requests_mock
 import six
 from testtools import matchers
 
+from novaclient import api_versions
 import novaclient.client
 from novaclient import exceptions
 import novaclient.shell
+from novaclient.tests.unit import fake_actions_module
 from novaclient.tests.unit import utils
 
 FAKE_ENV = {'OS_USERNAME': 'username',
             'OS_PASSWORD': 'password',
             'OS_TENANT_NAME': 'tenant_name',
-            'OS_AUTH_URL': 'http://no.where/v2.0'}
+            'OS_AUTH_URL': 'http://no.where/v2.0',
+            'OS_COMPUTE_API_VERSION': '2'}
 
 FAKE_ENV2 = {'OS_USER_ID': 'user_id',
              'OS_PASSWORD': 'password',
              'OS_TENANT_ID': 'tenant_id',
-             'OS_AUTH_URL': 'http://no.where/v2.0'}
+             'OS_AUTH_URL': 'http://no.where/v2.0',
+             'OS_COMPUTE_API_VERSION': '2'}
 
 FAKE_ENV3 = {'OS_USER_ID': 'user_id',
              'OS_PASSWORD': 'password',
              'OS_TENANT_ID': 'tenant_id',
              'OS_AUTH_URL': 'http://no.where/v2.0',
              'NOVA_ENDPOINT_TYPE': 'novaURL',
-             'OS_ENDPOINT_TYPE': 'osURL'}
+             'OS_ENDPOINT_TYPE': 'osURL',
+             'OS_COMPUTE_API_VERSION': '2'}
 
 FAKE_ENV4 = {'OS_USER_ID': 'user_id',
              'OS_PASSWORD': 'password',
              'OS_TENANT_ID': 'tenant_id',
              'OS_AUTH_URL': 'http://no.where/v2.0',
              'NOVA_ENDPOINT_TYPE': 'internal',
-             'OS_ENDPOINT_TYPE': 'osURL'}
+             'OS_ENDPOINT_TYPE': 'osURL',
+             'OS_COMPUTE_API_VERSION': '2'}
 
 
 def _create_ver_list(versions):
@@ -97,11 +103,24 @@ class ShellTest(utils.TestCase):
     def setUp(self):
         super(ShellTest, self).setUp()
         self.useFixture(fixtures.MonkeyPatch(
-                        'novaclient.client.get_client_class',
-                        mock.MagicMock))
+                        'novaclient.client.Client',
+                        mock.MagicMock()))
         self.nc_util = mock.patch(
             'novaclient.openstack.common.cliutils.isunauthenticated').start()
         self.nc_util.return_value = False
+        self.mock_server_version_range = mock.patch(
+            'novaclient.api_versions._get_server_version_range').start()
+        self.mock_server_version_range.return_value = (
+            novaclient.API_MIN_VERSION,
+            novaclient.API_MIN_VERSION)
+        self.orig_max_ver = novaclient.API_MAX_VERSION
+        self.orig_min_ver = novaclient.API_MIN_VERSION
+        self.addCleanup(self._clear_fake_version)
+        self.addCleanup(mock.patch.stopall)
+
+    def _clear_fake_version(self):
+        novaclient.API_MAX_VERSION = self.orig_max_ver
+        novaclient.API_MIN_VERSION = self.orig_min_ver
 
     def shell(self, argstr, exitcodes=(0,)):
         orig = sys.stdout
@@ -146,7 +165,7 @@ class ShellTest(utils.TestCase):
     def test_help(self):
         required = [
             '.*?^usage: ',
-            '.*?^\s+root-password\s+Change the admin password',
+            '.*?^\s+set-password\s+Change the admin password',
             '.*?^See "nova help COMMAND" for help on a specific command',
         ]
         stdout, stderr = self.shell('help')
@@ -156,19 +175,20 @@ class ShellTest(utils.TestCase):
 
     def test_help_on_subcommand(self):
         required = [
-            '.*?^usage: nova root-password',
+            '.*?^usage: nova set-password',
             '.*?^Change the admin password',
             '.*?^Positional arguments:',
         ]
-        stdout, stderr = self.shell('help root-password')
+        stdout, stderr = self.shell('help set-password')
         for r in required:
             self.assertThat((stdout + stderr),
                             matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
 
     def test_help_no_options(self):
+        self.make_env()
         required = [
             '.*?^usage: ',
-            '.*?^\s+root-password\s+Change the admin password',
+            '.*?^\s+set-password\s+Change the admin password',
             '.*?^See "nova help COMMAND" for help on a specific command',
         ]
         stdout, stderr = self.shell('')
@@ -177,6 +197,7 @@ class ShellTest(utils.TestCase):
                             matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
 
     def test_bash_completion(self):
+        self.make_env()
         stdout, stderr = self.shell('bash-completion')
         # just check we have some output
         required = [
@@ -344,7 +365,9 @@ class ShellTest(utils.TestCase):
 
     @mock.patch('novaclient.client.Client')
     def test_v_unknown_service_type(self, mock_client):
-        self._test_service_type('unknown', 'compute', mock_client)
+        self.assertRaises(exceptions.UnsupportedVersion,
+                          self._test_service_type,
+                          'unknown', 'compute', mock_client)
 
     @mock.patch('sys.argv', ['nova'])
     @mock.patch('sys.stdout', six.StringIO())
@@ -378,6 +401,206 @@ class ShellTest(utils.TestCase):
         self.shell('list')
         exc = self.assertRaises(RuntimeError, self.shell, '--timings list')
         self.assertEqual('Boom!', str(exc))
+
+    @mock.patch('novaclient.shell.SecretsHelper.tenant_id',
+                return_value=True)
+    @mock.patch('novaclient.shell.SecretsHelper.auth_token',
+                return_value=True)
+    @mock.patch('novaclient.shell.SecretsHelper.management_url',
+                return_value=True)
+    @mock.patch('novaclient.client.Client')
+    @requests_mock.Mocker()
+    def test_keyring_saver_helper(self, mock_client,
+                                  sh_management_url_function,
+                                  sh_auth_token_function,
+                                  sh_tenant_id_function,
+                                  m_requests):
+        self.make_env(fake_env=FAKE_ENV)
+        self.register_keystone_discovery_fixture(m_requests)
+        self.shell('list')
+        mock_client_instance = mock_client.return_value
+        keyring_saver = mock_client_instance.client.keyring_saver
+        self.assertIsInstance(keyring_saver, novaclient.shell.SecretsHelper)
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_latest(self, mock_client):
+        self.make_env()
+        novaclient.API_MAX_VERSION = api_versions.APIVersion('2.3')
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion("2.1"), api_versions.APIVersion("2.3"))
+        self.shell('--os-compute-api-version 2.latest list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.3"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_specified_version(self, mock_client):
+        self.make_env()
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion("2.10"), api_versions.APIVersion("2.100"))
+        novaclient.API_MAX_VERSION = api_versions.APIVersion("2.100")
+        novaclient.API_MIN_VERSION = api_versions.APIVersion("2.90")
+        self.shell('--os-compute-api-version 2.99 list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.99"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_specified_version_out_of_range(self,
+                                                              mock_client):
+        novaclient.API_MAX_VERSION = api_versions.APIVersion("2.100")
+        novaclient.API_MIN_VERSION = api_versions.APIVersion("2.90")
+        self.assertRaises(exceptions.CommandError,
+                          self.shell, '--os-compute-api-version 2.199 list')
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_v2_and_v2_1_server(self, mock_client):
+        self.make_env()
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion('2.1'), api_versions.APIVersion('2.3'))
+        novaclient.API_MAX_VERSION = api_versions.APIVersion("2.100")
+        novaclient.API_MIN_VERSION = api_versions.APIVersion("2.1")
+        self.shell('--os-compute-api-version 2 list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.0"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_v2_and_v2_server(self, mock_client):
+        self.make_env()
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion(), api_versions.APIVersion())
+        novaclient.API_MAX_VERSION = api_versions.APIVersion("2.100")
+        novaclient.API_MIN_VERSION = api_versions.APIVersion("2.1")
+        self.shell('--os-compute-api-version 2 list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.0"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_v2_without_server_compatible(self, mock_client):
+        self.make_env()
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion('2.2'), api_versions.APIVersion('2.3'))
+        novaclient.API_MAX_VERSION = api_versions.APIVersion("2.100")
+        novaclient.API_MIN_VERSION = api_versions.APIVersion("2.1")
+        self.assertRaises(
+            exceptions.UnsupportedVersion,
+            self.shell, '--os-compute-api-version 2 list')
+
+    def test_microversion_with_specific_version_without_microversions(self):
+        self.make_env()
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion(), api_versions.APIVersion())
+        novaclient.API_MAX_VERSION = api_versions.APIVersion("2.100")
+        novaclient.API_MIN_VERSION = api_versions.APIVersion("2.1")
+        self.assertRaises(
+            exceptions.UnsupportedVersion,
+            self.shell,
+            '--os-compute-api-version 2.3 list')
+
+
+class TestLoadVersionedActions(utils.TestCase):
+
+    def test_load_versioned_actions(self):
+        parser = novaclient.shell.NovaClientArgumentParser()
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.15"), False)
+        self.assertIn('fake-action', shell.subcommands.keys())
+        self.assertEqual(
+            1, shell.subcommands['fake-action'].get_default('func')())
+
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.25"), False)
+        self.assertIn('fake-action', shell.subcommands.keys())
+        self.assertEqual(
+            2, shell.subcommands['fake-action'].get_default('func')())
+
+        self.assertIn('fake-action2', shell.subcommands.keys())
+        self.assertEqual(
+            3, shell.subcommands['fake-action2'].get_default('func')())
+
+    def test_load_versioned_actions_not_in_version_range(self):
+        parser = novaclient.shell.NovaClientArgumentParser()
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.10000"), False)
+        self.assertNotIn('fake-action', shell.subcommands.keys())
+        self.assertIn('fake-action2', shell.subcommands.keys())
+
+    def test_load_versioned_actions_with_help(self):
+        parser = novaclient.shell.NovaClientArgumentParser()
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.10000"), True)
+        self.assertIn('fake-action', shell.subcommands.keys())
+        expected_desc = ("(Supported by API versions '%(start)s' - "
+                         "'%(end)s')") % {'start': '2.10', 'end': '2.30'}
+        self.assertIn(expected_desc,
+                      shell.subcommands['fake-action'].description)
+
+    @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
+                       'add_argument')
+    def test_load_versioned_actions_with_args(self, mock_add_arg):
+        parser = novaclient.shell.NovaClientArgumentParser(add_help=False)
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.1"), False)
+        self.assertIn('fake-action2', shell.subcommands.keys())
+        mock_add_arg.assert_has_calls([
+            mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
+            mock.call('--foo')])
+
+    @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
+                       'add_argument')
+    def test_load_versioned_actions_with_args2(self, mock_add_arg):
+        parser = novaclient.shell.NovaClientArgumentParser(add_help=False)
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.4"), False)
+        self.assertIn('fake-action2', shell.subcommands.keys())
+        mock_add_arg.assert_has_calls([
+            mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
+            mock.call('--bar')])
+
+    @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
+                       'add_argument')
+    def test_load_versioned_actions_with_args_not_in_version_range(
+            self, mock_add_arg):
+        parser = novaclient.shell.NovaClientArgumentParser(add_help=False)
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.10000"), False)
+        self.assertIn('fake-action2', shell.subcommands.keys())
+        mock_add_arg.assert_has_calls([
+            mock.call('-h', '--help', action='help', help='==SUPPRESS==')])
+
+    @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
+                       'add_argument')
+    def test_load_versioned_actions_with_args_and_help(self, mock_add_arg):
+        parser = novaclient.shell.NovaClientArgumentParser(add_help=False)
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.4"), True)
+        mock_add_arg.assert_has_calls([
+            mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
+            mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
+            mock.call('--foo',
+                      help=" (Supported by API versions '2.1' - '2.2')"),
+            mock.call('--bar',
+                      help=" (Supported by API versions '2.3' - '2.4')")])
 
 
 class ShellTestKeystoneV3(ShellTest):

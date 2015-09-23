@@ -16,7 +16,6 @@
 
 import json
 import logging
-import socket
 
 import fixtures
 from keystoneclient import adapter
@@ -29,27 +28,9 @@ from novaclient.tests.unit import utils
 import novaclient.v2.client
 
 
-class TCPKeepAliveAdapterTest(utils.TestCase):
-
-    @mock.patch.object(requests.adapters.HTTPAdapter, 'init_poolmanager')
-    def test_init_poolmanager(self, mock_init_poolmgr):
-        adapter = novaclient.client.TCPKeepAliveAdapter()
-        kwargs = {}
-        adapter.init_poolmanager(**kwargs)
-        if requests.__version__ >= '2.4.1':
-            kwargs.setdefault('socket_options', [
-                (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
-                (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
-            ])
-        # NOTE(melwitt): This is called twice because
-        #                HTTPAdapter.__init__ calls it first.
-        self.assertEqual(2, mock_init_poolmgr.call_count)
-        mock_init_poolmgr.assert_called_with(**kwargs)
-
-
 class ClientConnectionPoolTest(utils.TestCase):
 
-    @mock.patch("novaclient.client.TCPKeepAliveAdapter")
+    @mock.patch("keystoneclient.session.TCPKeepAliveAdapter")
     def test_get(self, mock_http_adapter):
         mock_http_adapter.side_effect = lambda: mock.Mock()
         pool = novaclient.client._ClientConnectionPool()
@@ -156,9 +137,15 @@ class ClientTest(utils.TestCase):
 
     def test_client_version_url(self):
         self._check_version_url('http://foo.com/v2/%s', 'http://foo.com/')
+        self._check_version_url('http://foo.com/v2.1/%s', 'http://foo.com/')
+        self._check_version_url('http://foo.com/v3.785/%s', 'http://foo.com/')
 
     def test_client_version_url_with_project_name(self):
         self._check_version_url('http://foo.com/nova/v2/%s',
+                                'http://foo.com/nova/')
+        self._check_version_url('http://foo.com/nova/v2.1/%s',
+                                'http://foo.com/nova/')
+        self._check_version_url('http://foo.com/nova/v3.785/%s',
                                 'http://foo.com/nova/')
 
     def test_get_client_class_v2(self):
@@ -176,6 +163,12 @@ class ClientTest(utils.TestCase):
     def test_get_client_class_unknown(self):
         self.assertRaises(novaclient.exceptions.UnsupportedVersion,
                           novaclient.client.get_client_class, '0')
+
+    def test_get_client_class_latest(self):
+        self.assertRaises(novaclient.exceptions.UnsupportedVersion,
+                          novaclient.client.get_client_class, 'latest')
+        self.assertRaises(novaclient.exceptions.UnsupportedVersion,
+                          novaclient.client.get_client_class, '2.latest')
 
     def test_client_with_os_cache_enabled(self):
         cs = novaclient.v2.client.Client("user", "password", "project_id",
@@ -374,6 +367,8 @@ class ClientTest(utils.TestCase):
         cs.http_log_debug = True
         cs.http_log_req('GET', '/foo', {'headers': {}})
         cs.http_log_req('GET', '/foo', {'headers':
+                                        {'X-Auth-Token': None}})
+        cs.http_log_req('GET', '/foo', {'headers':
                                         {'X-Auth-Token': 'totally_bogus'}})
         cs.http_log_req('GET', '/foo', {'headers':
                                         {'X-Foo': 'bar',
@@ -386,6 +381,10 @@ class ClientTest(utils.TestCase):
         output = self.logger.output.split('\n')
 
         self.assertIn("REQ: curl -g -i '/foo' -X GET", output)
+        self.assertIn(
+            "REQ: curl -g -i '/foo' -X GET -H "
+            '"X-Auth-Token: None"',
+            output)
         self.assertIn(
             "REQ: curl -g -i '/foo' -X GET -H "
             '"X-Auth-Token: {SHA1}b42162b6ffdbd7c3c37b7c95b7ba9f51dda0236d"',

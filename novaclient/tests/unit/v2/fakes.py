@@ -30,10 +30,11 @@ from novaclient.v2 import client
 
 class FakeClient(fakes.FakeClient, client.Client):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, api_version=None, *args, **kwargs):
         client.Client.__init__(self, 'username', 'password',
                                'project_id', 'auth_url',
                                extensions=kwargs.get('extensions'))
+        self.api_version = api_version
         self.client = FakeHTTPClient(**kwargs)
 
 
@@ -56,6 +57,8 @@ class FakeHTTPClient(base_client.HTTPClient):
         self.bypass_url = 'bypass_url'
         self.os_cache = 'os_cache'
         self.http_log_debug = 'http_log_debug'
+        self.last_request_id = None
+        self.management_url = self.get_endpoint()
 
     def _cs_request(self, url, method, **kwargs):
         # Check that certain things are called correctly
@@ -73,12 +76,16 @@ class FakeHTTPClient(base_client.HTTPClient):
             munged_url = munged_url.replace('.', '_')
             munged_url = munged_url.replace('-', '_')
             munged_url = munged_url.replace(' ', '_')
+            munged_url = munged_url.replace('!', '_')
+            munged_url = munged_url.replace('@', '_')
             callback = "%s_%s" % (method.lower(), munged_url)
 
         if url is None or callback == "get_http:__nova_api:8774":
             # To get API version information, it is necessary to GET
             # a nova endpoint directly without "v2/<tenant-id>".
             callback = "get_versions"
+        elif callback == "get_http:__nova_api:8774_v2_1":
+            callback = "get_current_version"
 
         if not hasattr(self, callback):
             raise AssertionError('Called unknown API method: %s %s, '
@@ -97,7 +104,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         return r, body
 
     def get_endpoint(self):
-        return "http://nova-api:8774/v2/190a755eef2e4aac9f06aa6be9786385"
+        return "http://nova-api:8774/v2.1/190a755eef2e4aac9f06aa6be9786385"
 
     def get_versions(self):
         return (200, {}, {
@@ -115,6 +122,16 @@ class FakeHTTPClient(base_client.HTTPClient):
                  "version": "2.3",
                  "id": "v2.1"}
             ]})
+
+    def get_current_version(self):
+        return (200, {}, {
+            "version": {"status": "CURRENT",
+                        "updated": "2013-07-23T11:33:21Z",
+                        "links": [{"href": "http://nova-api:8774/v2.1/",
+                                   "rel": "self"}],
+                        "min_version": "2.1",
+                        "version": "2.3",
+                        "id": "v2.1"}})
 
     #
     # agents
@@ -661,6 +678,8 @@ class FakeHTTPClient(base_client.HTTPClient):
         elif action == 'createImage':
             assert set(body[action].keys()) == set(['name', 'metadata'])
             _headers = dict(location="http://blah/images/456")
+            if body[action]['name'] == 'mysnapshot_deleted':
+                _headers = dict(location="http://blah/images/457")
         elif action == 'os-getConsoleOutput':
             assert list(body[action]) == ['length']
             return (202, {}, {'output': 'foo'})
@@ -1031,6 +1050,16 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "status": "SAVING",
                 "progress": 80,
                 "links": {},
+            },
+            {
+                "id": 3,
+                "name": "My Server Backup Deleted",
+                "serverId": 1234,
+                "updated": "2010-10-10T12:00:00Z",
+                "created": "2010-08-10T12:00:00Z",
+                "status": "DELETED",
+                "fault": {'message': 'Image has been deleted.'},
+                "links": {},
             }
         ]})
 
@@ -1042,6 +1071,9 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_images_456(self, **kw):
         return (200, {}, {'image': self.get_images_detail()[2]['images'][1]})
+
+    def get_images_457(self, **kw):
+        return (200, {}, {'image': self.get_images_detail()[2]['images'][2]})
 
     def get_images_3e861307_73a6_4d1f_8d68_f68b03223032(self):
         raise exceptions.NotFound('404')
@@ -1227,8 +1259,7 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def put_os_quota_sets_97f4c221bff44578b0300df4ef119353(self, body, **kw):
         assert list(body) == ['quota_set']
-        fakes.assert_has_keys(body['quota_set'],
-                              required=['tenant_id'])
+        fakes.assert_has_keys(body['quota_set'])
         return (200, {}, {
             'quota_set': {
                 'tenant_id': '97f4c221bff44578b0300df4ef119353',
@@ -1645,6 +1676,12 @@ class FakeHTTPClient(base_client.HTTPClient):
     def delete_os_services_1(self, **kw):
         return (204, {}, None)
 
+    def put_os_services_force_down(self, body, **kw):
+        return (200, {}, {'service': {
+            'host': body['host'],
+            'binary': body['binary'],
+            'forced_down': False}})
+
     #
     # Fixed IPs
     #
@@ -1775,6 +1812,48 @@ class FakeHTTPClient(base_client.HTTPClient):
                 'disk_available_least': 200}
         })
 
+    def get_os_hypervisors_hyper1(self, **kw):
+        return (200, {}, {
+            'hypervisor':
+            {'id': 1234,
+             'service': {'id': 1, 'host': 'compute1'},
+             'vcpus': 4,
+             'memory_mb': 10 * 1024,
+             'local_gb': 250,
+             'vcpus_used': 2,
+             'memory_mb_used': 5 * 1024,
+             'local_gb_used': 125,
+             'hypervisor_type': "xen",
+             'hypervisor_version': 3,
+             'hypervisor_hostname': "hyper1",
+             'free_ram_mb': 5 * 1024,
+             'free_disk_gb': 125,
+             'current_workload': 2,
+             'running_vms': 2,
+             'cpu_info': 'cpu_info',
+             'disk_available_least': 100}})
+
+    def get_os_hypervisors_region_child_1(self, **kw):
+        return (200, {}, {
+            'hypervisor':
+            {'id': 'region!child@1',
+             'service': {'id': 1, 'host': 'compute1'},
+             'vcpus': 4,
+             'memory_mb': 10 * 1024,
+             'local_gb': 250,
+             'vcpus_used': 2,
+             'memory_mb_used': 5 * 1024,
+             'local_gb_used': 125,
+             'hypervisor_type': "xen",
+             'hypervisor_version': 3,
+             'hypervisor_hostname': "hyper1",
+             'free_ram_mb': 5 * 1024,
+             'free_disk_gb': 125,
+             'current_workload': 2,
+             'running_vms': 2,
+             'cpu_info': 'cpu_info',
+             'disk_available_least': 100}})
+
     def get_os_hypervisors_hyper_search(self, **kw):
         return (200, {}, {
             'hypervisors': [
@@ -1824,6 +1903,12 @@ class FakeHTTPClient(base_client.HTTPClient):
     def get_os_hypervisors_1234_uptime(self, **kw):
         return (200, {}, {
             'hypervisor': {'id': 1234,
+                           'hypervisor_hostname': "hyper1",
+                           'uptime': "fake uptime"}})
+
+    def get_os_hypervisors_region_child_1_uptime(self, **kw):
+        return (200, {}, {
+            'hypervisor': {'id': 'region!child@1',
                            'hypervisor_hostname': "hyper1",
                            'uptime': "fake uptime"}})
 
@@ -2230,10 +2315,11 @@ class FakeHTTPClient(base_client.HTTPClient):
 
 class FakeSessionClient(fakes.FakeClient, client.Client):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, api_version, *args, **kwargs):
         client.Client.__init__(self, 'username', 'password',
                                'project_id', 'auth_url',
-                               extensions=kwargs.get('extensions'))
+                               extensions=kwargs.get('extensions'),
+                               api_version=api_version)
         self.client = FakeSessionMockClient(**kwargs)
 
 
@@ -2244,7 +2330,14 @@ class FakeSessionMockClient(base_client.SessionClient, FakeHTTPClient):
         self.callstack = []
         self.auth = mock.Mock()
         self.session = mock.Mock()
+        self.session.get_endpoint.return_value = FakeHTTPClient.get_endpoint(
+            self)
         self.service_type = 'service_type'
+        self.service_name = None
+        self.endpoint_override = None
+        self.interface = None
+        self.region_name = None
+        self.version = None
 
         self.auth.get_auth_ref.return_value.project_id = 'tenant_id'
 

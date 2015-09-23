@@ -1,5 +1,5 @@
 Python bindings to the OpenStack Nova API
-==================================================
+=========================================
 
 This is a client for the OpenStack Nova API. There's a Python API (the
 ``novaclient`` module), and a command-line script (``nova``). Each
@@ -9,8 +9,8 @@ See the `OpenStack CLI guide`_ for information on how to use the ``nova``
 command-line tool. You may also want to look at the
 `OpenStack API documentation`_.
 
-.. _OpenStack CLI Guide: http://docs.openstack.org/cli/quick-start/content/
-.. _OpenStack API documentation: http://docs.openstack.org/api/
+.. _OpenStack CLI Guide: http://docs.openstack.org/cli-reference/content/novaclient_commands.html
+.. _OpenStack API documentation: http://docs.openstack.org/api/quick-start/content/
 
 The project is hosted on `Launchpad`_, where bugs can be filed. The code is
 hosted on `Github`_. Patches must be submitted using `Gerrit`_, *not* Github
@@ -45,7 +45,7 @@ You will also need to define the authentication url with ``--os-auth-url``
 and the version of the API with ``--os-compute-api-version``.  Or set them as
 an environment variables as well::
 
-    export OS_AUTH_URL=http://example.com:8774/v1.1/
+    export OS_AUTH_URL=http://example.com:8774/v2/
     export OS_COMPUTE_API_VERSION=2
 
 If you are using Keystone, you need to set the OS_AUTH_URL to the keystone
@@ -63,14 +63,13 @@ You'll find complete documentation on the shell by running
 Python API
 ----------
 
-There's also a complete Python API, but it has not yet been documented.
+There's also a complete Python API, with documentation linked below.
 
 
-To use with nova, with keystone as the authentication system::
+To use with keystone as the authentication system::
 
-    # use v2.0 auth with http://example.com:5000/v2.0/")
-    >>> from novaclient.v2 import client
-    >>> nt = client.Client(USER, PASS, TENANT, AUTH_URL, service_type="compute")
+    >>> from novaclient import client
+    >>> nt = client.Client(VERSION, USER, PASSWORD, TENANT, AUTH_URL)
     >>> nt.flavors.list()
     [...]
     >>> nt.servers.list()
@@ -94,7 +93,7 @@ There are multiple test targets that can be run to validate the code.
 * tox -e functional - live functional testing against an existing
   openstack
 
-Functional testing assumes the existance of a `clouds.yaml` file as supported
+Functional testing assumes the existence of a `clouds.yaml` file as supported
 by `os-client-config` (http://docs.openstack.org/developer/os-client-config)
 It assumes the existence of a cloud named `devstack` that behaves like a normal
 devstack installation with a demo and an admin user/tenant - or clouds named

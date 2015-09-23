@@ -26,7 +26,6 @@ Contents:
    api
    ref/index
    ref/v2/index
-   releases
 
 Contributing
 ============
@@ -73,11 +72,22 @@ The process for command deprecation is:
 
   3. Example: `<https://review.openstack.org/#/c/185141/>`_
 
-     This change was made while the Nova 2015.2 Liberty release was in
+     This change was made while the Nova 12.0.0 Liberty release was in
      development. The current version of python-novaclient at the time was
      2.25.0. Once the change was merged, python-novaclient 2.26.0 was released.
-     Since there was less than six months before 2015.2 would be released, the
-     deprecation cycle ran through the 2016.1 Nova server release.
+     Since there was less than six months before 12.0.0 would be released, the
+     deprecation cycle ran through the 13.0.0 Nova server release.
+
+
+Man Page
+========
+
+.. toctree::
+   :maxdepth: 1
+
+   man/nova
+
+
 
 Indices and tables
 ==================

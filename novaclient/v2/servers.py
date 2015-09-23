@@ -505,7 +505,7 @@ class ServerManager(base.BootingManagerWithFind):
             # a valid boot with both --image and --block-device
             # failed , see bug 1433609 for more info
             if image:
-                bdm_dict = {'uuid': image.id, 'source_type': 'image',
+                bdm_dict = {'uuid': base.getid(image), 'source_type': 'image',
                             'destination_type': 'local', 'boot_index': 0,
                             'delete_on_termination': True}
                 block_device_mapping_v2.insert(0, bdm_dict)
@@ -572,32 +572,44 @@ class ServerManager(base.BootingManagerWithFind):
             if val:
                 qparams[opt] = val
 
-        if marker:
-            qparams['marker'] = marker
-
-        if limit:
-            qparams['limit'] = limit
-
-        # Transform the dict to a sequence of two-element tuples in fixed
-        # order, then the encoded string will be consistent in Python 2&3.
-        if qparams or sort_keys or sort_dirs:
-            # sort keys and directions are unique since the same parameter
-            # key is repeated for each associated value
-            # (ie, &sort_key=key1&sort_key=key2&sort_key=key3)
-            items = list(qparams.items())
-            if sort_keys:
-                items.extend(('sort_key', sort_key) for sort_key in sort_keys)
-            if sort_dirs:
-                items.extend(('sort_dir', sort_dir) for sort_dir in sort_dirs)
-            new_qparams = sorted(items, key=lambda x: x[0])
-            query_string = "?%s" % parse.urlencode(new_qparams)
-        else:
-            query_string = ""
-
         detail = ""
         if detailed:
             detail = "/detail"
-        return self._list("/servers%s%s" % (detail, query_string), "servers")
+
+        result = []
+        while True:
+            if marker:
+                qparams['marker'] = marker
+
+            if limit and limit != -1:
+                qparams['limit'] = limit
+
+            # Transform the dict to a sequence of two-element tuples in fixed
+            # order, then the encoded string will be consistent in Python 2&3.
+            if qparams or sort_keys or sort_dirs:
+                # sort keys and directions are unique since the same parameter
+                # key is repeated for each associated value
+                # (ie, &sort_key=key1&sort_key=key2&sort_key=key3)
+                items = list(qparams.items())
+                if sort_keys:
+                    items.extend(('sort_key', sort_key)
+                                 for sort_key in sort_keys)
+                if sort_dirs:
+                    items.extend(('sort_dir', sort_dir)
+                                 for sort_dir in sort_dirs)
+                new_qparams = sorted(items, key=lambda x: x[0])
+                query_string = "?%s" % parse.urlencode(new_qparams)
+            else:
+                query_string = ""
+
+            servers = self._list("/servers%s%s" % (detail, query_string),
+                                 "servers")
+            result.extend(servers)
+
+            if not servers or limit != -1:
+                break
+            marker = result[-1].id
+        return result
 
     def add_fixed_ip(self, server, network_id):
         """
@@ -849,7 +861,7 @@ class ServerManager(base.BootingManagerWithFind):
                key_name=None, availability_zone=None,
                block_device_mapping=None, block_device_mapping_v2=None,
                nics=None, scheduler_hints=None,
-               config_drive=None, disk_config=None, **kwargs):
+               config_drive=None, disk_config=None, admin_pass=None, **kwargs):
         # TODO(anthony): indicate in doc string if param is an extension
         # and/or optional
         """
@@ -860,7 +872,7 @@ class ServerManager(base.BootingManagerWithFind):
         :param flavor: The :class:`Flavor` to boot onto.
         :param meta: A dict of arbitrary key/value metadata to store for this
                      server. Both keys and values must be <=255 characters.
-        :param files: A dict of files to overrwrite on the server upon boot.
+        :param files: A dict of files to overwrite on the server upon boot.
                       Keys are file names (i.e. ``/etc/passwd``) and values
                       are the file contents (either as a string or as a
                       file-like object). A maximum of five entries is allowed,
@@ -892,6 +904,8 @@ class ServerManager(base.BootingManagerWithFind):
         :param disk_config: (optional extension) control how the disk is
                             partitioned when the server is created.  possible
                             values are 'AUTO' or 'MANUAL'.
+        :param admin_pass: (optional extension) add a user supplied admin
+                           password.
         """
         if not min_count:
             min_count = 1
@@ -908,7 +922,7 @@ class ServerManager(base.BootingManagerWithFind):
             max_count=max_count, security_groups=security_groups,
             key_name=key_name, availability_zone=availability_zone,
             scheduler_hints=scheduler_hints, config_drive=config_drive,
-            disk_config=disk_config, **kwargs)
+            disk_config=disk_config, admin_pass=admin_pass, **kwargs)
 
         if block_device_mapping:
             resource_url = "/os-volumes_boot"

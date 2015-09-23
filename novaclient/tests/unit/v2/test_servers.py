@@ -43,6 +43,20 @@ class ServersTest(utils.FixturedTestCase):
         for s in sl:
             self.assertIsInstance(s, servers.Server)
 
+    def test_list_all_servers(self):
+        # use marker just to identify this call in fixtures
+        sl = self.cs.servers.list(limit=-1, marker=1234)
+
+        self.assertEqual(2, len(sl))
+
+        self.assertEqual(self.requests.request_history[-2].method, 'GET')
+        self.assertEqual(self.requests.request_history[-2].path_url,
+                         '/servers/detail?marker=1234')
+        self.assert_called('GET', '/servers/detail?marker=5678')
+
+        for s in sl:
+            self.assertIsInstance(s, servers.Server)
+
     def test_list_servers_undetailed(self):
         sl = self.cs.servers.list(detailed=False)
         self.assert_called('GET', '/servers')
@@ -136,6 +150,31 @@ class ServersTest(utils.FixturedTestCase):
 
         test_create_server_from_volume()
 
+    def test_create_server_boot_from_volume_bdm_v2(self):
+        old_boot = self.cs.servers._boot
+
+        bdm = [{"volume_size": "1",
+                "volume_id": "11111111-1111-1111-1111-111111111111",
+                "delete_on_termination": "0",
+                "device_name": "vda"}]
+
+        def wrapped_boot(url, key, *boot_args, **boot_kwargs):
+            self.assertEqual(boot_kwargs['block_device_mapping_v2'], bdm)
+            return old_boot(url, key, *boot_args, **boot_kwargs)
+
+        with mock.patch.object(self.cs.servers, '_boot', wrapped_boot):
+            s = self.cs.servers.create(
+                name="My server",
+                image=1,
+                flavor=1,
+                meta={'foo': 'bar'},
+                userdata="hello moto",
+                key_name="fakekey",
+                block_device_mapping_v2=bdm
+            )
+            self.assert_called('POST', '/os-volumes_boot')
+            self.assertIsInstance(s, servers.Server)
+
     def test_create_server_boot_with_nics_ipv6(self):
         old_boot = self.cs.servers._boot
         nics = [{'net-id': '11111111-1111-1111-1111-111111111111',
@@ -204,6 +243,21 @@ class ServersTest(utils.FixturedTestCase):
         )
         self.assert_called('POST', '/servers')
         self.assertIsInstance(s, servers.Server)
+
+    def test_create_server_admin_pass(self):
+        test_password = "test-pass"
+        test_key = "fakekey"
+        s = self.cs.servers.create(
+            name="My server",
+            image=1,
+            flavor=1,
+            admin_pass=test_password,
+            key_name=test_key
+        )
+        self.assert_called('POST', '/servers')
+        self.assertIsInstance(s, servers.Server)
+        body = jsonutils.loads(self.requests.last_request.body)
+        self.assertEqual(test_password, body['server']['adminPass'])
 
     def test_create_server_userdata_bin(self):
         with tempfile.TemporaryFile(mode='wb+') as bin_file:

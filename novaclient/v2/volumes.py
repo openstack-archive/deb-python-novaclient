@@ -65,7 +65,7 @@ class VolumeManager(base.ManagerWithFind):
         """
         warnings.warn('The novaclient.v2.volumes.VolumeManager.create() '
                       'method is deprecated and will be removed after Nova '
-                      '2016.1 is released. Use python-cinderclient or '
+                      '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
         # NOTE(melwitt): Ensure we use the volume endpoint for this call
         with self.alternate_service_type('volume'):
@@ -87,7 +87,7 @@ class VolumeManager(base.ManagerWithFind):
         """
         warnings.warn('The novaclient.v2.volumes.VolumeManager.get() '
                       'method is deprecated and will be removed after Nova '
-                      '2016.1 is released. Use python-cinderclient or '
+                      '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
         with self.alternate_service_type('volume'):
             return self._get("/volumes/%s" % volume_id, "volume")
@@ -100,7 +100,7 @@ class VolumeManager(base.ManagerWithFind):
         """
         warnings.warn('The novaclient.v2.volumes.VolumeManager.list() '
                       'method is deprecated and will be removed after Nova '
-                      '2016.1 is released. Use python-cinderclient or '
+                      '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
         with self.alternate_service_type('volume'):
             search_opts = search_opts or {}
@@ -126,22 +126,23 @@ class VolumeManager(base.ManagerWithFind):
         """
         warnings.warn('The novaclient.v2.volumes.VolumeManager.delete() '
                       'method is deprecated and will be removed after Nova '
-                      '2016.1 is released. Use python-cinderclient or '
+                      '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
         with self.alternate_service_type('volume'):
             self._delete("/volumes/%s" % base.getid(volume))
 
-    def create_server_volume(self, server_id, volume_id, device):
+    def create_server_volume(self, server_id, volume_id, device=None):
         """
         Attach a volume identified by the volume ID to the given server ID
 
         :param server_id: The ID of the server
         :param volume_id: The ID of the volume to attach.
-        :param device: The device name
+        :param device: The device name (optional)
         :rtype: :class:`Volume`
         """
-        body = {'volumeAttachment': {'volumeId': volume_id,
-                                     'device': device}}
+        body = {'volumeAttachment': {'volumeId': volume_id}}
+        if device is not None:
+            body['volumeAttachment']['device'] = device
         return self._create("/servers/%s/os-volume_attachments" % server_id,
                             body, "volumeAttachment")
 

@@ -29,6 +29,7 @@ from keystoneclient.auth.identity.generic import token
 from keystoneclient.auth.identity import v3 as identity
 from keystoneclient import session as ksession
 from oslo_utils import encodeutils
+from oslo_utils import importutils
 from oslo_utils import strutils
 import six
 
@@ -41,6 +42,7 @@ except ImportError:
     pass
 
 import novaclient
+from novaclient import api_versions
 import novaclient.auth_plugin
 from novaclient import client
 from novaclient import exceptions as exc
@@ -48,9 +50,9 @@ import novaclient.extension
 from novaclient.i18n import _
 from novaclient.openstack.common import cliutils
 from novaclient import utils
-from novaclient.v2 import shell as shell_v2
 
-DEFAULT_OS_COMPUTE_API_VERSION = "2"
+DEFAULT_MAJOR_OS_COMPUTE_API_VERSION = "2.0"
+DEFAULT_OS_COMPUTE_API_VERSION = "2.latest"
 DEFAULT_NOVA_ENDPOINT_TYPE = 'publicURL'
 DEFAULT_NOVA_SERVICE_TYPE = "compute"
 
@@ -402,8 +404,8 @@ class OpenStackComputeShell(object):
             metavar='<compute-api-ver>',
             default=cliutils.env('OS_COMPUTE_API_VERSION',
                                  default=DEFAULT_OS_COMPUTE_API_VERSION),
-            help=_('Accepts number of API version, '
-                   'defaults to env[OS_COMPUTE_API_VERSION].'))
+            help=_('Accepts X, X.Y (where X is major and Y is minor part) or '
+                   '"X.latest", defaults to env[OS_COMPUTE_API_VERSION].'))
         parser.add_argument(
             '--os_compute_api_version',
             help=argparse.SUPPRESS)
@@ -425,35 +427,24 @@ class OpenStackComputeShell(object):
 
         return parser
 
-    def get_subcommand_parser(self, version):
+    def get_subcommand_parser(self, version, do_help=False):
         parser = self.get_base_parser()
 
         self.subcommands = {}
         subparsers = parser.add_subparsers(metavar='<subcommand>')
 
-        try:
-            actions_module = {
-                '1.1': shell_v2,
-                '2': shell_v2,
-                '3': shell_v2,
-            }[version]
-        except KeyError:
-            actions_module = shell_v2
+        actions_module = importutils.import_module(
+            "novaclient.v%s.shell" % version.ver_major)
 
-        self._find_actions(subparsers, actions_module)
-        self._find_actions(subparsers, self)
+        self._find_actions(subparsers, actions_module, version, do_help)
+        self._find_actions(subparsers, self, version, do_help)
 
         for extension in self.extensions:
-            self._find_actions(subparsers, extension.module)
+            self._find_actions(subparsers, extension.module, version, do_help)
 
         self._add_bash_completion_subparser(subparsers)
 
         return parser
-
-    # TODO(lyj): Delete this method after heat patched to use
-    #            client.discover_extensions
-    def _discover_extensions(self, version):
-        return client.discover_extensions(version)
 
     def _add_bash_completion_subparser(self, subparsers):
         subparser = subparsers.add_parser(
@@ -464,12 +455,28 @@ class OpenStackComputeShell(object):
         self.subcommands['bash_completion'] = subparser
         subparser.set_defaults(func=self.do_bash_completion)
 
-    def _find_actions(self, subparsers, actions_module):
+    def _find_actions(self, subparsers, actions_module, version, do_help):
+        msg = _(" (Supported by API versions '%(start)s' - '%(end)s')")
         for attr in (a for a in dir(actions_module) if a.startswith('do_')):
             # I prefer to be hyphen-separated instead of underscores.
             command = attr[3:].replace('_', '-')
             callback = getattr(actions_module, attr)
             desc = callback.__doc__ or ''
+            if hasattr(callback, "versioned"):
+                subs = api_versions.get_substitutions(
+                    utils.get_function_name(callback))
+                if do_help:
+                    desc += msg % {'start': subs[0].start_version.get_string(),
+                                   'end': subs[-1].end_version.get_string()}
+                else:
+                    for versioned_method in subs:
+                        if version.matches(versioned_method.start_version,
+                                           versioned_method.end_version):
+                            callback = versioned_method.func
+                            break
+                    else:
+                        continue
+
             action_help = desc.strip()
             arguments = getattr(callback, 'arguments', [])
 
@@ -486,7 +493,26 @@ class OpenStackComputeShell(object):
             )
             self.subcommands[command] = subparser
             for (args, kwargs) in arguments:
-                subparser.add_argument(*args, **kwargs)
+                start_version = kwargs.get("start_version", None)
+                if start_version:
+                    start_version = api_versions.APIVersion(start_version)
+                    end_version = kwargs.get("end_version", None)
+                    if end_version:
+                        end_version = api_versions.APIVersion(end_version)
+                    else:
+                        end_version = api_versions.APIVersion(
+                            "%s.latest" % start_version.ver_major)
+                    if do_help:
+                        kwargs["help"] = kwargs.get("help", "") + (msg % {
+                            "start": start_version.get_string(),
+                            "end": end_version.get_string()})
+                    else:
+                        if not version.matches(start_version, end_version):
+                            continue
+                kw = kwargs.copy()
+                kw.pop("start_version", None)
+                kw.pop("end_version", None)
+                subparser.add_argument(*args, **kw)
             subparser.set_defaults(func=callback)
 
     def setup_debugging(self, debug):
@@ -498,6 +524,7 @@ class OpenStackComputeShell(object):
         # print debug messages
         logging.basicConfig(level=logging.DEBUG,
                             format=streamformat)
+        logging.getLogger('iso8601').setLevel(logging.WARNING)
 
     def _get_keystone_auth(self, session, auth_url, **kwargs):
         auth_token = kwargs.pop('auth_token', None)
@@ -516,16 +543,6 @@ class OpenStackComputeShell(object):
     def main(self, argv):
         # Parse args once to find version and debug settings
         parser = self.get_base_parser()
-        (options, args) = parser.parse_known_args(argv)
-        self.setup_debugging(options.debug)
-
-        # Discover available auth plugins
-        novaclient.auth_plugin.discover_auth_systems()
-
-        # build available subcommands based on version
-        self.extensions = self._discover_extensions(
-            options.os_compute_api_version)
-        self._run_extension_hooks('__pre_parse_args__')
 
         # NOTE(dtroyer): Hackery to handle --endpoint_type due to argparse
         #                thinking usage-list --end is ambiguous; but it
@@ -535,24 +552,22 @@ class OpenStackComputeShell(object):
             spot = argv.index('--endpoint_type')
             argv[spot] = '--endpoint-type'
 
-        subcommand_parser = self.get_subcommand_parser(
-            options.os_compute_api_version)
-        self.parser = subcommand_parser
+        (args, args_list) = parser.parse_known_args(argv)
 
-        if options.help or not argv:
-            subcommand_parser.print_help()
-            return 0
+        self.setup_debugging(args.debug)
+        self.extensions = []
+        do_help = ('help' in argv) or (
+            '--help' in argv) or ('-h' in argv) or not argv
 
-        args = subcommand_parser.parse_args(argv)
-        self._run_extension_hooks('__post_parse_args__', args)
+        # Discover available auth plugins
+        novaclient.auth_plugin.discover_auth_systems()
 
-        # Short-circuit and deal with help right away.
-        if args.func == self.do_help:
-            self.do_help(args)
-            return 0
-        elif args.func == self.do_bash_completion:
-            self.do_bash_completion(args)
-            return 0
+        if not args.os_compute_api_version:
+            api_version = api_versions.get_api_version(
+                DEFAULT_MAJOR_OS_COMPUTE_API_VERSION)
+        else:
+            api_version = api_versions.get_api_version(
+                args.os_compute_api_version)
 
         os_username = args.os_username
         os_user_id = args.os_user_id
@@ -598,13 +613,13 @@ class OpenStackComputeShell(object):
             endpoint_type += 'URL'
 
         if not service_type:
-            service_type = (cliutils.get_service_type(args.func) or
-                            DEFAULT_NOVA_SERVICE_TYPE)
+            # Note(alex_xu): We need discover version first, so if there isn't
+            # service type specified, we use default nova service type.
+            service_type = DEFAULT_NOVA_SERVICE_TYPE
 
         # If we have an auth token but no management_url, we must auth anyway.
         # Expired tokens are handled by client.py:_cs_request
-        must_auth = not (cliutils.isunauthenticated(args.func)
-                         or (auth_token and management_url))
+        must_auth = not (auth_token and management_url)
 
         # Do not use Keystone session for cases with no session support. The
         # presence of auth_plugin means os_auth_system is present and is not
@@ -615,7 +630,7 @@ class OpenStackComputeShell(object):
 
         # FIXME(usrleon): Here should be restrict for project id same as
         # for os_username or os_password but for compatibility it is not.
-        if must_auth:
+        if must_auth and not do_help:
             if auth_plugin:
                 auth_plugin.parse_opts(args)
 
@@ -669,23 +684,24 @@ class OpenStackComputeShell(object):
                         project_domain_id=args.os_project_domain_id,
                         project_domain_name=args.os_project_domain_name)
 
-        if options.os_compute_api_version:
-            if not any([args.os_tenant_id, args.os_tenant_name,
-                        args.os_project_id, args.os_project_name]):
-                raise exc.CommandError(_("You must provide a project name or"
-                                         " project id via --os-project-name,"
-                                         " --os-project-id, env[OS_PROJECT_ID]"
-                                         " or env[OS_PROJECT_NAME]. You may"
-                                         " use os-project and os-tenant"
-                                         " interchangeably."))
+        if not do_help and not any([args.os_tenant_id, args.os_tenant_name,
+                                    args.os_project_id, args.os_project_name]):
+            raise exc.CommandError(_("You must provide a project name or"
+                                     " project id via --os-project-name,"
+                                     " --os-project-id, env[OS_PROJECT_ID]"
+                                     " or env[OS_PROJECT_NAME]. You may"
+                                     " use os-project and os-tenant"
+                                     " interchangeably."))
 
-            if not os_auth_url:
-                raise exc.CommandError(
-                    _("You must provide an auth url "
-                      "via either --os-auth-url or env[OS_AUTH_URL]"))
+        if not os_auth_url and not do_help:
+            raise exc.CommandError(
+                _("You must provide an auth url "
+                  "via either --os-auth-url or env[OS_AUTH_URL]"))
 
+        # This client is just used to discover api version. Version API needn't
+        # microversion, so we just pass version 2 at here.
         self.cs = client.Client(
-            options.os_compute_api_version,
+            api_versions.APIVersion("2.0"),
             os_username, os_password, os_tenant_name,
             tenant_id=os_tenant_id, user_id=os_user_id,
             auth_url=os_auth_url, insecure=insecure,
@@ -695,7 +711,71 @@ class OpenStackComputeShell(object):
             auth_plugin=auth_plugin, auth_token=auth_token,
             volume_service_name=volume_service_name,
             timings=args.timings, bypass_url=bypass_url,
-            os_cache=os_cache, http_log_debug=options.debug,
+            os_cache=os_cache, http_log_debug=args.debug,
+            cacert=cacert, timeout=timeout,
+            session=keystone_session, auth=keystone_auth)
+
+        if not do_help:
+            if not api_version.is_latest():
+                if api_version > api_versions.APIVersion("2.0"):
+                    if not api_version.matches(novaclient.API_MIN_VERSION,
+                                               novaclient.API_MAX_VERSION):
+                        raise exc.CommandError(
+                            _("The specified version isn't supported by "
+                              "client. The valid version range is '%(min)s' "
+                              "to '%(max)s'") % {
+                                "min": novaclient.API_MIN_VERSION.get_string(),
+                                "max": novaclient.API_MAX_VERSION.get_string()}
+                        )
+            api_version = api_versions.discover_version(self.cs, api_version)
+
+        # build available subcommands based on version
+        self.extensions = client.discover_extensions(api_version)
+        self._run_extension_hooks('__pre_parse_args__')
+
+        subcommand_parser = self.get_subcommand_parser(
+            api_version, do_help=do_help)
+        self.parser = subcommand_parser
+
+        if args.help or not argv:
+            subcommand_parser.print_help()
+            return 0
+
+        args = subcommand_parser.parse_args(argv)
+        self._run_extension_hooks('__post_parse_args__', args)
+
+        # Short-circuit and deal with help right away.
+        if args.func == self.do_help:
+            self.do_help(args)
+            return 0
+        elif args.func == self.do_bash_completion:
+            self.do_bash_completion(args)
+            return 0
+
+        if not args.service_type:
+            service_type = (cliutils.get_service_type(args.func) or
+                            DEFAULT_NOVA_SERVICE_TYPE)
+
+        if cliutils.isunauthenticated(args.func):
+            # NOTE(alex_xu): We need authentication for discover microversion.
+            # But the subcommands may needn't it. If the subcommand needn't,
+            # we clear the session arguements.
+            keystone_session = None
+            keystone_auth = None
+
+        # Recreate client object with discovered version.
+        self.cs = client.Client(
+            api_version,
+            os_username, os_password, os_tenant_name,
+            tenant_id=os_tenant_id, user_id=os_user_id,
+            auth_url=os_auth_url, insecure=insecure,
+            region_name=os_region_name, endpoint_type=endpoint_type,
+            extensions=self.extensions, service_type=service_type,
+            service_name=service_name, auth_system=os_auth_system,
+            auth_plugin=auth_plugin, auth_token=auth_token,
+            volume_service_name=volume_service_name,
+            timings=args.timings, bypass_url=bypass_url,
+            os_cache=os_cache, http_log_debug=args.debug,
             cacert=cacert, timeout=timeout,
             session=keystone_session, auth=keystone_auth)
 
@@ -703,6 +783,7 @@ class OpenStackComputeShell(object):
         # identifying keyring key can come from the underlying client
         if must_auth:
             helper = SecretsHelper(args, self.cs.client)
+            self.cs.client.keyring_saver = helper
             if (auth_plugin and auth_plugin.opts and
                     "os_password" not in auth_plugin.opts):
                 use_pw = False
@@ -724,7 +805,6 @@ class OpenStackComputeShell(object):
                 # We're missing something, so auth with user/pass and save
                 # the result in our helper.
                 self.cs.client.password = helper.password
-                self.cs.client.keyring_saver = helper
 
         try:
             # This does a couple of bits which are useful even if we've

@@ -13,7 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from novaclient import api_versions
 from novaclient import client
+from novaclient.i18n import _LW
 from novaclient.v2 import agents
 from novaclient.v2 import aggregates
 from novaclient.v2 import availability_zones
@@ -53,44 +55,8 @@ class Client(object):
     """
     Top-level object to access the OpenStack Compute API.
 
-    Create an instance with your creds::
-
-        >>> client = Client(USERNAME, PASSWORD, PROJECT_ID, AUTH_URL)
-
-    Or, alternatively, you can create a client instance using the
-    keystoneclient.session API::
-
-        >>> from keystoneclient.auth.identity import v2
-        >>> from keystoneclient import session
-        >>> from novaclient import client
-        >>> auth = v2.Password(auth_url=AUTH_URL,
-                               username=USERNAME,
-                               password=PASSWORD,
-                               tenant_name=PROJECT_ID)
-        >>> sess = session.Session(auth=auth)
-        >>> nova = client.Client(VERSION, session=sess)
-
-    Then call methods on its managers::
-
-        >>> nova.servers.list()
-        ...
-        >>> nova.flavors.list()
-        ...
-
-    It is also possible to use an instance as a context manager in which
-    case there will be a session kept alive for the duration of the with
-    statement::
-
-        >>> with Client(USERNAME, PASSWORD, PROJECT_ID, AUTH_URL) as client:
-        ...     client.servers.list()
-        ...     client.flavors.list()
-        ...
-
-    It is also possible to have a permanent (process-long) connection pool,
-    by passing a connection_pool=True::
-
-        >>> client = Client(USERNAME, PASSWORD, PROJECT_ID,
-        ...     AUTH_URL, connection_pool=True)
+    .. warning:: All scripts and projects should not initialize this class
+      directly. It should be done via `novaclient.client.Client` interface.
     """
 
     def __init__(self, username=None, api_key=None, project_id=None,
@@ -103,7 +69,7 @@ class Client(object):
                  auth_system='keystone', auth_plugin=None, auth_token=None,
                  cacert=None, tenant_id=None, user_id=None,
                  connection_pool=False, session=None, auth=None,
-                 **kwargs):
+                 api_version=None, direct_use=True, **kwargs):
         """
         :param str username: Username
         :param str api_key: API Key
@@ -133,7 +99,18 @@ class Client(object):
         :param bool connection_pool: Use a connection pool
         :param str session: Session
         :param str auth: Auth
+        :param api_version: Compute API version
+        :type api_version: novaclient.api_versions.APIVersion
         """
+        if direct_use:
+            import warnings
+
+            warnings.warn(
+                _LW("'novaclient.v2.client.Client' is not designed to be "
+                    "initialized directly. It is inner class of novaclient. "
+                    "Please, use 'novaclient.client.Client' instead. "
+                    "Related lp bug-report: 1493576"))
+
         # FIXME(comstud): Rename the api_key argument above when we
         # know it's not being used as keyword argument
 
@@ -153,6 +130,7 @@ class Client(object):
         self.limits = limits.LimitsManager(self)
         self.servers = servers.ServerManager(self)
         self.versions = versions.VersionManager(self)
+        self.api_version = api_version or api_versions.APIVersion("2.0")
 
         # extensions
         self.agents = agents.AgentsManager(self)
@@ -224,6 +202,7 @@ class Client(object):
             connection_pool=connection_pool,
             session=session,
             auth=auth,
+            api_version=api_version,
             **kwargs)
 
     @client._original_only

@@ -70,16 +70,20 @@ class ShellTest(utils.TestCase):
         self.shell = self.useFixture(ShellFixture()).shell
 
         self.useFixture(fixtures.MonkeyPatch(
-            'novaclient.client.get_client_class',
-            lambda *_: fakes.FakeClient))
+            'novaclient.client.Client',
+            lambda *args, **kwargs: fakes.FakeClient(*args, **kwargs)))
 
     @mock.patch('sys.stdout', new_callable=six.StringIO)
     @mock.patch('sys.stderr', new_callable=six.StringIO)
-    def run_command(self, cmd, mock_stderr, mock_stdout):
+    def run_command(self, cmd, mock_stderr, mock_stdout, api_version=None):
+        version_options = []
+        if api_version:
+            version_options.extend(["--os-compute-api-version", api_version,
+                                    "--service-type", "computev21"])
         if isinstance(cmd, list):
-            self.shell.main(cmd)
+            self.shell.main(version_options + cmd)
         else:
-            self.shell.main(cmd.split())
+            self.shell.main(version_options + cmd.split())
         return mock_stdout.getvalue(), mock_stderr.getvalue()
 
     def assert_called(self, method, url, body=None, **kwargs):
@@ -270,10 +274,7 @@ class ShellTest(utils.TestCase):
                     {
                         'volume_id': 'blah',
                         'delete_on_termination': '0',
-                        'device_name': 'vda',
-                        'uuid': 'blah',
-                        'boot_index': 0,
-                        'source_type': ''
+                        'device_name': 'vda'
                     }
                 ],
                 'imageRef': '',
@@ -813,6 +814,24 @@ class ShellTest(utils.TestCase):
         self.assertIn('My Server Backup', output)
         self.assertIn('SAVING', output)
 
+    @mock.patch('novaclient.v2.shell._poll_for_status')
+    def test_create_image_with_poll(self, poll_method):
+        self.run_command(
+            'image-create sample-server mysnapshot --poll')
+        self.assert_called_anytime(
+            'POST', '/servers/1234/action',
+            {'createImage': {'name': 'mysnapshot', 'metadata': {}}},
+        )
+        self.assertEqual(1, poll_method.call_count)
+        poll_method.assert_has_calls(
+            [mock.call(self.shell.cs.images.get, '456', 'snapshotting',
+                       ['active'])])
+
+    def test_create_image_with_poll_to_check_image_state_deleted(self):
+        self.assertRaises(
+            exceptions.InstanceInDeletedState, self.run_command,
+            'image-create sample-server mysnapshot_deleted --poll')
+
     def test_image_delete(self):
         self.run_command('image-delete 1')
         self.assert_called('DELETE', '/images/1')
@@ -918,6 +937,14 @@ class ShellTest(utils.TestCase):
         self.assertIn('OS-EXT-MOD: Some Thing', output)
         self.assertIn('mod_some_thing_value', output)
 
+    def test_list_with_marker(self):
+        self.run_command('list --marker some-uuid')
+        self.assert_called('GET', '/servers/detail?marker=some-uuid')
+
+    def test_list_with_limit(self):
+        self.run_command('list --limit 3')
+        self.assert_called('GET', '/servers/detail?limit=3')
+
     def test_reboot(self):
         self.run_command('reboot sample-server')
         self.assert_called('POST', '/servers/1234/action',
@@ -925,6 +952,13 @@ class ShellTest(utils.TestCase):
         self.run_command('reboot sample-server --hard')
         self.assert_called('POST', '/servers/1234/action',
                            {'reboot': {'type': 'HARD'}})
+
+    def test_reboot_many(self):
+        self.run_command('reboot sample-server sample-server2')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'reboot': {'type': 'SOFT'}}, pos=-2)
+        self.assert_called('POST', '/servers/5678/action',
+                           {'reboot': {'type': 'SOFT'}}, pos=-1)
 
     def test_rebuild(self):
         output, _ = self.run_command('rebuild sample-server 1')
@@ -1061,6 +1095,14 @@ class ShellTest(utils.TestCase):
         self.assert_called('POST', '/servers/1234/action',
                            {'revertResize': None})
 
+    @mock.patch('getpass.getpass', mock.Mock(return_value='p'))
+    def test_set_password(self):
+        self.run_command('set-password sample-server')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'changePassword': {'adminPass': 'p'}})
+
+    # root-password is deprecated, keeping this arond until it's removed
+    # entirely - penick
     @mock.patch('getpass.getpass', mock.Mock(return_value='p'))
     def test_root_password(self):
         self.run_command('root-password sample-server')
@@ -1276,10 +1318,6 @@ class ShellTest(utils.TestCase):
     def test_floating_ip_list(self):
         self.run_command('floating-ip-list')
         self.assert_called('GET', '/os-floating-ips')
-
-    def test_floating_ip_list_all_tenants(self):
-        self.run_command('floating-ip-list --all-tenants')
-        self.assert_called('GET', '/os-floating-ips?all_tenants=1')
 
     def test_floating_ip_create(self):
         self.run_command('floating-ip-create')
@@ -1542,6 +1580,14 @@ class ShellTest(utils.TestCase):
         self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
         self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
 
+    def test_host_evacuate_list_with_max_servers(self):
+        self.run_command('host-evacuate-live --max-servers 1 hyper')
+        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
+        body = {'os-migrateLive': {'host': None,
+                                   'block_migration': False,
+                                   'disk_over_commit': False}}
+        self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+
     def test_reset_state(self):
         self.run_command('reset-state sample-server')
         self.assert_called('POST', '/servers/1234/action',
@@ -1731,13 +1777,21 @@ class ShellTest(utils.TestCase):
         self.run_command('hypervisor-show 1234')
         self.assert_called('GET', '/os-hypervisors/1234')
 
+    def test_hypervisor_list_show_by_cell_id(self):
+        self.run_command('hypervisor-show region!child@1')
+        self.assert_called('GET', '/os-hypervisors/region!child@1')
+
     def test_hypervisor_show_by_name(self):
         self.run_command('hypervisor-show hyper1')
-        self.assert_called('GET', '/os-hypervisors/detail')
+        self.assert_called('GET', '/os-hypervisors/hyper1')
 
     def test_hypervisor_uptime_by_id(self):
         self.run_command('hypervisor-uptime 1234')
         self.assert_called('GET', '/os-hypervisors/1234/uptime')
+
+    def test_hypervisor_uptime_by_cell_id(self):
+        self.run_command('hypervisor-uptime region!child@1')
+        self.assert_called('GET', '/os-hypervisors/region!child@1/uptime')
 
     def test_hypervisor_uptime_by_name(self):
         self.run_command('hypervisor-uptime hyper1')
@@ -1786,8 +1840,7 @@ class ShellTest(utils.TestCase):
         self.assert_called(
             'PUT',
             '/os-quota-sets/97f4c221bff44578b0300df4ef119353',
-            {'quota_set': {'instances': 5,
-                           'tenant_id': '97f4c221bff44578b0300df4ef119353'}})
+            {'quota_set': {'instances': 5}})
 
     def test_user_quota_update(self):
         self.run_command(
@@ -1797,8 +1850,7 @@ class ShellTest(utils.TestCase):
         self.assert_called(
             'PUT',
             '/os-quota-sets/97f4c221bff44578b0300df4ef119353?user_id=u1',
-            {'quota_set': {'instances': 5,
-                           'tenant_id': '97f4c221bff44578b0300df4ef119353'}})
+            {'quota_set': {'instances': 5}})
 
     def test_quota_force_update(self):
         self.run_command(
@@ -1807,8 +1859,7 @@ class ShellTest(utils.TestCase):
         self.assert_called(
             'PUT', '/os-quota-sets/97f4c221bff44578b0300df4ef119353',
             {'quota_set': {'force': True,
-                           'instances': 5,
-                           'tenant_id': '97f4c221bff44578b0300df4ef119353'}})
+                           'instances': 5}})
 
     def test_quota_update_fixed_ip(self):
         self.run_command(
@@ -1816,8 +1867,7 @@ class ShellTest(utils.TestCase):
             ' --fixed-ips=5')
         self.assert_called(
             'PUT', '/os-quota-sets/97f4c221bff44578b0300df4ef119353',
-            {'quota_set': {'fixed_ips': 5,
-                           'tenant_id': '97f4c221bff44578b0300df4ef119353'}})
+            {'quota_set': {'fixed_ips': 5}})
 
     def test_quota_delete(self):
         self.run_command('quota-delete --tenant '
@@ -2244,8 +2294,7 @@ class ShellTest(utils.TestCase):
         self.run_command('volume-attach sample-server Work')
         self.assert_called('POST', '/servers/1234/os-volume_attachments',
                            {'volumeAttachment':
-                               {'device': None,
-                                'volumeId': 'Work'}})
+                               {'volumeId': 'Work'}})
 
     def test_volume_update(self):
         self.run_command('volume-update sample-server Work Work')
@@ -2365,27 +2414,61 @@ class ShellTest(utils.TestCase):
                           self.run_command,
                           "ssh --ipv6 --network nonexistent server")
 
-    def test_keypair_add(self):
-        self.run_command('keypair-add test')
-        self.assert_called('POST', '/os-keypairs',
-                           {'keypair':
-                               {'name': 'test'}})
+    def _check_keypair_add(self, expected_key_type=None, extra_args='',
+                           api_version=None):
+        self.run_command("keypair-add %s test" % extra_args,
+                         api_version=api_version)
+        expected_body = {"keypair": {"name": "test"}}
+        if expected_key_type:
+            expected_body["keypair"]["type"] = expected_key_type
+        self.assert_called("POST", "/os-keypairs", expected_body)
 
-    @mock.patch.object(builtins, 'open',
-                       mock.mock_open(read_data='FAKE_PUBLIC_KEY'))
-    def test_keypair_import(self):
-        self.run_command('keypair-add --pub-key test.pub test')
-        self.assert_called(
-            'POST', '/os-keypairs', {
-                'keypair': {'public_key': 'FAKE_PUBLIC_KEY', 'name': 'test'}})
+    def test_keypair_add_v20(self):
+        self._check_keypair_add(api_version="2.0")
+
+    def test_keypair_add_v22(self):
+        self._check_keypair_add('ssh', api_version="2.2")
+
+    def test_keypair_add_ssh(self):
+        self._check_keypair_add('ssh', '--key-type ssh', api_version="2.2")
+
+    def test_keypair_add_ssh_x509(self):
+        self._check_keypair_add('x509', '--key-type x509', api_version="2.2")
+
+    def _check_keypair_import(self, expected_key_type=None, extra_args='',
+                              api_version=None):
+        with mock.patch.object(builtins, 'open',
+                               mock.mock_open(read_data='FAKE_PUBLIC_KEY')):
+            self.run_command('keypair-add --pub-key test.pub %s test' %
+                             extra_args, api_version=api_version)
+            expected_body = {"keypair": {'public_key': 'FAKE_PUBLIC_KEY',
+                                         'name': 'test'}}
+            if expected_key_type:
+                expected_body["keypair"]["type"] = expected_key_type
+            self.assert_called(
+                'POST', '/os-keypairs', expected_body)
+
+    def test_keypair_import_v20(self):
+        self._check_keypair_import(api_version="2.0")
+
+    def test_keypair_import_v22(self):
+        self._check_keypair_import('ssh', api_version="2.2")
+
+    def test_keypair_import_ssh(self):
+        self._check_keypair_import('ssh', '--key-type ssh', api_version="2.2")
+
+    def test_keypair_import_x509(self):
+        self._check_keypair_import('x509', '--key-type x509',
+                                   api_version="2.2")
 
     def test_keypair_stdin(self):
         with mock.patch('sys.stdin', six.StringIO('FAKE_PUBLIC_KEY')):
-            self.run_command('keypair-add --pub-key - test')
+            self.run_command('keypair-add --pub-key - test', api_version="2.2")
             self.assert_called(
                 'POST', '/os-keypairs', {
                     'keypair':
-                        {'public_key': 'FAKE_PUBLIC_KEY', 'name': 'test'}})
+                        {'public_key': 'FAKE_PUBLIC_KEY', 'name': 'test',
+                         'type': 'ssh'}})
 
     def test_keypair_list(self):
         self.run_command('keypair-list')
@@ -2403,7 +2486,8 @@ class ShellTest(utils.TestCase):
         self.run_command('server-group-create wjsg affinity')
         self.assert_called('POST', '/os-server-groups',
                            {'server_group': {'name': 'wjsg',
-                                             'policies': ['affinity']}})
+                                             'policies': ['affinity']}},
+                           pos=0)
 
     def test_delete_multi_server_groups(self):
         self.run_command('server-group-delete 12345 56789')
@@ -2436,8 +2520,8 @@ class ShellWithSessionClientTest(ShellTest):
         """Run before each test."""
         super(ShellWithSessionClientTest, self).setUp()
         self.useFixture(fixtures.MonkeyPatch(
-            'novaclient.client.get_client_class',
-            lambda *_: fakes.FakeSessionClient))
+            'novaclient.client.Client',
+            lambda *args, **kwargs: fakes.FakeSessionClient(*args, **kwargs)))
 
 
 class GetSecgroupTest(utils.TestCase):

@@ -11,7 +11,6 @@
 #    under the License.
 
 import time
-import uuid
 
 import six.moves
 
@@ -44,15 +43,7 @@ class TestVolumesAPI(base.ClientTestBase):
         self.addCleanup(volume.delete)
 
         # Wait for the volume to become available
-        for x in six.moves.range(60):
-            volume = self.client.volumes.get(volume.id)
-            if volume.status == 'available':
-                break
-            elif volume.status == 'error':
-                self.fail('Volume %s is in error state' % volume.id)
-            time.sleep(1)
-        else:
-            self.fail('Volume %s not available after 60s' % volume.id)
+        self.wait_for_volume_status(volume, 'available')
 
         # List all volumes
         self.client.volumes.list()
@@ -83,8 +74,7 @@ class TestVolumesAPI(base.ClientTestBase):
         self.client.servers.list()
 
         # Create a volume type
-        # TODO(melwitt): Use a better random name
-        name = str(uuid.uuid4())
+        name = self.name_generate('VolumeType')
         volume_type = self.client.volume_types.create(name)
 
         # This cleanup tests volume type delete
