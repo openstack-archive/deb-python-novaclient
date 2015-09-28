@@ -1307,8 +1307,7 @@ def do_image_delete(cs, args):
     dest='tenant',
     metavar='<tenant>',
     nargs='?',
-    help=_('Display information from single tenant (Admin only). '
-           'The --all-tenants option must also be provided.'))
+    help=_('Display information from single tenant (Admin only).'))
 @cliutils.arg(
     '--user',
     dest='user',
@@ -2998,7 +2997,7 @@ def _print_keypair(keypair):
 @cliutils.arg(
     'keypair',
     metavar='<keypair>',
-    help=_("Name or ID of keypair"))
+    help=_("Name of keypair."))
 def do_keypair_show(cs, args):
     """Show details about the given keypair."""
     keypair = _find_keypair(cs, args.keypair)
@@ -3006,7 +3005,7 @@ def do_keypair_show(cs, args):
 
 
 def _find_keypair(cs, keypair):
-    """Get a keypair by name or ID."""
+    """Get a keypair by name."""
     return utils.find_resource(cs.keypairs, keypair)
 
 
@@ -3529,6 +3528,8 @@ def do_reset_state(cs, args):
     for server in args.server:
         try:
             _find_server(cs, server).reset_state(args.state)
+            msg = "Reset state for server %s succeeded; new state is %s"
+            print(msg % (server, args.state))
         except Exception as e:
             failure_flag = True
             msg = "Reset state for server %s failed: %s" % (server, e)
@@ -3619,11 +3620,23 @@ def do_service_delete(cs, args):
     cs.services.delete(args.id)
 
 
+@api_versions.wraps("2.0", "2.3")
+def _print_fixed_ip(cs, fixed_ip):
+    fields = ['address', 'cidr', 'hostname', 'host']
+    utils.print_list([fixed_ip], fields)
+
+
+@api_versions.wraps("2.4")
+def _print_fixed_ip(cs, fixed_ip):
+    fields = ['address', 'cidr', 'hostname', 'host', 'reserved']
+    utils.print_list([fixed_ip], fields)
+
+
 @cliutils.arg('fixed_ip', metavar='<fixed_ip>', help=_('Fixed IP Address.'))
 def do_fixed_ip_get(cs, args):
     """Retrieve info on a fixed IP."""
     result = cs.fixed_ips.get(args.fixed_ip)
-    utils.print_list([result], ['address', 'cidr', 'hostname', 'host'])
+    _print_fixed_ip(cs, result)
 
 
 @cliutils.arg('fixed_ip', metavar='<fixed_ip>', help=_('Fixed IP Address.'))

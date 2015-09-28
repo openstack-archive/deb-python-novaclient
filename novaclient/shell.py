@@ -31,7 +31,6 @@ from keystoneclient import session as ksession
 from oslo_utils import encodeutils
 from oslo_utils import importutils
 from oslo_utils import strutils
-import six
 
 HAS_KEYRING = False
 all_errors = ValueError
@@ -559,6 +558,10 @@ class OpenStackComputeShell(object):
         do_help = ('help' in argv) or (
             '--help' in argv) or ('-h' in argv) or not argv
 
+        # bash-completion should not require authentification
+        skip_auth = do_help or (
+            'bash-completion' in argv)
+
         # Discover available auth plugins
         novaclient.auth_plugin.discover_auth_systems()
 
@@ -630,7 +633,7 @@ class OpenStackComputeShell(object):
 
         # FIXME(usrleon): Here should be restrict for project id same as
         # for os_username or os_password but for compatibility it is not.
-        if must_auth and not do_help:
+        if must_auth and not skip_auth:
             if auth_plugin:
                 auth_plugin.parse_opts(args)
 
@@ -683,9 +686,13 @@ class OpenStackComputeShell(object):
                         project_name=project_name,
                         project_domain_id=args.os_project_domain_id,
                         project_domain_name=args.os_project_domain_name)
+            else:
+                # set password for auth plugins
+                os_password = args.os_password
 
-        if not do_help and not any([args.os_tenant_id, args.os_tenant_name,
-                                    args.os_project_id, args.os_project_name]):
+        if (not skip_auth and
+                not any([args.os_tenant_id, args.os_tenant_name,
+                         args.os_project_id, args.os_project_name])):
             raise exc.CommandError(_("You must provide a project name or"
                                      " project id via --os-project-name,"
                                      " --os-project-id, env[OS_PROJECT_ID]"
@@ -693,7 +700,7 @@ class OpenStackComputeShell(object):
                                      " use os-project and os-tenant"
                                      " interchangeably."))
 
-        if not os_auth_url and not do_help:
+        if not os_auth_url and not skip_auth:
             raise exc.CommandError(
                 _("You must provide an auth url "
                   "via either --os-auth-url or env[OS_AUTH_URL]"))
@@ -715,7 +722,7 @@ class OpenStackComputeShell(object):
             cacert=cacert, timeout=timeout,
             session=keystone_session, auth=keystone_auth)
 
-        if not do_help:
+        if not skip_auth:
             if not api_version.is_latest():
                 if api_version > api_versions.APIVersion("2.0"):
                     if not api_version.matches(novaclient.API_MIN_VERSION,
@@ -894,12 +901,11 @@ def main():
     try:
         argv = [encodeutils.safe_decode(a) for a in sys.argv[1:]]
         OpenStackComputeShell().main(argv)
-
-    except Exception as e:
-        logger.debug(e, exc_info=1)
-        details = {'name': encodeutils.safe_encode(e.__class__.__name__),
-                   'msg': encodeutils.safe_encode(six.text_type(e))}
-        print("ERROR (%(name)s): %(msg)s" % details,
+    except Exception as exc:
+        logger.debug(exc, exc_info=1)
+        print("ERROR (%s): %s"
+              % (exc.__class__.__name__,
+                 encodeutils.exception_to_unicode(exc)),
               file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:

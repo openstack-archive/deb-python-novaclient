@@ -58,6 +58,13 @@ FAKE_ENV4 = {'OS_USER_ID': 'user_id',
              'OS_ENDPOINT_TYPE': 'osURL',
              'OS_COMPUTE_API_VERSION': '2'}
 
+FAKE_ENV5 = {'OS_USERNAME': 'username',
+             'OS_PASSWORD': 'password',
+             'OS_TENANT_NAME': 'tenant_name',
+             'OS_AUTH_URL': 'http://no.where/v2.0',
+             'OS_COMPUTE_API_VERSION': '2',
+             'OS_AUTH_SYSTEM': 'rackspace'}
+
 
 def _create_ver_list(versions):
     return {'versions': {'values': versions}}
@@ -162,16 +169,27 @@ class ShellTest(utils.TestCase):
             for r in required:
                 self.assertIn(r, stderr)
 
-    def test_help(self):
-        required = [
-            '.*?^usage: ',
-            '.*?^\s+set-password\s+Change the admin password',
-            '.*?^See "nova help COMMAND" for help on a specific command',
-        ]
-        stdout, stderr = self.shell('help')
+    def _test_help(self, command, required=None):
+        if required is None:
+            required = [
+                '.*?^usage: ',
+                '.*?^\s+set-password\s+Change the admin password',
+                '.*?^See "nova help COMMAND" for help on a specific command',
+            ]
+        stdout, stderr = self.shell(command)
         for r in required:
             self.assertThat((stdout + stderr),
                             matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
+
+    def test_help(self):
+        self._test_help('help')
+
+    def test_help_option(self):
+        self._test_help('--help')
+        self._test_help('-h')
+
+    def test_help_no_options(self):
+        self._test_help('')
 
     def test_help_on_subcommand(self):
         required = [
@@ -179,25 +197,9 @@ class ShellTest(utils.TestCase):
             '.*?^Change the admin password',
             '.*?^Positional arguments:',
         ]
-        stdout, stderr = self.shell('help set-password')
-        for r in required:
-            self.assertThat((stdout + stderr),
-                            matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
-
-    def test_help_no_options(self):
-        self.make_env()
-        required = [
-            '.*?^usage: ',
-            '.*?^\s+set-password\s+Change the admin password',
-            '.*?^See "nova help COMMAND" for help on a specific command',
-        ]
-        stdout, stderr = self.shell('')
-        for r in required:
-            self.assertThat((stdout + stderr),
-                            matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
+        self._test_help('help set-password', required=required)
 
     def test_bash_completion(self):
-        self.make_env()
         stdout, stderr = self.shell('bash-completion')
         # just check we have some output
         required = [
@@ -494,6 +496,25 @@ class ShellTest(utils.TestCase):
             exceptions.UnsupportedVersion,
             self.shell,
             '--os-compute-api-version 2.3 list')
+
+    @mock.patch('novaclient.client.Client')
+    def test_custom_auth_plugin(self, mock_client):
+        self.make_env(fake_env=FAKE_ENV5)
+        self.shell('list')
+        password = mock_client.call_args_list[0][0][2]
+        client_kwargs = mock_client.call_args_list[0][1]
+        self.assertEqual(password, 'password')
+        self.assertIs(client_kwargs['session'], None)
+
+    @mock.patch.object(novaclient.shell.OpenStackComputeShell, 'main')
+    def test_main_error_handling(self, mock_compute_shell):
+        class MyException(Exception):
+            pass
+        with mock.patch('sys.stderr', six.StringIO()):
+            mock_compute_shell.side_effect = MyException('message')
+            self.assertRaises(SystemExit, novaclient.shell.main)
+            err = sys.stderr.getvalue()
+        self.assertEqual(err, 'ERROR (MyException): message\n')
 
 
 class TestLoadVersionedActions(utils.TestCase):
