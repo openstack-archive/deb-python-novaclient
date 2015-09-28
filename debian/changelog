@@ -1,6 +1,7 @@
 python-novaclient (2:2.30.0-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * d/control: Bump minimum python-tempest-lib version to 0.8.0.
 
  -- Corey Bryant <corey.bryant@canonical.com>  Mon, 28 Sep 2015 10:17:01 -0400
 
