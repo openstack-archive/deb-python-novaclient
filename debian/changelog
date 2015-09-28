@@ -1,3 +1,9 @@
+python-novaclient (2:2.30.0-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+
+ -- Corey Bryant <corey.bryant@canonical.com>  Mon, 28 Sep 2015 10:17:01 -0400
+
 python-novaclient (2:2.29.0-1) experimental; urgency=medium
 
   * New upstream release.
