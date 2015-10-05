@@ -123,6 +123,8 @@ Description: client library for OpenStack Compute API - 3.x
 Package: python-novaclient-doc
 Architecture: all
 Section: doc
+Breaks: python-novaclient (<< 2:2.30.1-2~)
+Replaces: python-novaclient (<< 2:2.30.1-2~)
 Depends: ${misc:Depends}, ${sphinxdoc:Depends}
 Description: client library for OpenStack Compute API - doc
  OpenStack Compute, codenamed Nova, is a cloud computing fabric controller

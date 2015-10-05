@@ -20,8 +20,11 @@ override_dh_auto_install:
 			--root $(CURDIR)/debian/python3-novaclient; \
 	done
 	rm -f $(CURDIR)/debian/python*-oslo.utils/usr/lib/python*/dist-packages/*.pth
-	install -D -m 0644 tools/nova.bash_completion $(CURDIR)/debian/python-novaclient/usr/share/bash-completion/completions/nova
+	install -D -m 0644 tools/nova.bash_completion $(CURDIR)/debian/python-novaclient-doc/usr/share/bash-completion/completions/nova
 	rm -rf $(CURDIR)/debian/python-novaclient/usr/novaclient
+
+	mv $(CURDIR)/debian/python-novaclient/usr/bin/nova $(CURDIR)/debian/python-novaclient/usr/bin/python2-nova
+	mv $(CURDIR)/debian/python3-novaclient/usr/bin/nova $(CURDIR)/debian/python3-novaclient/usr/bin/python3-nova
 
 override_dh_auto_clean:
 	dh_auto_clean

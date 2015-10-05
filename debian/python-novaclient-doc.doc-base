@@ -1,0 +1,9 @@
+Document: python-novaclient-doc
+Title: python-novaclient Documentation
+Author: N/A
+Abstract: Sphinx documentation for python-novaclient
+Section: Programming/Python
+
+Format: HTML
+Index: /usr/share/doc/python-novaclient-doc/html/index.html
+Files: /usr/share/doc/python-novaclient-doc/html/*

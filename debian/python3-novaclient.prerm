@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "remove" ] ; then
+	update-alternatives --remove nova /usr/bin/python3-nova
+fi
+
+#DEBHELPER#
+
+exit 0
