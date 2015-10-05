@@ -1,6 +1,7 @@
 python-novaclient (2:2.30.1-2) UNRELEASED; urgency=medium
 
   * Added Python3 support.
+  * Added a -doc package.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 05 Oct 2015 11:08:35 +0200
 

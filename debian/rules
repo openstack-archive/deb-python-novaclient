@@ -8,7 +8,7 @@ include /usr/share/openstack-pkg-tools/pkgos.make
 export OSLO_PACKAGE_VERSION=$(VERSION)
 
 %:
-	dh $@ --with python2,python3
+	dh $@ --with python2,python3,sphinxdoc
 
 override_dh_auto_install:
 	set -e ; for pyvers in $(PYTHONS); do \
@@ -43,11 +43,8 @@ ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 	done
 endif
 
-override_dh_auto_test::
-ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	set -e && \
-		TEMP_REZ=`mktemp -t` && \
-		python setup.py testr --slowest --testr-args='--subunit  ' | tee $$TEMP_REZ | subunit2pyunit ; \
-		cat $$TEMP_REZ | subunit-filter -s --no-passthrough | subunit-stats ; \
-		rm -f $$TEMP_REZ
+override_dh_sphinxdoc:
+ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
+	PYTHONPATH=. sphinx-build -b html doc/source debian/python-novaclient-doc/usr/share/doc/python-novaclient-doc/html
+	dh_sphinxdoc -O--buildsystem=python_distutils
 endif
