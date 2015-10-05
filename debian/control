@@ -58,7 +58,7 @@ Depends: python-babel,
          python-six (>= 1.9.0),
          ${misc:Depends},
          ${python:Depends},
-Description: client library for OpenStack Compute API
+Description: client library for OpenStack Compute API - Python 2.7
  OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
  designed to be modular and easy to extend and adapt. In addition to its
  "native" OpenStack API, it also supports the Amazon EC2 API, and it supports
@@ -67,3 +67,32 @@ Description: client library for OpenStack Compute API
  .
  Python novaclient library and nova CLI tool for interacting with OpenStack
  Compute (Nova) through the OpenStack Compute API.
+ .
+ This package provides the Python 2.7 module.
+
+Package: python3-novaclient
+Architecture: all
+Depends: python3-babel,
+         python3-iso8601,
+         python3-keystoneclient (>= 1:1.6.0),
+         python3-oslo.i18n (>= 1.5.0),
+         python3-oslo.serialization (>= 1.4.0),
+         python3-oslo.utils (>= 2.0.0),
+         python3-pbr (>= 1.8),
+         python3-prettytable,
+         python3-requests (>= 2.5.2),
+         python3-simplejson (>= 2.2.0),
+         python3-six (>= 1.9.0),
+         ${misc:Depends},
+         ${python3:Depends},
+Description: client library for OpenStack Compute API - 3.x
+ OpenStack Compute, codenamed Nova, is a cloud computing fabric controller
+ designed to be modular and easy to extend and adapt. In addition to its
+ "native" OpenStack API, it also supports the Amazon EC2 API, and it supports
+ many different database backends (including SQLite, MySQL, and PostgreSQL),
+ hypervisors (KVM, Xen), and user directory systems (LDAP, SQL).
+ .
+ Python novaclient library and nova CLI tool for interacting with OpenStack
+ Compute (Nova) through the OpenStack Compute API.
+ .
+ This package provides the Python 3.x module.
