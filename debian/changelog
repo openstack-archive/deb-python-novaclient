@@ -1,6 +1,7 @@
 python-novaclient (2:2.30.1-3) unstable; urgency=medium
 
   * Uploading to unstable.
+  * Disable Python 3.5 unit tests.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 15 Oct 2015 22:13:33 +0000
 
