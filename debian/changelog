@@ -1,3 +1,9 @@
+python-novaclient (2:2.30.1-4) unstable; urgency=medium
+
+  * override_dh_python3 to fix Py3 shebang.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 23 Oct 2015 23:18:59 +0000
+
 python-novaclient (2:2.30.1-3) unstable; urgency=medium
 
   * Uploading to unstable.

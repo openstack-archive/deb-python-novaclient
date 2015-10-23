@@ -26,6 +26,9 @@ override_dh_auto_install:
 	mv $(CURDIR)/debian/python-novaclient/usr/bin/nova $(CURDIR)/debian/python-novaclient/usr/bin/python2-nova
 	mv $(CURDIR)/debian/python3-novaclient/usr/bin/nova $(CURDIR)/debian/python3-novaclient/usr/bin/python3-nova
 
+override_dh_python3:
+	dh_python3 --shebang=/usr/bin/python3
+
 override_dh_auto_clean:
 	dh_auto_clean
 	rm -rf .testrepository subunit.log build
