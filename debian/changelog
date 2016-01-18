@@ -1,6 +1,7 @@
 python-novaclient (2:3.2.0-1) experimental; urgency=medium
 
   * New upstream release.
+  * Fixed (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 18 Jan 2016 10:37:46 +0000
 
