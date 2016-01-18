@@ -22,7 +22,6 @@ from oslo_utils import strutils
 import novaclient
 from novaclient import exceptions
 from novaclient.i18n import _, _LW
-from novaclient.openstack.common import cliutils
 from novaclient import utils
 
 LOG = logging.getLogger(__name__)
@@ -30,6 +29,7 @@ if not LOG.handlers:
     LOG.addHandler(logging.StreamHandler())
 
 
+HEADER_NAME = "X-OpenStack-Nova-API-Version"
 # key is a deprecated version and value is an alternative version.
 DEPRECATED_VERSIONS = {"1.1": "2"}
 
@@ -39,13 +39,22 @@ _type_error_msg = _("'%(other)s' should be an instance of '%(cls)s'")
 
 
 class APIVersion(object):
-    """This class represents an API Version with convenience
-    methods for manipulation and comparison of version
-    numbers that we need to do to implement microversions.
+    """This class represents an API Version Request.
+
+    This class provides convenience methods for manipulation
+    and comparison of version numbers that we need to do to
+    implement microversions.
     """
 
     def __init__(self, version_str=None):
-        """Create an API version object."""
+        """Create an API version object.
+
+        :param version_string: String representation of APIVersionRequest.
+                               Correct format is 'X.Y', where 'X' and 'Y'
+                               are int values. None value should be used
+                               to create Null APIVersionRequest, which is
+                               equal to 0.0
+        """
         self.ver_major = 0
         self.ver_minor = 0
 
@@ -119,7 +128,9 @@ class APIVersion(object):
         return self > other or self == other
 
     def matches(self, min_version, max_version):
-        """Returns whether the version object represents a version
+        """Matches the version object.
+
+        Returns whether the version object represents a version
         greater than or equal to the minimum version and less than
         or equal to the maximum version.
 
@@ -144,7 +155,9 @@ class APIVersion(object):
             return min_version <= self <= max_version
 
     def get_string(self):
-        """Converts object to string representation which if used to create
+        """Version string representation.
+
+        Converts object to string representation which if used to create
         an APIVersion object results in the same version.
         """
         if self.is_null():
@@ -241,14 +254,15 @@ def _get_server_version_range(client):
 
 
 def discover_version(client, requested_version):
-    """Checks ``requested_version`` and returns the most recent version
+    """Discover most recent version supported by API and client.
+
+    Checks ``requested_version`` and returns the most recent version
     supported by both the API and the client.
 
     :param client: client object
     :param requested_version: requested version represented by APIVersion obj
     :returns: APIVersion
     """
-
     server_start_version, server_end_version = _get_server_version_range(
         client)
 
@@ -306,7 +320,16 @@ def update_headers(headers, api_version):
     """Set 'X-OpenStack-Nova-API-Version' header if api_version is not null"""
 
     if not api_version.is_null() and api_version.ver_minor != 0:
-        headers["X-OpenStack-Nova-API-Version"] = api_version.get_string()
+        headers[HEADER_NAME] = api_version.get_string()
+
+
+def check_headers(response, api_version):
+    """Checks that 'X-OpenStack-Nova-API-Version' header in response."""
+    if api_version.ver_minor > 0 and HEADER_NAME not in response.headers:
+        LOG.warning(_LW(
+            "Your request was processed by a Nova API which does not support "
+            "microversions (%s header is missing from response). "
+            "Warning: Response may be incorrect."), HEADER_NAME)
 
 
 def add_substitution(versioned_method):
@@ -319,7 +342,7 @@ def get_substitutions(func_name, api_version=None):
     if api_version and not api_version.is_null():
         return [m for m in substitutions
                 if api_version.matches(m.start_version, m.end_version)]
-    return substitutions
+    return sorted(substitutions, key=lambda m: m.start_version)
 
 
 def wraps(start_version, end_version=None):
@@ -344,13 +367,14 @@ def wraps(start_version, end_version=None):
                 raise exceptions.VersionNotFoundForAPIMethod(
                     obj.api_version.get_string(), name)
 
-            method = max(methods, key=lambda f: f.start_version)
+            return methods[-1].func(obj, *args, **kwargs)
 
-            return method.func(obj, *args, **kwargs)
+        # Let's share "arguments" with original method and substitution to
+        # allow put cliutils.arg and wraps decorators in any order
+        if not hasattr(func, 'arguments'):
+            func.arguments = []
+        substitution.arguments = func.arguments
 
-        if hasattr(func, 'arguments'):
-            for cli_args, cli_kwargs in func.arguments:
-                cliutils.add_arg(substitution, *cli_args, **cli_kwargs)
         return substitution
 
     return decor

@@ -25,6 +25,7 @@ from oslo_utils import encodeutils
 import six
 from six.moves.urllib import parse
 
+from novaclient import api_versions
 from novaclient import base
 from novaclient import crypto
 from novaclient.i18n import _
@@ -93,6 +94,13 @@ class Server(base.Resource):
         :param console_type: Type of console ('serial')
         """
         return self.manager.get_serial_console(self, console_type)
+
+    def get_mks_console(self):
+        """
+        Get mks console for a Server.
+
+        """
+        return self.manager.get_mks_console(self)
 
     def get_password(self, private_key=None):
         """
@@ -420,7 +428,8 @@ class ServerManager(base.BootingManagerWithFind):
               max_count=None, security_groups=None, key_name=None,
               availability_zone=None, block_device_mapping=None,
               block_device_mapping_v2=None, nics=None, scheduler_hints=None,
-              config_drive=None, admin_pass=None, disk_config=None, **kwargs):
+              config_drive=None, admin_pass=None, disk_config=None,
+              access_ip_v4=None, access_ip_v6=None, **kwargs):
         """
         Create (boot) a new server.
         """
@@ -536,6 +545,12 @@ class ServerManager(base.BootingManagerWithFind):
         if disk_config is not None:
             body['server']['OS-DCF:diskConfig'] = disk_config
 
+        if access_ip_v4 is not None:
+            body['server']['accessIPv4'] = access_ip_v4
+
+        if access_ip_v6 is not None:
+            body['server']['accessIPv6'] = access_ip_v6
+
         return self._create(resource_url, body, response_key,
                             return_raw=return_raw, **kwargs)
 
@@ -554,7 +569,11 @@ class ServerManager(base.BootingManagerWithFind):
         Get a list of servers.
 
         :param detailed: Whether to return detailed server info (optional).
-        :param search_opts: Search options to filter out servers (optional).
+        :param search_opts: Search options to filter out servers which don't
+            match the search_opts (optional). The search opts format is a
+            dictionary of key / value pairs that will be appended to the query
+            string.  For a complete list of keys see:
+            http://developer.openstack.org/api-ref-compute-v2.html#listServers
         :param marker: Begin returning servers that appear later in the server
                        list than that represented by this server id (optional).
         :param limit: Maximum number of servers to return (optional).
@@ -562,6 +581,16 @@ class ServerManager(base.BootingManagerWithFind):
         :param sort_dirs: List of sort directions
 
         :rtype: list of :class:`Server`
+
+        Examples:
+
+        client.servers.list() - returns detailed list of servers
+
+        client.servers.list(search_opts={'status': 'ERROR'}) -
+        returns list of servers in error state.
+
+        client.servers.list(limit=10) - returns only 10 servers
+
         """
         if search_opts is None:
             search_opts = {}
@@ -661,49 +690,112 @@ class ServerManager(base.BootingManagerWithFind):
         address = address.ip if hasattr(address, 'ip') else address
         self._action('removeFloatingIp', server, {'address': address})
 
+    @api_versions.wraps('2.0', '2.5')
     def get_vnc_console(self, server, console_type):
         """
         Get a vnc console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of vnc console to get ('novnc' or 'xvpvnc')
         """
 
         return self._action('os-getVNCConsole', server,
                             {'type': console_type})[1]
 
+    @api_versions.wraps('2.0', '2.5')
     def get_spice_console(self, server, console_type):
         """
         Get a spice console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of spice console to get ('spice-html5')
         """
 
         return self._action('os-getSPICEConsole', server,
                             {'type': console_type})[1]
 
+    @api_versions.wraps('2.0', '2.5')
     def get_rdp_console(self, server, console_type):
         """
         Get a rdp console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of rdp console to get ('rdp-html5')
         """
 
         return self._action('os-getRDPConsole', server,
                             {'type': console_type})[1]
 
+    @api_versions.wraps('2.0', '2.5')
     def get_serial_console(self, server, console_type):
         """
         Get a serial console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of serial console to get ('serial')
         """
 
         return self._action('os-getSerialConsole', server,
                             {'type': console_type})[1]
+
+    @api_versions.wraps('2.6')
+    def get_vnc_console(self, server, console_type):
+        """
+        Get a vnc console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of vnc console to get ('novnc' or 'xvpvnc')
+        """
+
+        return self._console(server,
+                             {'protocol': 'vnc', 'type': console_type})[1]
+
+    @api_versions.wraps('2.6')
+    def get_spice_console(self, server, console_type):
+        """
+        Get a spice console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of spice console to get ('spice-html5')
+        """
+
+        return self._console(server,
+                             {'protocol': 'spice', 'type': console_type})[1]
+
+    @api_versions.wraps('2.6')
+    def get_rdp_console(self, server, console_type):
+        """
+        Get a rdp console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of rdp console to get ('rdp-html5')
+        """
+
+        return self._console(server,
+                             {'protocol': 'rdp', 'type': console_type})[1]
+
+    @api_versions.wraps('2.6')
+    def get_serial_console(self, server, console_type):
+        """
+        Get a serial console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of serial console to get ('serial')
+        """
+
+        return self._console(server,
+                             {'protocol': 'serial', 'type': console_type})[1]
+
+    @api_versions.wraps('2.8')
+    def get_mks_console(self, server):
+        """
+        Get a mks console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        """
+
+        return self._console(server,
+                             {'protocol': 'mks', 'type': 'webmks'})[1]
 
     def get_password(self, server, private_key=None):
         """
@@ -863,7 +955,8 @@ class ServerManager(base.BootingManagerWithFind):
                key_name=None, availability_zone=None,
                block_device_mapping=None, block_device_mapping_v2=None,
                nics=None, scheduler_hints=None,
-               config_drive=None, disk_config=None, admin_pass=None, **kwargs):
+               config_drive=None, disk_config=None, admin_pass=None,
+               access_ip_v4=None, access_ip_v6=None, **kwargs):
         # TODO(anthony): indicate in doc string if param is an extension
         # and/or optional
         """
@@ -908,6 +1001,8 @@ class ServerManager(base.BootingManagerWithFind):
                             values are 'AUTO' or 'MANUAL'.
         :param admin_pass: (optional extension) add a user supplied admin
                            password.
+        :param access_ip_v4: (optional extension) add alternative access ip v4
+        :param access_ip_v6: (optional extension) add alternative access ip v6
         """
         if not min_count:
             min_count = 1
@@ -924,7 +1019,8 @@ class ServerManager(base.BootingManagerWithFind):
             max_count=max_count, security_groups=security_groups,
             key_name=key_name, availability_zone=availability_zone,
             scheduler_hints=scheduler_hints, config_drive=config_drive,
-            disk_config=disk_config, admin_pass=admin_pass, **kwargs)
+            disk_config=disk_config, admin_pass=admin_pass,
+            access_ip_v4=access_ip_v4, access_ip_v6=access_ip_v6, **kwargs)
 
         if block_device_mapping:
             resource_url = "/os-volumes_boot"
@@ -1140,7 +1236,7 @@ class ServerManager(base.BootingManagerWithFind):
 
     def delete_meta(self, server, keys):
         """
-        Delete metadata from an server
+        Delete metadata from a server
         :param server: The :class:`Server` to add metadata to
         :param keys: A list of metadata keys to delete from the server
         """
@@ -1190,7 +1286,7 @@ class ServerManager(base.BootingManagerWithFind):
 
     def remove_security_group(self, server, security_group):
         """
-        Add a Security Group to an instance
+        Remove a Security Group to an instance
 
         :param server: ID of the instance.
         :param security_group: The name of security group to remove.
@@ -1276,4 +1372,12 @@ class ServerManager(base.BootingManagerWithFind):
         body = {action: info}
         self.run_hooks('modify_body_for_action', body, **kwargs)
         url = '/servers/%s/action' % base.getid(server)
+        return self.api.client.post(url, body=body)
+
+    def _console(self, server, info=None, **kwargs):
+        """
+        Retrieve a console of a particular protocol -- vnc/spice/rdp/serial
+        """
+        body = {'remote_console': info}
+        url = '/servers/%s/remote-consoles' % base.getid(server)
         return self.api.client.post(url, body=body)

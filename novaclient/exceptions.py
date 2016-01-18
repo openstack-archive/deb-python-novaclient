@@ -231,7 +231,7 @@ _code_map = dict((c.http_status, c) for c in _error_classes)
 class InvalidUsage(RuntimeError):
     """This function call is invalid in the way you are using this client.
 
-    Due to the transition to using keystoneclient some function calls are no
+    Due to the transition to using keystoneauth some function calls are no
     longer available. You should make a similar call to the session object
     instead.
     """
@@ -241,7 +241,7 @@ class InvalidUsage(RuntimeError):
 def from_response(response, body, url, method=None):
     """
     Return an instance of an ClientException or subclass
-    based on an requests response.
+    based on a requests response.
 
     Usage::
 

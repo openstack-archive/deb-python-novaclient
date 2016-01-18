@@ -16,12 +16,13 @@ import uuid
 from tempest_lib import exceptions
 
 from novaclient.tests.functional import base
-from novaclient.tests.functional import fake_crypto
+from novaclient.tests.functional.v2 import fake_crypto
 
 
 class TestKeypairsNovaClient(base.ClientTestBase):
-    """Keypairs functional tests.
-    """
+    """Keypairs functional tests."""
+
+    COMPUTE_API_VERSION = "2.1"
 
     def _serialize_kwargs(self, kwargs):
         kwargs_pairs = ['--%(key)s %(val)s' % {'key': key.replace('_', '-'),
@@ -90,35 +91,3 @@ class TestKeypairsNovaClient(base.ClientTestBase):
         # keypair-show should fail if no keypair with given name is found.
         self.assertRaises(exceptions.CommandFailed,
                           self._show_keypair, key_name)
-
-
-class TestKeypairsNovaClientV22(TestKeypairsNovaClient):
-    """Keypairs functional tests for v2.2 nova-api microversion.
-    """
-
-    def nova(self, *args, **kwargs):
-        return self.cli_clients.nova(flags='--os-compute-api-version 2.2 ',
-                                     *args, **kwargs)
-
-    def test_create_keypair(self):
-        keypair = super(TestKeypairsNovaClientV22, self).test_create_keypair()
-        self.assertIn('ssh', keypair)
-
-    def test_create_keypair_x509(self):
-        key_name = self._create_keypair(key_type='x509')
-        keypair = self._show_keypair(key_name)
-        self.assertIn(key_name, keypair)
-        self.assertIn('x509', keypair)
-
-    def test_import_keypair(self):
-        pub_key, fingerprint = fake_crypto.get_ssh_pub_key_and_fingerprint()
-        pub_key_file = self._create_public_key_file(pub_key)
-        keypair = self._test_import_keypair(fingerprint, pub_key=pub_key_file)
-        self.assertIn('ssh', keypair)
-
-    def test_import_keypair_x509(self):
-        certif, fingerprint = fake_crypto.get_x509_cert_and_fingerprint()
-        pub_key_file = self._create_public_key_file(certif)
-        keypair = self._test_import_keypair(fingerprint, key_type='x509',
-                                            pub_key=pub_key_file)
-        self.assertIn('x509', keypair)

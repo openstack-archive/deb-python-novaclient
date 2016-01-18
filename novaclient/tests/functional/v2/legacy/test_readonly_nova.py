@@ -18,11 +18,12 @@ from novaclient.tests.functional import base
 
 class SimpleReadOnlyNovaClientTest(base.ClientTestBase):
 
-    """
-    read only functional python-novaclient tests.
+    """Read only functional python-novaclient tests.
 
     This only exercises client commands that are read only.
     """
+
+    COMPUTE_API_VERSION = "2.1"
 
     def test_admin_fake_action(self):
         self.assertRaises(exceptions.CommandFailed,
@@ -177,7 +178,7 @@ class SimpleReadOnlyNovaClientTest(base.ClientTestBase):
         self.nova('list', flags='--debug')
 
     def test_admin_timeout(self):
-        self.nova('list', flags='--timeout %d' % 10)
+        self.nova('list', flags='--timeout %d' % 60)
 
     def test_admin_timing(self):
         self.nova('list', flags='--timing')

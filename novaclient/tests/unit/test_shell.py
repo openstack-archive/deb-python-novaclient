@@ -16,7 +16,7 @@ import re
 import sys
 
 import fixtures
-from keystoneclient import fixture
+from keystoneauth1 import fixture
 import mock
 import prettytable
 import requests_mock
@@ -65,6 +65,12 @@ FAKE_ENV5 = {'OS_USERNAME': 'username',
              'OS_COMPUTE_API_VERSION': '2',
              'OS_AUTH_SYSTEM': 'rackspace'}
 
+FAKE_ENV6 = {'OS_USERNAME': 'username',
+             'OS_PASSWORD': 'password',
+             'OS_TENANT_NAME': 'tenant_name',
+             'OS_AUTH_URL': 'http://no.where/v2.0',
+             'OS_AUTH_SYSTEM': 'rackspace'}
+
 
 def _create_ver_list(versions):
     return {'versions': {'values': versions}}
@@ -98,7 +104,7 @@ class ParserTest(utils.TestCase):
 class ShellTest(utils.TestCase):
 
     _msg_no_tenant_project = ("You must provide a project name or project"
-                              " id via --os-project-name, --os-project-id,"
+                              " ID via --os-project-name, --os-project-id,"
                               " env[OS_PROJECT_ID] or env[OS_PROJECT_NAME]."
                               " You may use os-project and os-tenant"
                               " interchangeably.")
@@ -112,8 +118,7 @@ class ShellTest(utils.TestCase):
         self.useFixture(fixtures.MonkeyPatch(
                         'novaclient.client.Client',
                         mock.MagicMock()))
-        self.nc_util = mock.patch(
-            'novaclient.openstack.common.cliutils.isunauthenticated').start()
+        self.nc_util = mock.patch('novaclient.utils.isunauthenticated').start()
         self.nc_util.return_value = False
         self.mock_server_version_range = mock.patch(
             'novaclient.api_versions._get_server_version_range').start()
@@ -213,7 +218,7 @@ class ShellTest(utils.TestCase):
                             matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
 
     def test_no_username(self):
-        required = ('You must provide a username or user id'
+        required = ('You must provide a username or user ID'
                     ' via --os-username, --os-user-id,'
                     ' env[OS_USERNAME] or env[OS_USER_ID]')
         self.make_env(exclude='OS_USERNAME')
@@ -225,7 +230,7 @@ class ShellTest(utils.TestCase):
             self.fail('CommandError not raised')
 
     def test_no_user_id(self):
-        required = ('You must provide a username or user id'
+        required = ('You must provide a username or user ID'
                     ' via --os-username, --os-user-id,'
                     ' env[OS_USERNAME] or env[OS_USER_ID]')
         self.make_env(exclude='OS_USER_ID', fake_env=FAKE_ENV2)
@@ -425,6 +430,25 @@ class ShellTest(utils.TestCase):
         self.assertIsInstance(keyring_saver, novaclient.shell.SecretsHelper)
 
     @mock.patch('novaclient.client.Client')
+    def test_microversion_with_default_behaviour(self, mock_client):
+        self.make_env(fake_env=FAKE_ENV6)
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion("2.1"), api_versions.APIVersion("2.3"))
+        self.shell('list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.3"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_default_behaviour_with_legacy_server(
+            self, mock_client):
+        self.make_env(fake_env=FAKE_ENV6)
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion(), api_versions.APIVersion())
+        self.shell('list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.0"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
     def test_microversion_with_latest(self, mock_client):
         self.make_env()
         novaclient.API_MAX_VERSION = api_versions.APIVersion('2.3')
@@ -557,12 +581,27 @@ class TestLoadVersionedActions(utils.TestCase):
         shell = novaclient.shell.OpenStackComputeShell()
         shell.subcommands = {}
         shell._find_actions(subparsers, fake_actions_module,
-                            api_versions.APIVersion("2.10000"), True)
+                            api_versions.APIVersion("2.15"), True)
         self.assertIn('fake-action', shell.subcommands.keys())
-        expected_desc = ("(Supported by API versions '%(start)s' - "
+        expected_desc = (" (Supported by API versions '%(start)s' - "
                          "'%(end)s')") % {'start': '2.10', 'end': '2.30'}
-        self.assertIn(expected_desc,
-                      shell.subcommands['fake-action'].description)
+        self.assertEqual(expected_desc,
+                         shell.subcommands['fake-action'].description)
+
+    def test_load_versioned_actions_with_help_on_latest(self):
+        parser = novaclient.shell.NovaClientArgumentParser()
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.latest"), True)
+        self.assertIn('another-fake-action', shell.subcommands.keys())
+        expected_desc = (" (Supported by API versions '%(start)s' - "
+                         "'%(end)s')%(hint)s") % {
+            'start': '2.0', 'end': '2.latest',
+            'hint': novaclient.shell.HINT_HELP_MSG}
+        self.assertEqual(expected_desc,
+                         shell.subcommands['another-fake-action'].description)
 
     @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
                        'add_argument')
@@ -616,7 +655,6 @@ class TestLoadVersionedActions(utils.TestCase):
         shell._find_actions(subparsers, fake_actions_module,
                             api_versions.APIVersion("2.4"), True)
         mock_add_arg.assert_has_calls([
-            mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
             mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
             mock.call('--foo',
                       help=" (Supported by API versions '2.1' - '2.2')"),

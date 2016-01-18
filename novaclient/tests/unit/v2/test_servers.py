@@ -20,6 +20,7 @@ import mock
 from oslo_serialization import jsonutils
 import six
 
+from novaclient import api_versions
 from novaclient import exceptions
 from novaclient.tests.unit.fixture_data import client
 from novaclient.tests.unit.fixture_data import floatingips
@@ -199,6 +200,30 @@ class ServersTest(utils.FixturedTestCase):
                 userdata="hello moto",
                 key_name="fakekey",
                 nics=nics
+            )
+            self.assert_called('POST', '/servers')
+            self.assertIsInstance(s, servers.Server)
+
+    def test_create_server_boot_with_address(self):
+        old_boot = self.cs.servers._boot
+        access_ip_v6 = '::1'
+        access_ip_v4 = '10.10.10.10'
+
+        def wrapped_boot(url, key, *boot_args, **boot_kwargs):
+            self.assertEqual(boot_kwargs['access_ip_v6'], access_ip_v6)
+            self.assertEqual(boot_kwargs['access_ip_v4'], access_ip_v4)
+            return old_boot(url, key, *boot_args, **boot_kwargs)
+
+        with mock.patch.object(self.cs.servers, '_boot', wrapped_boot):
+            s = self.cs.servers.create(
+                name="My server",
+                image=1,
+                flavor=1,
+                meta={'foo': 'bar'},
+                userdata="hello moto",
+                key_name="fakekey",
+                access_ip_v6=access_ip_v6,
+                access_ip_v4=access_ip_v4
             )
             self.assert_called('POST', '/servers')
             self.assertIsInstance(s, servers.Server)
@@ -794,3 +819,55 @@ class ServersTest(utils.FixturedTestCase):
         s = self.cs.servers.get(1234)
         s.interface_detach('port-id')
         self.assert_called('DELETE', '/servers/1234/os-interface/port-id')
+
+
+class ServersV26Test(ServersTest):
+    def setUp(self):
+        super(ServersV26Test, self).setUp()
+        self.cs.api_version = api_versions.APIVersion("2.6")
+
+    def test_get_vnc_console(self):
+        s = self.cs.servers.get(1234)
+        s.get_vnc_console('fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+        self.cs.servers.get_vnc_console(s, 'fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+    def test_get_spice_console(self):
+        s = self.cs.servers.get(1234)
+        s.get_spice_console('fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+        self.cs.servers.get_spice_console(s, 'fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+    def test_get_serial_console(self):
+        s = self.cs.servers.get(1234)
+        s.get_serial_console('fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+        self.cs.servers.get_serial_console(s, 'fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+    def test_get_rdp_console(self):
+        s = self.cs.servers.get(1234)
+        s.get_rdp_console('fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+        self.cs.servers.get_rdp_console(s, 'fake')
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+
+class ServersV28Test(ServersV26Test):
+    def setUp(self):
+        super(ServersV28Test, self).setUp()
+        self.cs.api_version = api_versions.APIVersion("2.8")
+
+    def test_get_mks_console(self):
+        s = self.cs.servers.get(1234)
+        s.get_mks_console()
+        self.assert_called('POST', '/servers/1234/remote-consoles')
+
+        self.cs.servers.get_mks_console(s)
+        self.assert_called('POST', '/servers/1234/remote-consoles')

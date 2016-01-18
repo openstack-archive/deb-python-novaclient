@@ -20,6 +20,8 @@ import six
 import tempest_lib.cli.base
 import testtools
 
+import novaclient
+import novaclient.api_versions
 import novaclient.client
 
 
@@ -59,7 +61,8 @@ class NoCloudConfigException(Exception):
 
 
 class ClientTestBase(testtools.TestCase):
-    """
+    """Base test class for read only python-novaclient commands.
+
     This is a first pass at a simple read only python-novaclient test. This
     only exercises client commands that are read only.
 
@@ -70,6 +73,8 @@ class ClientTestBase(testtools.TestCase):
     * initially just check return codes, and later test command outputs
 
     """
+    COMPUTE_API_VERSION = None
+
     log_format = ('%(asctime)s %(process)d %(levelname)-8s '
                   '[%(name)s] %(message)s')
 
@@ -133,7 +138,7 @@ class ClientTestBase(testtools.TestCase):
 
         if cloud_config is None:
             raise NoCloudConfigException(
-                "Cloud not find a cloud named functional_admin or a cloud"
+                "Could not find a cloud named functional_admin or a cloud"
                 " named devstack. Please check your clouds.yaml file and"
                 " try again.")
         auth_info = cloud_config.config['auth']
@@ -143,11 +148,12 @@ class ClientTestBase(testtools.TestCase):
         tenant = auth_info['project_name']
         auth_url = auth_info['auth_url']
 
-        # TODO(sdague): we made a lot of fun of the glanceclient team
-        # for version as int in first parameter. I guess we know where
-        # they copied it from.
+        if self.COMPUTE_API_VERSION == "2.latest":
+            version = novaclient.API_MAX_VERSION.get_string()
+        else:
+            version = self.COMPUTE_API_VERSION or "2"
         self.client = novaclient.client.Client(
-            2, user, passwd, tenant,
+            version, user, passwd, tenant,
             auth_url=auth_url)
 
         # pick some reasonable flavor / image combo
@@ -170,9 +176,12 @@ class ClientTestBase(testtools.TestCase):
             uri=auth_url,
             cli_dir=cli_dir)
 
-    def nova(self, *args, **kwargs):
-        return self.cli_clients.nova(*args,
-                                     **kwargs)
+    def nova(self, action, flags='', params='', fail_ok=False,
+             endpoint_type='publicURL', merge_stderr=False):
+        if self.COMPUTE_API_VERSION:
+            flags += " --os-compute-api-version %s " % self.COMPUTE_API_VERSION
+        return self.cli_clients.nova(action, flags, params, fail_ok,
+                                     endpoint_type, merge_stderr)
 
     def wait_for_volume_status(self, volume, status, timeout=60,
                                poll_interval=1):

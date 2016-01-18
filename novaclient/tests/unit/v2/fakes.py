@@ -18,14 +18,32 @@ import datetime
 
 import mock
 from oslo_utils import strutils
+import re
 import six
 from six.moves.urllib import parse
 
+import novaclient
 from novaclient import client as base_client
 from novaclient import exceptions
 from novaclient.tests.unit import fakes
 from novaclient.tests.unit import utils
 from novaclient.v2 import client
+
+# regex to compare callback to result of get_endpoint()
+# checks version number (vX or vX.X where X is a number)
+# and also checks if the id is on the end
+ENDPOINT_RE = re.compile(
+    r"^get_http:__nova_api:8774_v\d(_\d)?_\w{32}$")
+
+# accepts formats like v2 or v2.1
+ENDPOINT_TYPE_RE = re.compile(r"^v\d(\.\d)?$")
+
+# accepts formats like v2 or v2_1
+CALLBACK_RE = re.compile(r"^get_http:__nova_api:8774_v\d(_\d)?$")
+
+# fake image uuids
+FAKE_IMAGE_UUID_1 = 'c99d7632-bd66-4be9-aed5-3dd14b223a76'
+FAKE_IMAGE_UUID_2 = 'f27f479a-ddda-419a-9bbc-d6b56b210161'
 
 
 class FakeClient(fakes.FakeClient, client.Client):
@@ -49,7 +67,15 @@ class FakeHTTPClient(base_client.HTTPClient):
         self.projectid = 'projectid'
         self.user = 'user'
         self.region_name = 'region_name'
-        self.endpoint_type = 'endpoint_type'
+
+        # determines which endpoint to return in get_endpoint()
+        # NOTE(augustina): this is a hacky workaround, ultimately
+        # we need to fix our whole mocking architecture (fixtures?)
+        if 'endpoint_type' in kwargs:
+            self.endpoint_type = kwargs['endpoint_type']
+        else:
+            self.endpoint_type = 'endpoint_type'
+
         self.service_type = 'service_type'
         self.service_name = 'service_name'
         self.volume_service_name = 'volume_service_name'
@@ -84,8 +110,14 @@ class FakeHTTPClient(base_client.HTTPClient):
             # To get API version information, it is necessary to GET
             # a nova endpoint directly without "v2/<tenant-id>".
             callback = "get_versions"
-        elif callback == "get_http:__nova_api:8774_v2_1":
+        elif CALLBACK_RE.search(callback):
             callback = "get_current_version"
+        elif ENDPOINT_RE.search(callback):
+            # compare callback to result of get_endpoint()
+            # NOTE(sdague): if we try to call a thing that doesn't
+            # exist, just return a 404. This allows the stack to act
+            # more like we'd expect when making REST calls.
+            raise exceptions.NotFound('404')
 
         if not hasattr(self, callback):
             raise AssertionError('Called unknown API method: %s %s, '
@@ -104,7 +136,13 @@ class FakeHTTPClient(base_client.HTTPClient):
         return r, body
 
     def get_endpoint(self):
-        return "http://nova-api:8774/v2.1/190a755eef2e4aac9f06aa6be9786385"
+        # check if endpoint matches expected format (eg, v2.1)
+        if (hasattr(self, 'endpoint_type')
+           and ENDPOINT_TYPE_RE.search(self.endpoint_type)):
+            return "http://nova-api:8774/%s/" % self.endpoint_type
+        else:
+            return (
+                "http://nova-api:8774/v2.1/190a755eef2e4aac9f06aa6be9786385")
 
     def get_versions(self):
         return (200, {}, {
@@ -118,20 +156,53 @@ class FakeHTTPClient(base_client.HTTPClient):
                 {"status": "CURRENT", "updated": "2013-07-23T11:33:21Z",
                  "links": [{"href": "http://nova-api:8774/v2.1/",
                             "rel": "self"}],
-                 "min_version": "2.1",
-                 "version": "2.3",
+                 "min_version": novaclient.API_MIN_VERSION.get_string(),
+                 "version": novaclient.API_MAX_VERSION.get_string(),
                  "id": "v2.1"}
             ]})
 
     def get_current_version(self):
-        return (200, {}, {
-            "version": {"status": "CURRENT",
-                        "updated": "2013-07-23T11:33:21Z",
-                        "links": [{"href": "http://nova-api:8774/v2.1/",
-                                   "rel": "self"}],
-                        "min_version": "2.1",
-                        "version": "2.3",
-                        "id": "v2.1"}})
+        versions = {
+            # v2 doesn't contain version or min_version fields
+            "v2": {
+                "version": {
+                    "status": "SUPPORTED",
+                    "updated": "2011-01-21T11:33:21Z",
+                    "links": [{
+                        "href": "http://nova-api:8774/v2/",
+                        "rel": "self"
+                    }],
+                    "id": "v2.0"
+                }
+            },
+            "v2.1": {
+                "version": {
+                    "status": "CURRENT",
+                    "updated": "2013-07-23T11:33:21Z",
+                    "links": [{
+                        "href": "http://nova-api:8774/v2.1/",
+                        "rel": "self"
+                    }],
+                    "min_version": novaclient.API_MIN_VERSION.get_string(),
+                    "version": novaclient.API_MAX_VERSION.get_string(),
+                    "id": "v2.1"
+                }
+            }
+        }
+
+        # if an endpoint_type that matches a version wasn't initialized,
+        #  default to v2.1
+        endpoint = 'v2.1'
+
+        if hasattr(self, 'endpoint_type'):
+            if ENDPOINT_TYPE_RE.search(self.endpoint_type):
+                if self.endpoint_type in versions:
+                    endpoint = self.endpoint_type
+                else:
+                    raise AssertionError(
+                        "Unknown endpoint_type:%s" % self.endpoint_type)
+
+        return (200, {}, versions[endpoint])
 
     #
     # agents
@@ -296,7 +367,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "id": 1234,
                 "name": "sample-server",
                 "image": {
-                    "id": 2,
+                    "id": FAKE_IMAGE_UUID_2,
                     "name": "sample image",
                 },
                 "flavor": {
@@ -1025,7 +1096,9 @@ class FakeHTTPClient(base_client.HTTPClient):
     def get_images(self, **kw):
         return (200, {}, {'images': [
             {'id': 1, 'name': 'CentOS 5.2'},
-            {'id': 2, 'name': 'My Server Backup'}
+            {'id': 2, 'name': 'My Server Backup'},
+            {'id': FAKE_IMAGE_UUID_1, 'name': 'CentOS 5.2'},
+            {'id': FAKE_IMAGE_UUID_2, 'name': 'My Server Backup'}
         ]})
 
     def get_images_detail(self, **kw):
@@ -1060,6 +1133,27 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "status": "DELETED",
                 "fault": {'message': 'Image has been deleted.'},
                 "links": {},
+            },
+            {
+                'id': FAKE_IMAGE_UUID_1,
+                'name': 'CentOS 5.2',
+                "updated": "2010-10-10T12:00:00Z",
+                "created": "2010-08-10T12:00:00Z",
+                "status": "ACTIVE",
+                "metadata": {
+                    "test_key": "test_value",
+                },
+                "links": {},
+            },
+            {
+                "id": FAKE_IMAGE_UUID_2,
+                "name": "My Server Backup",
+                "serverId": 1234,
+                "updated": "2010-10-10T12:00:00Z",
+                "created": "2010-08-10T12:00:00Z",
+                "status": "SAVING",
+                "progress": 80,
+                "links": {},
             }
         ]})
 
@@ -1074,6 +1168,12 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_images_457(self, **kw):
         return (200, {}, {'image': self.get_images_detail()[2]['images'][2]})
+
+    def get_images_c99d7632_bd66_4be9_aed5_3dd14b223a76(self, **kw):
+        return (200, {}, {'image': self.get_images_detail()[2]['images'][3]})
+
+    def get_images_f27f479a_ddda_419a_9bbc_d6b56b210161(self, **kw):
+        return (200, {}, {'image': self.get_images_detail()[2]['images'][4]})
 
     def get_images_3e861307_73a6_4d1f_8d68_f68b03223032(self):
         raise exceptions.NotFound('404')
@@ -1096,6 +1196,12 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (204, {}, None)
 
     def delete_images_2(self, **kw):
+        return (204, {}, None)
+
+    def delete_images_c99d7632_bd66_4be9_aed5_3dd14b223a76(self, **kw):
+        return (204, {}, None)
+
+    def delete_images_f27f479a_ddda_419a_9bbc_d6b56b210161(self, **kw):
         return (204, {}, None)
 
     def delete_images_1_metadata_test_key(self, **kw):

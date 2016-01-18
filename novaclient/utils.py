@@ -13,6 +13,7 @@
 
 import contextlib
 import json
+import os
 import re
 import textwrap
 import time
@@ -26,10 +27,92 @@ import six
 
 from novaclient import exceptions
 from novaclient.i18n import _
-from novaclient.openstack.common import cliutils
 
 
 VALID_KEY_REGEX = re.compile(r"[\w\.\- :]+$", re.UNICODE)
+
+
+def env(*args, **kwargs):
+    """Returns the first environment variable set.
+
+    If all are empty, defaults to '' or keyword arg `default`.
+    """
+    for arg in args:
+        value = os.environ.get(arg)
+        if value:
+            return value
+    return kwargs.get('default', '')
+
+
+def get_service_type(f):
+    """Retrieves service type from function."""
+    return getattr(f, 'service_type', None)
+
+
+def unauthenticated(func):
+    """Adds 'unauthenticated' attribute to decorated function.
+
+    Usage:
+
+    >>> @unauthenticated
+    ... def mymethod(f):
+    ...     pass
+    """
+    func.unauthenticated = True
+    return func
+
+
+def isunauthenticated(func):
+    """Checks if the function does not require authentication.
+
+    Mark such functions with the `@unauthenticated` decorator.
+
+    :returns: bool
+    """
+    return getattr(func, 'unauthenticated', False)
+
+
+def arg(*args, **kwargs):
+    """Decorator for CLI args.
+
+    Example:
+
+    >>> @arg("name", help="Name of the new entity")
+    ... def entity_create(args):
+    ...     pass
+    """
+    def _decorator(func):
+        add_arg(func, *args, **kwargs)
+        return func
+    return _decorator
+
+
+def add_arg(func, *args, **kwargs):
+    """Bind CLI arguments to a shell.py `do_foo` function."""
+
+    if not hasattr(func, 'arguments'):
+        func.arguments = []
+
+    # NOTE(sirp): avoid dups that can occur when the module is shared across
+    # tests.
+    if (args, kwargs) not in func.arguments:
+        # Because of the semantics of decorator composition if we just append
+        # to the options list positional options will appear to be backwards.
+        func.arguments.insert(0, (args, kwargs))
+
+
+def service_type(stype):
+    """Adds 'service_type' attribute to decorated function.
+    Usage:
+    .. code-block:: python
+       @service_type('volume')
+       def mymethod(f):
+       ...
+    """
+    def inner(f):
+        f.service_type = stype
+        return f
+    return inner
 
 
 def add_resource_manager_extra_kwargs_hook(f, hook):
@@ -69,10 +152,13 @@ def get_resource_manager_extra_kwargs(f, args, allow_conflicts=False):
     return extra_kwargs
 
 
+def pretty_choice_list(l):
+    return ', '.join("'%s'" % i for i in l)
+
+
 def pretty_choice_dict(d):
     """Returns a formatted dict as 'key=value'."""
-    return cliutils.pretty_choice_list(
-        ['%s=%s' % (k, d[k]) for k in sorted(d.keys())])
+    return pretty_choice_list(['%s=%s' % (k, d[k]) for k in sorted(d.keys())])
 
 
 def print_list(objs, fields, formatters={}, sortby_index=None):
@@ -98,7 +184,7 @@ def print_list(objs, fields, formatters={}, sortby_index=None):
                 if data is None:
                     data = '-'
                 # '\r' would break the table, so remove it.
-                data = str(data).replace("\r", "")
+                data = six.text_type(data).replace("\r", "")
                 row.append(data)
         pt.add_row(row)
 
@@ -162,7 +248,7 @@ def print_dict(d, dict_property="Property", dict_value="Value", wrap=0):
         if isinstance(v, (dict, list)):
             v = jsonutils.dumps(v)
         if wrap > 0:
-            v = textwrap.fill(str(v), wrap)
+            v = textwrap.fill(six.text_type(v), wrap)
         # if value has a newline, add in multiple rows
         # e.g. fault with stacktrace
         if v and isinstance(v, six.string_types) and (r'\n' in v or '\r' in v):
@@ -197,13 +283,7 @@ def find_resource(manager, name_or_id, **find_args):
         except exceptions.NotFound:
             pass
 
-    # try to get entity as integer id
-    try:
-        return manager.get(int(name_or_id))
-    except (TypeError, ValueError, exceptions.NotFound):
-        pass
-
-    # now try to get entity as uuid
+    # first try to get entity as uuid
     try:
         tmp_id = encodeutils.safe_encode(name_or_id)
 
@@ -215,6 +295,7 @@ def find_resource(manager, name_or_id, **find_args):
     except (TypeError, ValueError, exceptions.NotFound):
         pass
 
+    # then try to get entity as name
     try:
         try:
             resource = getattr(manager, 'resource_class', None)
@@ -225,17 +306,23 @@ def find_resource(manager, name_or_id, **find_args):
         except exceptions.NotFound:
             pass
 
-        # finally try to find entity by human_id
+        # then try to find entity by human_id
         try:
             return manager.find(human_id=name_or_id, **find_args)
         except exceptions.NotFound:
-            msg = (_("No %(class)s with a name or ID of '%(name)s' exists.") %
-                   {'class': manager.resource_class.__name__.lower(),
-                    'name': name_or_id})
-            raise exceptions.CommandError(msg)
+            pass
     except exceptions.NoUniqueMatch:
         msg = (_("Multiple %(class)s matches found for '%(name)s', use an ID "
                  "to be more specific.") %
+               {'class': manager.resource_class.__name__.lower(),
+                'name': name_or_id})
+        raise exceptions.CommandError(msg)
+
+    # finally try to get entity as integer id
+    try:
+        return manager.get(int(name_or_id))
+    except (TypeError, ValueError, exceptions.NotFound):
+        msg = (_("No %(class)s with a name or ID of '%(name)s' exists.") %
                {'class': manager.resource_class.__name__.lower(),
                 'name': name_or_id})
         raise exceptions.CommandError(msg)
