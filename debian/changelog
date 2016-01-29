@@ -1,3 +1,11 @@
+python-novaclient (2:3.2.0-2) experimental; urgency=medium
+
+  * Added build-depends version of python-keyring to 7.2, adding runtime
+    depends to python-keyring >= 7.2, after experiencing failures on the
+    "nova" cli with version 6.1.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 29 Jan 2016 13:28:12 +0000
+
 python-novaclient (2:3.2.0-1) experimental; urgency=medium
 
   * New upstream release.
