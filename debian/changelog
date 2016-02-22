@@ -1,3 +1,9 @@
+python-novaclient (2:3.2.0-3) UNRELEASED; urgency=medium
+
+  * d/rules: Use PYTHON3S instead of hardcoded 3.4 for override_dh_auto_test.
+
+ -- Corey Bryant <corey.bryant@canonical.com>  Mon, 22 Feb 2016 16:32:43 -0500
+
 python-novaclient (2:3.2.0-2) experimental; urgency=medium
 
   * Added build-depends version of python-keyring to 7.2, adding runtime
