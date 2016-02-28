@@ -1,6 +1,10 @@
 python-novaclient (2:3.2.0-3) UNRELEASED; urgency=medium
 
+  [ Corey Bryant ]
   * d/rules: Use PYTHON3S instead of hardcoded 3.4 for override_dh_auto_test.
+
+  [ Ondřej Nový ]
+  * Fixed VCS URLs (https).
 
  -- Corey Bryant <corey.bryant@canonical.com>  Mon, 22 Feb 2016 16:32:43 -0500
 
