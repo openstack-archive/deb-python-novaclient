@@ -29,8 +29,7 @@ class FixedIPsManager(base.Manager):
     resource_class = FixedIP
 
     def get(self, fixed_ip):
-        """
-        Show information for a Fixed IP
+        """Show information for a Fixed IP.
 
         :param fixed_ip: Fixed IP address to get info for
         """
@@ -38,19 +37,23 @@ class FixedIPsManager(base.Manager):
                          "fixed_ip")
 
     def reserve(self, fixed_ip):
-        """Reserve a Fixed IP
+        """Reserve a Fixed IP.
 
         :param fixed_ip: Fixed IP address to reserve
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
         body = {"reserve": None}
-        self.api.client.post('/os-fixed-ips/%s/action' % base.getid(fixed_ip),
-                             body=body)
+        resp, body = self.api.client.post('/os-fixed-ips/%s/action' %
+                                          base.getid(fixed_ip), body=body)
+        return self.convert_into_with_meta(body, resp)
 
     def unreserve(self, fixed_ip):
-        """Unreserve a Fixed IP
+        """Unreserve a Fixed IP.
 
         :param fixed_ip: Fixed IP address to unreserve
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
         body = {"unreserve": None}
-        self.api.client.post('/os-fixed-ips/%s/action' % base.getid(fixed_ip),
-                             body=body)
+        resp, body = self.api.client.post('/os-fixed-ips/%s/action' %
+                                          base.getid(fixed_ip), body=body)
+        return self.convert_into_with_meta(body, resp)

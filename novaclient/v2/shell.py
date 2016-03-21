@@ -27,18 +27,23 @@ import logging
 import os
 import sys
 import time
+import warnings
 
 from oslo_utils import encodeutils
+from oslo_utils import netutils
 from oslo_utils import strutils
 from oslo_utils import timeutils
 from oslo_utils import uuidutils
 import six
 
+import novaclient
 from novaclient import api_versions
+from novaclient import base
 from novaclient import client
 from novaclient import exceptions
 from novaclient.i18n import _
 from novaclient.openstack.common import cliutils
+from novaclient import shell
 from novaclient import utils
 from novaclient.v2 import availability_zones
 from novaclient.v2 import quotas
@@ -77,6 +82,10 @@ def _key_value_pairing(text):
     except ValueError:
         msg = "%r is not in the format of key=value" % text
         raise argparse.ArgumentTypeError(msg)
+
+
+def _meta_parsing(metadata):
+    return dict(v.split('=', 1) for v in metadata)
 
 
 def _match_image(cs, wanted_properties):
@@ -150,6 +159,9 @@ def _parse_block_device_mapping_v2(args, image):
 
 def _boot(cs, args):
     """Boot a new server."""
+    if not args.flavor:
+        raise exceptions.CommandError(_("you need to specify a Flavor ID."))
+
     if args.image:
         image = _find_image(cs, args.image)
     else:
@@ -161,9 +173,6 @@ def _boot(cs, args):
             # TODO(harlowja): log a warning that we
             # are selecting the first of many?
             image = images[0]
-
-    if not args.flavor:
-        raise exceptions.CommandError(_("you need to specify a Flavor ID "))
 
     min_count = 1
     max_count = 1
@@ -194,7 +203,7 @@ def _boot(cs, args):
 
     flavor = _find_flavor(cs, args.flavor)
 
-    meta = dict(v.split('=', 1) for v in args.meta)
+    meta = _meta_parsing(args.meta)
 
     files = {}
     for f in args.files:
@@ -264,11 +273,12 @@ def _boot(cs, args):
     nics = []
     for nic_str in args.nics:
         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
-                     "the form --nic <net-id=net-uuid,v4-fixed-ip=ip-addr,"
-                     "v6-fixed-ip=ip-addr,port-id=port-uuid>, with at minimum "
-                     "net-id or port-id (but not both) specified.") % nic_str)
+                     "the form --nic <net-id=net-uuid,net-name=network-name,"
+                     "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,"
+                     "port-id=port-uuid>, with only one of net-id, net-name "
+                     "or port-id specified.") % nic_str)
         nic_info = {"net-id": "", "v4-fixed-ip": "", "v6-fixed-ip": "",
-                    "port-id": ""}
+                    "port-id": "", "net-name": ""}
 
         for kv_str in nic_str.split(","):
             try:
@@ -277,9 +287,24 @@ def _boot(cs, args):
                 raise exceptions.CommandError(err_msg)
 
             if k in nic_info:
+                # if user has given a net-name resolve it to network ID
+                if k == 'net-name':
+                    k = 'net-id'
+                    v = _find_network_id(cs, v)
+                # if some argument was given multiple times
+                if nic_info[k]:
+                    raise exceptions.CommandError(err_msg)
                 nic_info[k] = v
             else:
                 raise exceptions.CommandError(err_msg)
+
+        if nic_info['v4-fixed-ip'] and not netutils.is_valid_ipv4(
+                nic_info['v4-fixed-ip']):
+            raise exceptions.CommandError(_("Invalid ipv4 address."))
+
+        if nic_info['v6-fixed-ip'] and not netutils.is_valid_ipv6(
+                nic_info['v6-fixed-ip']):
+            raise exceptions.CommandError(_("Invalid ipv6 address."))
 
         if bool(nic_info['net-id']) == bool(nic_info['port-id']):
             raise exceptions.CommandError(err_msg)
@@ -321,7 +346,12 @@ def _boot(cs, args):
         nics=nics,
         scheduler_hints=hints,
         config_drive=config_drive,
-        admin_pass=args.admin_pass)
+        admin_pass=args.admin_pass,
+        access_ip_v4=args.access_ip_v4,
+        access_ip_v6=args.access_ip_v6)
+
+    if 'description' in args:
+        boot_kwargs["description"] = args.description
 
     return boot_args, boot_kwargs
 
@@ -358,6 +388,9 @@ def _boot(cs, args):
     default=None,
     type=int,
     metavar='<number>',
+    action=shell.DeprecatedAction,
+    use=_('use "--min-count" and "--max-count"; this option will be removed '
+          'in novaclient 3.3.0.'),
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--min-count',
@@ -391,11 +424,14 @@ def _boot(cs, args):
     default=os.environ.get('NOVACLIENT_DEFAULT_KEY_NAME'),
     metavar='<key-name>',
     help=_("Key name of keypair that should be created earlier with \
-           the command keypair-add"))
+           the command keypair-add."))
 @cliutils.arg(
     '--key_name',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--key-name',
     help=argparse.SUPPRESS)
-@cliutils.arg('name', metavar='<name>', help=_('Name for the new server'))
+@cliutils.arg('name', metavar='<name>', help=_('Name for the new server.'))
 @cliutils.arg(
     '--user-data',
     default=None,
@@ -403,6 +439,9 @@ def _boot(cs, args):
     help=_("user data file to pass to be exposed by the metadata server."))
 @cliutils.arg(
     '--user_data',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--user-data',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--availability-zone',
@@ -411,6 +450,9 @@ def _boot(cs, args):
     help=_("The availability zone for server placement."))
 @cliutils.arg(
     '--availability_zone',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--availability-zone',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--security-groups',
@@ -419,6 +461,9 @@ def _boot(cs, args):
     help=_("Comma separated list of security group names."))
 @cliutils.arg(
     '--security_groups',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--security-groups',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--block-device-mapping',
@@ -429,7 +474,10 @@ def _boot(cs, args):
            "<dev-name>=<id>:<type>:<size(GB)>:<delete-on-terminate>."))
 @cliutils.arg(
     '--block_device_mapping',
-    action='append',
+    real_action='append',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--block-device-mapping',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--block-device',
@@ -447,7 +495,8 @@ def _boot(cs, args):
            "type=device type (e.g. disk, cdrom, ...; defaults to 'disk') "
            "device=name of the device (e.g. vda, xda, ...; "
            "if omitted, hypervisor driver chooses suitable device "
-           "depending on selected bus), "
+           "depending on selected bus; note the libvirt driver always "
+           "uses default device names), "
            "size=size of the block device in MB(for swap) and in "
            "GB(for other formats) "
            "(if omitted, hypervisor driver calculates size), "
@@ -479,15 +528,16 @@ def _boot(cs, args):
            "use."))
 @cliutils.arg(
     '--nic',
-    metavar="<net-id=net-uuid,v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,"
-            "port-id=port-uuid>",
+    metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
+            "v6-fixed-ip=ip-addr,port-id=port-uuid>",
     action='append',
     dest='nics',
     default=[],
     help=_("Create a NIC on the server. "
            "Specify option multiple times to create multiple NICs. "
            "net-id: attach NIC to network with this UUID "
-           "(either port-id or net-id must be provided), "
+           "net-name: attach NIC to network with this name "
+           "(either port-id or net-id or net-name must be provided), "
            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
            "port-id: attach NIC to port with this UUID "
@@ -497,7 +547,7 @@ def _boot(cs, args):
     metavar="<value>",
     dest='config_drive',
     default=False,
-    help=_("Enable config drive"))
+    help=_("Enable config drive."))
 @cliutils.arg(
     '--poll',
     dest='poll',
@@ -509,7 +559,26 @@ def _boot(cs, args):
     dest='admin_pass',
     metavar='<value>',
     default=None,
-    help=_('Admin password for the instance'))
+    help=_('Admin password for the instance.'))
+@cliutils.arg(
+    '--access-ip-v4',
+    dest='access_ip_v4',
+    metavar='<value>',
+    default=None,
+    help=_('Alternative access IPv4 of the instance.'))
+@cliutils.arg(
+    '--access-ip-v6',
+    dest='access_ip_v6',
+    metavar='<value>',
+    default=None,
+    help=_('Alternative access IPv6 of the instance.'))
+@cliutils.arg(
+    '--description',
+    metavar='<description>',
+    dest='description',
+    default=None,
+    help=_('Description for the server.'),
+    start_version="2.19")
 def do_boot(cs, args):
     """Boot a new server."""
     boot_args, boot_kwargs = _boot(cs, args)
@@ -583,11 +652,11 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
         elif status == "error":
             if not silent:
                 print(_("\nError %s server") % action)
-            raise exceptions.InstanceInErrorState(obj.fault['message'])
+            raise exceptions.ResourceInErrorState(obj)
         elif status == "deleted":
             if not silent:
                 print(_("\nDeleted %s server") % action)
-            raise exceptions.InstanceInDeletedState(obj.fault['message'])
+            raise exceptions.InstanceInDeletedState(obj.fault["message"])
 
         if not silent:
             print_progress(progress)
@@ -674,19 +743,36 @@ def _print_flavor_list(flavors, show_extra_specs=False):
     action='store_true',
     default=False,
     help=_('Display all flavors (Admin only).'))
+@cliutils.arg(
+    '--marker',
+    dest='marker',
+    metavar='<marker>',
+    default=None,
+    help=_('The last flavor ID of the previous page; displays list of flavors'
+           ' after "marker".'))
+@cliutils.arg(
+    '--limit',
+    dest='limit',
+    metavar='<limit>',
+    type=int,
+    default=None,
+    help=_("Maximum number of flavors to display. If limit == -1, all flavors "
+           "will be displayed. If limit is bigger than 'osapi_max_limit' "
+           "option of Nova API, limit 'osapi_max_limit' will be used "
+           "instead."))
 def do_flavor_list(cs, args):
     """Print a list of available 'flavors' (sizes of servers)."""
     if args.all:
         flavors = cs.flavors.list(is_public=None)
     else:
-        flavors = cs.flavors.list()
+        flavors = cs.flavors.list(marker=args.marker, limit=args.limit)
     _print_flavor_list(flavors, args.extra_specs)
 
 
 @cliutils.arg(
     'flavor',
     metavar='<flavor>',
-    help=_("Name or ID of the flavor to delete"))
+    help=_("Name or ID of the flavor to delete."))
 def do_flavor_delete(cs, args):
     """Delete a specific flavor"""
     flavorid = _find_flavor(cs, args.flavor)
@@ -697,7 +783,7 @@ def do_flavor_delete(cs, args):
 @cliutils.arg(
     'flavor',
     metavar='<flavor>',
-    help=_("Name or ID of flavor"))
+    help=_("Name or ID of flavor."))
 def do_flavor_show(cs, args):
     """Show details about the given flavor."""
     flavor = _find_flavor(cs, args.flavor)
@@ -707,24 +793,24 @@ def do_flavor_show(cs, args):
 @cliutils.arg(
     'name',
     metavar='<name>',
-    help=_("Name of the new flavor"))
+    help=_("Unique name of the new flavor."))
 @cliutils.arg(
     'id',
     metavar='<id>',
-    help=_("Unique ID (integer or UUID) for the new flavor."
-           " If specifying 'auto', a UUID will be generated as id"))
+    help=_("Unique ID of the new flavor."
+           " Specifying 'auto' will generated a UUID for the ID."))
 @cliutils.arg(
     'ram',
     metavar='<ram>',
-    help=_("Memory size in MB"))
+    help=_("Memory size in MB."))
 @cliutils.arg(
     'disk',
     metavar='<disk>',
-    help=_("Disk size in GB"))
+    help=_("Disk size in GB."))
 @cliutils.arg(
     '--ephemeral',
     metavar='<ephemeral>',
-    help=_("Ephemeral space size in GB (default 0)"),
+    help=_("Ephemeral space size in GB (default 0)."),
     default=0)
 @cliutils.arg(
     'vcpus',
@@ -733,21 +819,21 @@ def do_flavor_show(cs, args):
 @cliutils.arg(
     '--swap',
     metavar='<swap>',
-    help=_("Swap space size in MB (default 0)"),
+    help=_("Swap space size in MB (default 0)."),
     default=0)
 @cliutils.arg(
     '--rxtx-factor',
     metavar='<factor>',
-    help=_("RX/TX factor (default 1)"),
+    help=_("RX/TX factor (default 1)."),
     default=1.0)
 @cliutils.arg(
     '--is-public',
     metavar='<is-public>',
-    help=_("Make flavor accessible to the public (default true)"),
+    help=_("Make flavor accessible to the public (default true)."),
     type=lambda v: strutils.bool_from_string(v, True),
     default=True)
 def do_flavor_create(cs, args):
-    """Create a new flavor"""
+    """Create a new flavor."""
     f = cs.flavors.create(args.name, args.ram, args.vcpus, args.disk, args.id,
                           args.ephemeral, args.swap, args.rxtx_factor,
                           args.is_public)
@@ -757,19 +843,19 @@ def do_flavor_create(cs, args):
 @cliutils.arg(
     'flavor',
     metavar='<flavor>',
-    help=_("Name or ID of flavor"))
+    help=_("Name or ID of flavor."))
 @cliutils.arg(
     'action',
     metavar='<action>',
     choices=['set', 'unset'],
-    help=_("Actions: 'set' or 'unset'"))
+    help=_("Actions: 'set' or 'unset'."))
 @cliutils.arg(
     'metadata',
     metavar='<key=value>',
     nargs='+',
     action='append',
     default=[],
-    help=_('Extra_specs to set/unset (only key is necessary on unset)'))
+    help=_('Extra_specs to set/unset (only key is necessary on unset).'))
 def do_flavor_key(cs, args):
     """Set or unset extra_spec for a flavor."""
     flavor = _find_flavor(cs, args.flavor)
@@ -803,7 +889,7 @@ def do_flavor_access_list(cs, args):
         kwargs = {'tenant': args.tenant}
     else:
         raise exceptions.CommandError(_("Unable to get all access lists. "
-                                        "Specify --flavor or --tenant"))
+                                        "Specify --flavor"))
 
     try:
         access_list = cs.flavor_access.list(**kwargs)
@@ -875,11 +961,19 @@ def do_network_list(cs, args):
 
     formatters = {}
     field_titles = []
+    non_existent_fields = []
     if args.fields:
         for field in args.fields.split(','):
+            if network_list and not hasattr(network_list[0], field):
+                non_existent_fields.append(field)
+                continue
             field_title, formatter = utils._make_field_formatter(field, {})
             field_titles.append(field_title)
             formatters[field_title] = formatter
+        if non_existent_fields:
+            raise exceptions.CommandError(
+                _("Non-existent fields are specified: %s")
+                % non_existent_fields)
 
     columns = columns + field_titles
     utils.print_list(network_list, columns)
@@ -888,7 +982,7 @@ def do_network_list(cs, args):
 @cliutils.arg(
     'network',
     metavar='<network>',
-    help=_("uuid or label of network"))
+    help=_("UUID or label of network."))
 def do_network_show(cs, args):
     """Show details about the given network."""
     network = utils.find_resource(cs.networks, args.network)
@@ -898,7 +992,7 @@ def do_network_show(cs, args):
 @cliutils.arg(
     'network',
     metavar='<network>',
-    help=_("uuid or label of network"))
+    help=_("UUID or label of network."))
 def do_network_delete(cs, args):
     """Delete network by label or id."""
     network = utils.find_resource(cs.networks, args.network)
@@ -924,7 +1018,7 @@ def do_network_delete(cs, args):
 @cliutils.arg(
     'network',
     metavar='<network>',
-    help=_("uuid of network"))
+    help=_("UUID of network."))
 def do_network_disassociate(cs, args):
     """Disassociate host and/or project from the given network."""
     if args.host_only:
@@ -938,7 +1032,7 @@ def do_network_disassociate(cs, args):
 @cliutils.arg(
     'network',
     metavar='<network>',
-    help=_("uuid of network"))
+    help=_("UUID of network."))
 @cliutils.arg(
     'host',
     metavar='<host>',
@@ -951,7 +1045,7 @@ def do_network_associate_host(cs, args):
 @cliutils.arg(
     'network',
     metavar='<network>',
-    help=_("uuid of network"))
+    help=_("UUID of network."))
 def do_network_associate_project(cs, args):
     """Associate project with network."""
     cs.networks.associate_project(args.network)
@@ -1029,46 +1123,46 @@ def _filter_network_create_options(args):
 @cliutils.arg(
     '--dns1',
     dest="dns1",
-    metavar="<DNS Address>", help=_('First DNS'))
+    metavar="<DNS Address>", help=_('First DNS.'))
 @cliutils.arg(
     '--dns2',
     dest="dns2",
     metavar="<DNS Address>",
-    help=_('Second DNS'))
+    help=_('Second DNS.'))
 @cliutils.arg(
     '--uuid',
     dest="uuid",
     metavar="<network uuid>",
-    help=_('Network UUID'))
+    help=_('Network UUID.'))
 @cliutils.arg(
     '--fixed-cidr',
     dest="fixed_cidr",
     metavar='<x.x.x.x/yy>',
-    help=_('IPv4 subnet for fixed IPs (ex: 10.20.0.0/16)'))
+    help=_('IPv4 subnet for fixed IPs (ex: 10.20.0.0/16).'))
 @cliutils.arg(
     '--project-id',
     dest="project_id",
     metavar="<project id>",
-    help=_('Project ID'))
+    help=_('Project ID.'))
 @cliutils.arg(
     '--priority',
     dest="priority",
     metavar="<number>",
-    help=_('Network interface priority'))
+    help=_('Network interface priority.'))
 @cliutils.arg(
     '--mtu',
     dest="mtu",
     type=int,
-    help=_('MTU for network'))
+    help=_('MTU for network.'))
 @cliutils.arg(
     '--enable-dhcp',
     dest="enable_dhcp",
     metavar="<'T'|'F'>",
-    help=_('Enable dhcp'))
+    help=_('Enable DHCP.'))
 @cliutils.arg(
     '--dhcp-server',
     dest="dhcp_server",
-    help=_('Dhcp-server (defaults to gateway address)'))
+    help=_('DHCP-server address (defaults to gateway address)'))
 @cliutils.arg(
     '--share-address',
     dest="share_address",
@@ -1077,11 +1171,11 @@ def _filter_network_create_options(args):
 @cliutils.arg(
     '--allowed-start',
     dest="allowed_start",
-    help=_('Start of allowed addresses for instances'))
+    help=_('Start of allowed addresses for instances.'))
 @cliutils.arg(
     '--allowed-end',
     dest="allowed_end",
-    help=_('End of allowed addresses for instances'))
+    help=_('End of allowed addresses for instances.'))
 def do_network_create(cs, args):
     """Create a network."""
 
@@ -1128,12 +1222,12 @@ def do_image_list(cs, _args):
 @cliutils.arg(
     'image',
     metavar='<image>',
-    help=_("Name or ID of image"))
+    help=_("Name or ID of image."))
 @cliutils.arg(
     'action',
     metavar='<action>',
     choices=['set', 'delete'],
-    help=_("Actions: 'set' or 'delete'"))
+    help=_("Actions: 'set' or 'delete'."))
 @cliutils.arg(
     'metadata',
     metavar='<key=value>',
@@ -1141,9 +1235,9 @@ def do_image_list(cs, _args):
     action='append',
     default=[],
     help=_('Metadata to add/update or delete (only key is necessary on '
-           'delete)'))
+           'delete).'))
 def do_image_meta(cs, args):
-    """Set or Delete metadata on an image."""
+    """Set or delete metadata on an image."""
     image = _find_image(cs, args.image)
     metadata = _extract_metadata(args)
 
@@ -1204,7 +1298,7 @@ def _print_flavor(flavor):
 @cliutils.arg(
     'image',
     metavar='<image>',
-    help=_("Name or ID of image"))
+    help=_("Name or ID of image."))
 def do_image_show(cs, args):
     """Show details about the given image."""
     image = _find_image(cs, args.image)
@@ -1232,6 +1326,9 @@ def do_image_delete(cs, args):
     help=_('Only return servers that match reservation-id.'))
 @cliutils.arg(
     '--reservation_id',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--reservation-id',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--ip',
@@ -1250,7 +1347,7 @@ def do_image_delete(cs, args):
     dest='name',
     metavar='<name-regexp>',
     default=None,
-    help=_('Search with regular expression match by name'))
+    help=_('Search with regular expression match by name.'))
 @cliutils.arg(
     '--instance-name',
     dest='instance_name',
@@ -1259,25 +1356,28 @@ def do_image_delete(cs, args):
     help=_('Search with regular expression match by server name.'))
 @cliutils.arg(
     '--instance_name',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--instance-name',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--status',
     dest='status',
     metavar='<status>',
     default=None,
-    help=_('Search by server status'))
+    help=_('Search by server status.'))
 @cliutils.arg(
     '--flavor',
     dest='flavor',
     metavar='<flavor>',
     default=None,
-    help=_('Search by flavor name or ID'))
+    help=_('Search by flavor name or ID.'))
 @cliutils.arg(
     '--image',
     dest='image',
     metavar='<image>',
     default=None,
-    help=_('Search by image name or ID'))
+    help=_('Search by image name or ID.'))
 @cliutils.arg(
     '--host',
     dest='host',
@@ -1300,6 +1400,9 @@ def do_image_delete(cs, args):
     nargs='?',
     type=int,
     const=1,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--all-tenants',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--tenant',
@@ -1331,31 +1434,31 @@ def do_image_delete(cs, args):
     dest='minimal',
     action="store_true",
     default=False,
-    help=_('Get only uuid and name.'))
+    help=_('Get only UUID and name.'))
 @cliutils.arg(
     '--sort',
     dest='sort',
     metavar='<key>[:<direction>]',
-    help=('Comma-separated list of sort keys and directions in the form'
-          ' of <key>[:<asc|desc>]. The direction defaults to descending if'
-          ' not specified.'))
+    help=_('Comma-separated list of sort keys and directions in the form '
+           'of <key>[:<asc|desc>]. The direction defaults to descending if '
+           'not specified.'))
 @cliutils.arg(
     '--marker',
     dest='marker',
     metavar='<marker>',
     default=None,
-    help=('The last server uuid of the previous page; displays list of servers'
-          ' after "marker".'))
+    help=_('The last server UUID of the previous page; displays list of '
+           'servers after "marker".'))
 @cliutils.arg(
     '--limit',
     dest='limit',
     metavar='<limit>',
     type=int,
     default=None,
-    help=("Maximum number of servers to display. If limit == -1, all servers "
-          "will be displayed. If limit is bigger than "
-          "'osapi_max_limit' option of Nova API, limit 'osapi_max_limit' will "
-          "be used instead."))
+    help=_("Maximum number of servers to display. If limit == -1, all servers "
+           "will be displayed. If limit is bigger than 'osapi_max_limit' "
+           "option of Nova API, limit 'osapi_max_limit' will be used "
+           "instead."))
 def do_list(cs, args):
     """List active servers."""
     imageid = None
@@ -1384,15 +1487,6 @@ def do_list(cs, args):
 
     filters = {'flavor': lambda f: f['id'],
                'security_groups': utils._format_security_groups}
-
-    formatters = {}
-    field_titles = []
-    if args.fields:
-        for field in args.fields.split(','):
-            field_title, formatter = utils._make_field_formatter(field,
-                                                                 filters)
-            field_titles.append(field_title)
-            formatters[field_title] = formatter
 
     id_col = 'ID'
 
@@ -1424,6 +1518,24 @@ def do_list(cs, args):
                ('hostId', 'host_id')]
     _translate_keys(servers, convert)
     _translate_extended_states(servers)
+
+    formatters = {}
+    field_titles = []
+    non_existent_fields = []
+    if args.fields:
+        for field in args.fields.split(','):
+            if servers and not hasattr(servers[0], field):
+                non_existent_fields.append(field)
+                continue
+            field_title, formatter = utils._make_field_formatter(field,
+                                                                 filters)
+            field_titles.append(field_title)
+            formatters[field_title] = formatter
+        if non_existent_fields:
+            raise exceptions.CommandError(
+                _("Non-existent fields are specified: %s")
+                % non_existent_fields)
+
     if args.minimal:
         columns = [
             id_col,
@@ -1496,6 +1608,9 @@ def do_reboot(cs, args):
     help=_("Set the provided admin password on the rebuilt server."))
 @cliutils.arg(
     '--rebuild_password',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--rebuild-password',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--poll',
@@ -1508,7 +1623,7 @@ def do_reboot(cs, args):
     dest='minimal',
     action="store_true",
     default=False,
-    help=_('Skips flavor/image lookups when showing servers'))
+    help=_('Skips flavor/image lookups when showing servers.'))
 @cliutils.arg(
     '--preserve-ephemeral',
     action="store_true",
@@ -1518,7 +1633,14 @@ def do_reboot(cs, args):
     '--name',
     metavar='<name>',
     default=None,
-    help=_('Name for the new server'))
+    help=_('Name for the new server.'))
+@cliutils.arg(
+    '--description',
+    metavar='<description>',
+    dest='description',
+    default=None,
+    help=_('New description for the server.'),
+    start_version="2.19")
 @cliutils.arg(
     '--meta',
     metavar="<key=value>",
@@ -1547,7 +1669,9 @@ def do_rebuild(cs, args):
     kwargs = utils.get_resource_manager_extra_kwargs(do_rebuild, args)
     kwargs['preserve_ephemeral'] = args.preserve_ephemeral
     kwargs['name'] = args.name
-    meta = dict(v.split('=', 1) for v in args.meta)
+    if 'description' in args:
+        kwargs['description'] = args.description
+    meta = _meta_parsing(args.meta)
     kwargs['meta'] = meta
 
     files = {}
@@ -1577,8 +1701,39 @@ def do_rebuild(cs, args):
     help=_('Name (old name) or ID of server.'))
 @cliutils.arg('name', metavar='<name>', help=_('New name for the server.'))
 def do_rename(cs, args):
-    """Rename a server."""
-    _find_server(cs, args.server).update(name=args.name)
+    """DEPRECATED, use update instead."""
+    do_update(cs, args)
+
+
+@cliutils.arg(
+    'server', metavar='<server>',
+    help=_('Name (old name) or ID of server.'))
+@cliutils.arg(
+    '--name',
+    metavar='<name>',
+    dest='name',
+    default=None,
+    help=_('New name for the server.'))
+@cliutils.arg(
+    '--description',
+    metavar='<description>',
+    dest='description',
+    default=None,
+    help=_('New description for the server. If it equals to empty string '
+           '(i.g. ""), the server description will be removed.'),
+    start_version="2.19")
+def do_update(cs, args):
+    """Update the name or the description for a server."""
+    update_kwargs = {}
+    if args.name:
+        update_kwargs["name"] = args.name
+    # NOTE(andreykurilin): `do_update` method is used by `do_rename` method,
+    # which do not have description argument at all. When `do_rename` will be
+    # removed after deprecation period, feel free to change the check below to:
+    #     `if args.description:`
+    if "description" in args and args.description is not None:
+        update_kwargs["description"] = args.description
+    _find_server(cs, args.server).update(**update_kwargs)
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -1645,26 +1800,40 @@ def do_unpause(cs, args):
 
 
 @cliutils.arg(
+    '--all-tenants',
+    action='store_const',
+    const=1,
+    default=0,
+    help=_('Stop server(s) in another tenant by name (Admin only).'))
+@cliutils.arg(
     'server',
     metavar='<server>', nargs='+',
     help=_('Name or ID of server(s).'))
 def do_stop(cs, args):
     """Stop the server(s)."""
+    find_args = {'all_tenants': args.all_tenants}
     utils.do_action_on_many(
-        lambda s: _find_server(cs, s).stop(),
+        lambda s: _find_server(cs, s, **find_args).stop(),
         args.server,
         _("Request to stop server %s has been accepted."),
         _("Unable to stop the specified server(s)."))
 
 
 @cliutils.arg(
+    '--all-tenants',
+    action='store_const',
+    const=1,
+    default=0,
+    help=_('Start server(s) in another tenant by name (Admin only).'))
+@cliutils.arg(
     'server',
     metavar='<server>', nargs='+',
     help=_('Name or ID of server(s).'))
 def do_start(cs, args):
     """Start the server(s)."""
+    find_args = {'all_tenants': args.all_tenants}
     utils.do_action_on_many(
-        lambda s: _find_server(cs, s).start(),
+        lambda s: _find_server(cs, s, **find_args).start(),
         args.server,
         _("Request to start server %s has been accepted."),
         _("Unable to start the specified server(s)."))
@@ -1784,6 +1953,13 @@ def do_set_password(cs, args):
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
 @cliutils.arg('name', metavar='<name>', help=_('Name of snapshot.'))
 @cliutils.arg(
+    '--metadata',
+    metavar="<key=value>",
+    action='append',
+    default=[],
+    help=_("Record arbitrary key/value metadata to /meta_data.json "
+           "on the metadata server. Can be specified multiple times."))
+@cliutils.arg(
     '--show',
     dest='show',
     action="store_true",
@@ -1799,7 +1975,8 @@ def do_set_password(cs, args):
 def do_image_create(cs, args):
     """Create a new image by taking a snapshot of a running server."""
     server = _find_server(cs, args.server)
-    image_uuid = cs.servers.create_image(server, args.name)
+    meta = _meta_parsing(args.metadata) or None
+    image_uuid = cs.servers.create_image(server, args.name, meta)
 
     if args.poll:
         _poll_for_status(cs.images.get, image_uuid, 'snapshotting',
@@ -1843,21 +2020,21 @@ def do_backup(cs, args):
 @cliutils.arg(
     'server',
     metavar='<server>',
-    help=_("Name or ID of server"))
+    help=_("Name or ID of server."))
 @cliutils.arg(
     'action',
     metavar='<action>',
     choices=['set', 'delete'],
-    help=_("Actions: 'set' or 'delete'"))
+    help=_("Actions: 'set' or 'delete'."))
 @cliutils.arg(
     'metadata',
     metavar='<key=value>',
     nargs='+',
     action='append',
     default=[],
-    help=_('Metadata to set or delete (only key is necessary on delete)'))
+    help=_('Metadata to set or delete (only key is necessary on delete).'))
 def do_meta(cs, args):
-    """Set or Delete metadata on a server."""
+    """Set or delete metadata on a server."""
     server = _find_server(cs, args.server)
     metadata = _extract_metadata(args)
 
@@ -1926,7 +2103,7 @@ def _print_server(cs, args, server=None):
     dest='minimal',
     action="store_true",
     default=False,
-    help=_('Skips flavor/image lookups when showing servers'))
+    help=_('Skips flavor/image lookups when showing servers.'))
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
 def do_show(cs, args):
     """Show details about the given server."""
@@ -1968,6 +2145,25 @@ def _find_flavor(cs, flavor):
         return utils.find_resource(cs.flavors, flavor, is_public=None)
     except exceptions.NotFound:
         return cs.flavors.find(ram=flavor)
+
+
+def _find_network_id(cs, net_name):
+    """Get unique network ID from network name."""
+    network_id = None
+    for net_info in cs.networks.list():
+        if net_name == net_info.label:
+            if network_id is not None:
+                msg = (_("Multiple network name matches found for name '%s', "
+                         "use network ID to be more specific.") % net_name)
+                raise exceptions.NoUniqueMatch(msg)
+            else:
+                network_id = net_info.id
+
+    if network_id is None:
+        msg = (_("No network name match for name '%s'") % net_name)
+        raise exceptions.ResourceNotFound(msg % {'network': net_name})
+    else:
+        return network_id
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2024,6 +2220,12 @@ def _translate_availability_zone_keys(collection):
                     [('zoneName', 'name'), ('zoneState', 'status')])
 
 
+def _translate_volume_attachments_keys(collection):
+    _translate_keys(collection,
+                    [('serverId', 'server_id'),
+                     ('volumeId', 'volume_id')])
+
+
 @cliutils.arg(
     '--all-tenants',
     dest='all_tenants',
@@ -2039,6 +2241,9 @@ def _translate_availability_zone_keys(collection):
     nargs='?',
     type=int,
     const=1,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--all-tenants',
     help=argparse.SUPPRESS)
 def do_volume_list(cs, args):
     """DEPRECATED: List all the volumes."""
@@ -2075,14 +2280,17 @@ def do_volume_show(cs, args):
     '--snapshot-id',
     metavar='<snapshot-id>',
     default=None,
-    help=_('Optional snapshot id to create the volume from. (Default=None)'))
+    help=_('Optional snapshot ID to create the volume from. (Default=None)'))
 @cliutils.arg(
     '--snapshot_id',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--snapshot-id',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--image-id',
     metavar='<image-id>',
-    help=_('Optional image id to create the volume from. (Default=None)'),
+    help=_('Optional image ID to create the volume from. (Default=None)'),
     default=None)
 @cliutils.arg(
     '--display-name',
@@ -2091,6 +2299,9 @@ def do_volume_show(cs, args):
     help=_('Optional volume name. (Default=None)'))
 @cliutils.arg(
     '--display_name',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--display-name',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--display-description',
@@ -2099,6 +2310,9 @@ def do_volume_show(cs, args):
     help=_('Optional volume description. (Default=None)'))
 @cliutils.arg(
     '--display_description',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--display-description',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--volume-type',
@@ -2107,6 +2321,9 @@ def do_volume_show(cs, args):
     help=_('Optional volume type. (Default=None)'))
 @cliutils.arg(
     '--volume_type',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--volume-type',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--availability-zone', metavar='<availability-zone>',
@@ -2151,7 +2368,8 @@ def do_volume_delete(cs, args):
 @cliutils.arg(
     'device', metavar='<device>', default=None, nargs='?',
     help=_('Name of the device e.g. /dev/vdb. '
-           'Use "auto" for autoassign (if supported)'))
+           'Use "auto" for autoassign (if supported). '
+           'Libvirt driver will use default device name.'))
 def do_volume_attach(cs, args):
     """Attach a volume to a server."""
     if args.device == 'auto':
@@ -2196,6 +2414,17 @@ def do_volume_detach(cs, args):
                                     args.attachment_id)
 
 
+@cliutils.arg(
+    'server',
+    metavar='<server>',
+    help=_('Name or ID of server.'))
+def do_volume_attachments(cs, args):
+    """List all the volumes attached to a server."""
+    volumes = cs.volumes.get_server_volumes(_find_server(cs, args.server).id)
+    _translate_volume_attachments_keys(volumes)
+    utils.print_list(volumes, ['ID', 'DEVICE', 'SERVER ID', 'VOLUME ID'])
+
+
 def do_volume_snapshot_list(cs, _args):
     """DEPRECATED: List all the snapshots."""
     emit_volume_deprecation_warning('volume-snapshot-list')
@@ -2233,6 +2462,9 @@ def do_volume_snapshot_show(cs, args):
     help=_('Optional snapshot name. (Default=None)'))
 @cliutils.arg(
     '--display_name',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--display-name',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--display-description',
@@ -2241,6 +2473,9 @@ def do_volume_snapshot_show(cs, args):
     help=_('Optional snapshot description. (Default=None)'))
 @cliutils.arg(
     '--display_description',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--display-description',
     help=argparse.SUPPRESS)
 def do_volume_snapshot_create(cs, args):
     """DEPRECATED: Add a new snapshot."""
@@ -2288,11 +2523,32 @@ def do_volume_type_create(cs, args):
 @cliutils.arg(
     'id',
     metavar='<id>',
-    help=_("Unique ID of the volume type to delete"))
+    help=_("Unique ID of the volume type to delete."))
 def do_volume_type_delete(cs, args):
     """DEPRECATED: Delete a specific volume type."""
     emit_volume_deprecation_warning('volume-type-delete')
     cs.volume_types.delete(args.id)
+
+
+@api_versions.wraps('2.0', '2.5')
+def console_dict_accessor(cs, data):
+    return data['console']
+
+
+@api_versions.wraps('2.6')
+def console_dict_accessor(cs, data):
+    return data['remote_console']
+
+
+class Console(object):
+    def __init__(self, console_dict):
+        self.type = console_dict['type']
+        self.url = console_dict['url']
+
+
+def print_console(cs, data):
+    utils.print_list([Console(console_dict_accessor(cs, data))],
+                     ['Type', 'Url'])
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2305,12 +2561,7 @@ def do_get_vnc_console(cs, args):
     server = _find_server(cs, args.server)
     data = server.get_vnc_console(args.console_type)
 
-    class VNCConsole(object):
-        def __init__(self, console_dict):
-            self.type = console_dict['type']
-            self.url = console_dict['url']
-
-    utils.print_list([VNCConsole(data['console'])], ['Type', 'Url'])
+    print_console(cs, data)
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2323,12 +2574,7 @@ def do_get_spice_console(cs, args):
     server = _find_server(cs, args.server)
     data = server.get_spice_console(args.console_type)
 
-    class SPICEConsole(object):
-        def __init__(self, console_dict):
-            self.type = console_dict['type']
-            self.url = console_dict['url']
-
-    utils.print_list([SPICEConsole(data['console'])], ['Type', 'Url'])
+    print_console(cs, data)
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2341,18 +2587,21 @@ def do_get_rdp_console(cs, args):
     server = _find_server(cs, args.server)
     data = server.get_rdp_console(args.console_type)
 
-    class RDPConsole(object):
-        def __init__(self, console_dict):
-            self.type = console_dict['type']
-            self.url = console_dict['url']
-
-    utils.print_list([RDPConsole(data['console'])], ['Type', 'Url'])
+    print_console(cs, data)
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
 @cliutils.arg(
-    '--console_type', default='serial',
+    '--console-type',
+    default='serial',
     help=_('Type of serial console, default="serial".'))
+@cliutils.arg(
+    '--console_type',
+    default='serial',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--console-type',
+    help=argparse.SUPPRESS)
 def do_get_serial_console(cs, args):
     """Get a serial console to a server."""
     if args.console_type not in ('serial',):
@@ -2363,12 +2612,17 @@ def do_get_serial_console(cs, args):
     server = _find_server(cs, args.server)
     data = server.get_serial_console(args.console_type)
 
-    class SerialConsole(object):
-        def __init__(self, console_dict):
-            self.type = console_dict['type']
-            self.url = console_dict['url']
+    print_console(cs, data)
 
-    utils.print_list([SerialConsole(data['console'])], ['Type', 'Url'])
+
+@api_versions.wraps('2.8')
+@cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+def do_get_mks_console(cs, args):
+    """Get a serial console to a server."""
+    server = _find_server(cs, args.server)
+    data = server.get_mks_console()
+
+    print_console(cs, data)
 
 
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2528,7 +2782,7 @@ def do_floating_ip_pool_list(cs, _args):
 
 @cliutils.arg(
     '--host', dest='host', metavar='<host>', default=None,
-    help=_('Filter by host'))
+    help=_('Filter by host.'))
 def do_floating_ip_bulk_list(cs, args):
     """List all floating IPs (nova-network only)."""
     utils.print_list(cs.floating_ips_bulk.list(args.host), ['project_id',
@@ -2538,19 +2792,21 @@ def do_floating_ip_bulk_list(cs, args):
                                                             'interface'])
 
 
-@cliutils.arg('ip_range', metavar='<range>', help=_('Address range to create'))
+@cliutils.arg('ip_range', metavar='<range>',
+              help=_('Address range to create.'))
 @cliutils.arg(
     '--pool', dest='pool', metavar='<pool>', default=None,
-    help=_('Pool for new Floating IPs'))
+    help=_('Pool for new Floating IPs.'))
 @cliutils.arg(
     '--interface', metavar='<interface>', default=None,
-    help=_('Interface for new Floating IPs'))
+    help=_('Interface for new Floating IPs.'))
 def do_floating_ip_bulk_create(cs, args):
     """Bulk create floating IPs by range (nova-network only)."""
     cs.floating_ips_bulk.create(args.ip_range, args.pool, args.interface)
 
 
-@cliutils.arg('ip_range', metavar='<range>', help=_('Address range to delete'))
+@cliutils.arg('ip_range', metavar='<range>',
+              help=_('Address range to delete.'))
 def do_floating_ip_bulk_delete(cs, args):
     """Bulk delete floating IPs by range (nova-network only)."""
     cs.floating_ips_bulk.delete(args.ip_range)
@@ -2571,9 +2827,9 @@ def do_dns_domains(cs, args):
     _print_domain_list(domains)
 
 
-@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain'))
-@cliutils.arg('--ip', metavar='<ip>', help=_('IP address'), default=None)
-@cliutils.arg('--name', metavar='<name>', help=_('DNS name'), default=None)
+@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
+@cliutils.arg('--ip', metavar='<ip>', help=_('IP address.'), default=None)
+@cliutils.arg('--name', metavar='<name>', help=_('DNS name.'), default=None)
 def do_dns_list(cs, args):
     """List current DNS entries for domain and IP or domain and name."""
     if not (args.ip or args.name):
@@ -2588,33 +2844,33 @@ def do_dns_list(cs, args):
         _print_dns_list(entries)
 
 
-@cliutils.arg('ip', metavar='<ip>', help=_('IP address'))
-@cliutils.arg('name', metavar='<name>', help=_('DNS name'))
-@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain'))
+@cliutils.arg('ip', metavar='<ip>', help=_('IP address.'))
+@cliutils.arg('name', metavar='<name>', help=_('DNS name.'))
+@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
 @cliutils.arg(
     '--type',
     metavar='<type>',
-    help=_('dns type (e.g. "A")'),
+    help=_('DNS type (e.g. "A")'),
     default='A')
 def do_dns_create(cs, args):
-    """Create a DNS entry for domain, name and IP."""
+    """Create a DNS entry for domain, name, and IP."""
     cs.dns_entries.create(args.domain, args.name, args.ip, args.type)
 
 
-@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain'))
-@cliutils.arg('name', metavar='<name>', help=_('DNS name'))
+@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
+@cliutils.arg('name', metavar='<name>', help=_('DNS name.'))
 def do_dns_delete(cs, args):
     """Delete the specified DNS entry."""
     cs.dns_entries.delete(args.domain, args.name)
 
 
-@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain'))
+@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
 def do_dns_delete_domain(cs, args):
     """Delete the specified DNS domain."""
     cs.dns_domains.delete(args.domain)
 
 
-@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain'))
+@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
 @cliutils.arg(
     '--availability-zone',
     metavar='<availability-zone>',
@@ -2623,6 +2879,9 @@ def do_dns_delete_domain(cs, args):
            'in the specified availability zone.'))
 @cliutils.arg(
     '--availability_zone',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--availability-zone',
     help=argparse.SUPPRESS)
 def do_dns_create_private_domain(cs, args):
     """Create the specified DNS domain."""
@@ -2630,7 +2889,7 @@ def do_dns_create_private_domain(cs, args):
                                   args.availability_zone)
 
 
-@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain'))
+@cliutils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
 @cliutils.arg(
     '--project', metavar='<project>',
     help=_('Limit access to this domain to users '
@@ -2807,6 +3066,9 @@ def do_secgroup_delete(cs, args):
     nargs='?',
     type=int,
     const=1,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--all-tenants',
     help=argparse.SUPPRESS)
 def do_secgroup_list(cs, args):
     """List security groups for the current tenant."""
@@ -2852,8 +3114,7 @@ def do_secgroup_add_group_rule(cs, args):
     """Add a source group rule to a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
     source_group = _get_secgroup(cs, args.source_group)
-    params = {}
-    params['group_id'] = source_group.id
+    params = {'group_id': source_group.id}
 
     if args.ip_proto or args.from_port or args.to_port:
         if not (args.ip_proto and args.from_port and args.to_port):
@@ -2891,8 +3152,7 @@ def do_secgroup_delete_group_rule(cs, args):
     """Delete a source group rule from a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
     source_group = _get_secgroup(cs, args.source_group)
-    params = {}
-    params['group_name'] = source_group.name
+    params = {'group_name': source_group.name}
 
     if args.ip_proto or args.from_port or args.to_port:
         if not (args.ip_proto and args.from_port and args.to_port):
@@ -2919,9 +3179,15 @@ def _keypair_create(cs, args, name, pub_key):
     return cs.keypairs.create(name, pub_key)
 
 
-@api_versions.wraps("2.2")
+@api_versions.wraps("2.2", "2.9")
 def _keypair_create(cs, args, name, pub_key):
     return cs.keypairs.create(name, pub_key, key_type=args.key_type)
+
+
+@api_versions.wraps("2.10")
+def _keypair_create(cs, args, name, pub_key):
+    return cs.keypairs.create(name, pub_key, key_type=args.key_type,
+                              user_id=args.user)
 
 
 @cliutils.arg('name', metavar='<name>', help=_('Name of key.'))
@@ -2932,6 +3198,9 @@ def _keypair_create(cs, args, name, pub_key):
     help=_('Path to a public ssh key.'))
 @cliutils.arg(
     '--pub_key',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--pub-key',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--key-type',
@@ -2939,6 +3208,12 @@ def _keypair_create(cs, args, name, pub_key):
     default='ssh',
     help=_('Keypair type. Can be ssh or x509.'),
     start_version="2.2")
+@cliutils.arg(
+    '--user',
+    metavar='<user-id>',
+    default=None,
+    help=_('ID of user to whom to add key-pair (Admin only).'),
+    start_version="2.10")
 def do_keypair_add(cs, args):
     """Create a new key pair for use with servers."""
     name = args.name
@@ -2963,11 +3238,24 @@ def do_keypair_add(cs, args):
         print(private_key)
 
 
+@api_versions.wraps("2.0", "2.9")
 @cliutils.arg('name', metavar='<name>', help=_('Keypair name to delete.'))
 def do_keypair_delete(cs, args):
     """Delete keypair given by its name."""
     name = _find_keypair(cs, args.name)
     cs.keypairs.delete(name)
+
+
+@api_versions.wraps("2.10")
+@cliutils.arg('name', metavar='<name>', help=_('Keypair name to delete.'))
+@cliutils.arg(
+    '--user',
+    metavar='<user-id>',
+    default=None,
+    help=_('ID of key-pair owner (Admin only).'))
+def do_keypair_delete(cs, args):
+    """Delete keypair given by its name."""
+    cs.keypairs.delete(args.name, args.user)
 
 
 @api_versions.wraps("2.0", "2.1")
@@ -2980,9 +3268,23 @@ def _get_keypairs_list_columns(cs, args):
     return ['Name', 'Type', 'Fingerprint']
 
 
+@api_versions.wraps("2.0", "2.9")
 def do_keypair_list(cs, args):
     """Print a list of keypairs for a user"""
     keypairs = cs.keypairs.list()
+    columns = _get_keypairs_list_columns(cs, args)
+    utils.print_list(keypairs, columns)
+
+
+@api_versions.wraps("2.10")
+@cliutils.arg(
+    '--user',
+    metavar='<user-id>',
+    default=None,
+    help=_('List key-pairs of specified user ID (Admin only).'))
+def do_keypair_list(cs, args):
+    """Print a list of keypairs for a user"""
+    keypairs = cs.keypairs.list(args.user)
     columns = _get_keypairs_list_columns(cs, args)
     utils.print_list(keypairs, columns)
 
@@ -2994,6 +3296,7 @@ def _print_keypair(keypair):
     print(_("Public key: %s") % pk)
 
 
+@api_versions.wraps("2.0", "2.9")
 @cliutils.arg(
     'keypair',
     metavar='<keypair>',
@@ -3001,6 +3304,22 @@ def _print_keypair(keypair):
 def do_keypair_show(cs, args):
     """Show details about the given keypair."""
     keypair = _find_keypair(cs, args.keypair)
+    _print_keypair(keypair)
+
+
+@api_versions.wraps("2.10")
+@cliutils.arg(
+    'keypair',
+    metavar='<keypair>',
+    help=_("Name of keypair."))
+@cliutils.arg(
+    '--user',
+    metavar='<user-id>',
+    default=None,
+    help=_('ID of key-pair owner (Admin only).'))
+def do_keypair_show(cs, args):
+    """Show details about the given keypair."""
+    keypair = cs.keypairs.get(args.keypair, args.user)
     _print_keypair(keypair)
 
 
@@ -3125,12 +3444,12 @@ def do_limits(cs, args):
 @cliutils.arg(
     '--start',
     metavar='<start>',
-    help=_('Usage range start date ex 2012-01-20 (default: 4 weeks ago)'),
+    help=_('Usage range start date ex 2012-01-20. (default: 4 weeks ago)'),
     default=None)
 @cliutils.arg(
     '--end',
     metavar='<end>',
-    help=_('Usage range end date, ex 2012-01-20 (default: tomorrow)'),
+    help=_('Usage range end date, ex 2012-01-20. (default: tomorrow)'),
     default=None)
 def do_usage_list(cs, args):
     """List usage data for all tenants."""
@@ -3174,11 +3493,11 @@ def do_usage_list(cs, args):
 @cliutils.arg(
     '--start',
     metavar='<start>',
-    help=_('Usage range start date ex 2012-01-20 (default: 4 weeks ago)'),
+    help=_('Usage range start date ex 2012-01-20. (default: 4 weeks ago)'),
     default=None)
 @cliutils.arg(
     '--end', metavar='<end>',
-    help=_('Usage range end date, ex 2012-01-20 (default: tomorrow)'),
+    help=_('Usage range end date, ex 2012-01-20. (default: tomorrow)'),
     default=None)
 @cliutils.arg(
     '--tenant',
@@ -3236,13 +3555,13 @@ def do_usage(cs, args):
     metavar='<private-key-filename>',
     nargs='?',
     default='pk.pem',
-    help=_('Filename for the private key [Default: pk.pem]'))
+    help=_('Filename for the private key. [Default: pk.pem]'))
 @cliutils.arg(
     'cert_filename',
     metavar='<x509-cert-filename>',
     nargs='?',
     default='cert.pem',
-    help=_('Filename for the X.509 certificate [Default: cert.pem]'))
+    help=_('Filename for the X.509 certificate. [Default: cert.pem]'))
 def do_x509_create_cert(cs, args):
     """Create x509 cert for a user in tenant."""
 
@@ -3290,7 +3609,7 @@ def do_x509_get_root_cert(cs, args):
     '--hypervisor',
     metavar='<hypervisor>',
     default=None,
-    help=_('type of hypervisor.'))
+    help=_('Type of hypervisor.'))
 def do_agent_list(cs, args):
     """List all builds."""
     result = cs.agents.list(args.hypervisor)
@@ -3299,19 +3618,19 @@ def do_agent_list(cs, args):
     utils.print_list(result, columns)
 
 
-@cliutils.arg('os', metavar='<os>', help=_('type of os.'))
+@cliutils.arg('os', metavar='<os>', help=_('Type of OS.'))
 @cliutils.arg(
     'architecture',
     metavar='<architecture>',
-    help=_('type of architecture'))
-@cliutils.arg('version', metavar='<version>', help=_('version'))
-@cliutils.arg('url', metavar='<url>', help=_('url'))
-@cliutils.arg('md5hash', metavar='<md5hash>', help=_('md5 hash'))
+    help=_('Type of architecture.'))
+@cliutils.arg('version', metavar='<version>', help=_('Version.'))
+@cliutils.arg('url', metavar='<url>', help=_('URL.'))
+@cliutils.arg('md5hash', metavar='<md5hash>', help=_('MD5 hash.'))
 @cliutils.arg(
     'hypervisor',
     metavar='<hypervisor>',
     default='xen',
-    help=_('type of hypervisor.'))
+    help=_('Type of hypervisor.'))
 def do_agent_create(cs, args):
     """Create new agent build."""
     result = cs.agents.create(args.os, args.architecture,
@@ -3320,16 +3639,16 @@ def do_agent_create(cs, args):
     utils.print_dict(result._info.copy())
 
 
-@cliutils.arg('id', metavar='<id>', help=_('id of the agent-build'))
+@cliutils.arg('id', metavar='<id>', help=_('ID of the agent-build.'))
 def do_agent_delete(cs, args):
     """Delete existing agent build."""
     cs.agents.delete(args.id)
 
 
-@cliutils.arg('id', metavar='<id>', help=_('id of the agent-build'))
-@cliutils.arg('version', metavar='<version>', help=_('version'))
-@cliutils.arg('url', metavar='<url>', help=_('url'))
-@cliutils.arg('md5hash', metavar='<md5hash>', help=_('md5hash'))
+@cliutils.arg('id', metavar='<id>', help=_('ID of the agent-build.'))
+@cliutils.arg('version', metavar='<version>', help=_('Version.'))
+@cliutils.arg('url', metavar='<url>', help=_('URL'))
+@cliutils.arg('md5hash', metavar='<md5hash>', help=_('MD5 hash.'))
 def do_agent_modify(cs, args):
     """Modify existing agent build."""
     result = cs.agents.update(args.id, args.version,
@@ -3338,7 +3657,7 @@ def do_agent_modify(cs, args):
 
 
 def _find_aggregate(cs, aggregate):
-    """Get a aggregate by name or ID."""
+    """Get an aggregate by name or ID."""
     return utils.find_resource(cs.aggregates, aggregate)
 
 
@@ -3473,7 +3792,7 @@ def _print_aggregate_details(aggregate):
         return utils.pretty_choice_dict(getattr(fields, 'metadata', {}) or {})
 
     def parser_hosts(fields):
-        return cliutils.pretty_choice_list(getattr(fields, 'hosts', []))
+        return utils.pretty_choice_list(getattr(fields, 'hosts', []))
 
     formatters = {
         'Metadata': parser_metadata,
@@ -3485,34 +3804,115 @@ def _print_aggregate_details(aggregate):
 @cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
 @cliutils.arg(
     'host', metavar='<host>', default=None, nargs='?',
-    help=_('destination host name.'))
+    help=_('Destination host name.'))
 @cliutils.arg(
     '--block-migrate',
     action='store_true',
     dest='block_migrate',
     default=False,
-    help=_('True in case of block_migration. (Default=False:live_migration)'))
+    help=_('True in case of block_migration. (Default=False:live_migration)'),
+    start_version="2.0", end_version="2.24")
+@cliutils.arg(
+    '--block-migrate',
+    action='store_true',
+    dest='block_migrate',
+    default="auto",
+    help=_('True in case of block_migration. (Default=auto:live_migration)'),
+    start_version="2.25")
 @cliutils.arg(
     '--block_migrate',
-    action='store_true',
+    real_action='store_true',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--block-migrate',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--disk-over-commit',
     action='store_true',
     dest='disk_over_commit',
     default=False,
-    help=_('Allow overcommit.(Default=False)'))
+    help=_('Allow overcommit. (Default=False)'),
+    start_version="2.0", end_version="2.24")
 @cliutils.arg(
     '--disk_over_commit',
-    action='store_true',
-    help=argparse.SUPPRESS)
+    real_action='store_true',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--disk-over-commit',
+    help=argparse.SUPPRESS,
+    start_version="2.0", end_version="2.24")
 def do_live_migration(cs, args):
     """Migrate running server to a new machine."""
-    _find_server(cs, args.server).live_migrate(args.host,
-                                               args.block_migrate,
-                                               args.disk_over_commit)
+
+    if 'disk_over_commit' in args:
+        _find_server(cs, args.server).live_migrate(args.host,
+                                                   args.block_migrate,
+                                                   args.disk_over_commit)
+    else:
+        _find_server(cs, args.server).live_migrate(args.host,
+                                                   args.block_migrate)
 
 
+@api_versions.wraps("2.22")
+@cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@cliutils.arg('migration', metavar='<migration>', help=_('ID of migration.'))
+def do_live_migration_force_complete(cs, args):
+    """Force on-going live migration to complete."""
+    server = _find_server(cs, args.server)
+    cs.server_migrations.live_migrate_force_complete(server, args.migration)
+
+
+@api_versions.wraps("2.23")
+@cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+def do_server_migration_list(cs, args):
+    """Get the migrations list of specified server."""
+    server = _find_server(cs, args.server)
+    migrations = cs.server_migrations.list(server)
+
+    fields = ['Id', 'Source Node', 'Dest Node', 'Source Compute',
+              'Dest Compute', 'Dest Host', 'Status', 'Server UUID',
+              'Created At', 'Updated At']
+
+    format_name = ["Total Memory Bytes", "Processed Memory Bytes",
+                   "Remaining Memory Bytes", "Total Disk Bytes",
+                   "Processed Disk Bytes", "Remaining Disk Bytes"]
+
+    format_key = ["memory_total_bytes", "memory_processed_bytes",
+                  "memory_remaining_bytes", "disk_total_bytes",
+                  "disk_processed_bytes", "disk_remaining_bytes"]
+
+    formatters = map(lambda field: utils._make_field_formatter(field)[1],
+                     format_key)
+    formatters = dict(zip(format_name, formatters))
+
+    utils.print_list(migrations, fields + format_name, formatters)
+
+
+@api_versions.wraps("2.23")
+@cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@cliutils.arg('migration', metavar='<migration>', help=_('ID of migration.'))
+def do_server_migration_show(cs, args):
+    """Get the migration of specified server."""
+    server = _find_server(cs, args.server)
+    migration = cs.server_migrations.get(server, args.migration)
+    utils.print_dict(migration._info)
+
+
+@api_versions.wraps("2.24")
+@cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@cliutils.arg('migration', metavar='<migration>', help=_('ID of migration.'))
+def do_live_migration_abort(cs, args):
+    """Abort an on-going live migration."""
+    server = _find_server(cs, args.server)
+    cs.server_migrations.live_migration_abort(server, args.migration)
+
+
+@cliutils.arg(
+    '--all-tenants',
+    action='store_const',
+    const=1,
+    default=0,
+    help=_('Reset state server(s) in another tenant by name (Admin only).'))
 @cliutils.arg(
     'server', metavar='<server>', nargs='+',
     help=_('Name or ID of server(s).'))
@@ -3524,10 +3924,11 @@ def do_live_migration(cs, args):
 def do_reset_state(cs, args):
     """Reset the state of a server."""
     failure_flag = False
+    find_args = {'all_tenants': args.all_tenants}
 
     for server in args.server:
         try:
-            _find_server(cs, server).reset_state(args.state)
+            _find_server(cs, server, **find_args).reset_state(args.state)
             msg = "Reset state for server %s succeeded; new state is %s"
             print(msg % (server, args.state))
         except Exception as e:
@@ -3605,7 +4006,7 @@ def do_service_disable(cs, args):
 @cliutils.arg(
     '--unset',
     dest='force_down',
-    help=_("Unset the force state down of service"),
+    help=_("Unset the force state down of service."),
     action='store_false',
     default=True)
 def do_service_force_down(cs, args):
@@ -3614,7 +4015,7 @@ def do_service_force_down(cs, args):
     utils.print_list([result], ['Host', 'Binary', 'Forced down'])
 
 
-@cliutils.arg('id', metavar='<id>', help=_('Id of service.'))
+@cliutils.arg('id', metavar='<id>', help=_('ID of service.'))
 def do_service_delete(cs, args):
     """Delete the service."""
     cs.services.delete(args.id)
@@ -3800,10 +4201,11 @@ def ensure_service_catalog_present(cs):
 
 def do_endpoints(cs, _args):
     """Discover endpoints that get returned from the authenticate services."""
+    warnings.warn(
+        "nova endpoints is deprecated, use openstack catalog list instead")
     if isinstance(cs.client, client.SessionClient):
-        auth = cs.client.auth
-        sc = auth.get_access(cs.client.session).service_catalog
-        for service in sc.get_data():
+        access = cs.client.auth.get_access(cs.client.session)
+        for service in access.service_catalog.catalog:
             _print_endpoints(service, cs.client.region_name)
     else:
         ensure_service_catalog_present(cs)
@@ -3849,15 +4251,17 @@ def _get_first_endpoint(endpoints, region):
 
 @cliutils.arg(
     '--wrap', dest='wrap', metavar='<integer>', default=64,
-    help=_('wrap PKI tokens to a specified length, or 0 to disable'))
+    help=_('Wrap PKI tokens to a specified length, or 0 to disable.'))
 def do_credentials(cs, _args):
     """Show user credentials returned from auth."""
+    warnings.warn(
+        "nova credentials is deprecated, use openstack client instead")
     if isinstance(cs.client, client.SessionClient):
-        auth = cs.client.auth
-        sc = auth.get_access(cs.client.session).service_catalog
-        utils.print_dict(sc.catalog['user'], 'User Credentials',
+        access = cs.client.auth.get_access(cs.client.session)
+        utils.print_dict(access._user, 'User Credentials',
                          wrap=int(_args.wrap))
-        utils.print_dict(sc.get_token(), 'Token', wrap=int(_args.wrap))
+        if hasattr(access, '_token'):
+            utils.print_dict(access._token, 'Token', wrap=int(_args.wrap))
     else:
         ensure_service_catalog_present(cs)
         catalog = cs.client.service_catalog.catalog
@@ -3911,7 +4315,7 @@ def do_credentials(cs, _args):
 @cliutils.arg(
     '--extra-opts',
     dest='extra',
-    help=_('Extra options to pass to ssh. see: man ssh'),
+    help=_('Extra options to pass to ssh. see: man ssh.'),
     default='')
 def do_ssh(cs, args):
     """SSH into a server."""
@@ -3959,7 +4363,7 @@ def do_ssh(cs, args):
             'network': args.network, 'address_type': address_type,
             'pretty_version': pretty_version, 'server': args.server})
     elif len(matching_addresses) > 1:
-        msg = _("More than one %(pretty_version)s %(address_type)s address"
+        msg = _("More than one %(pretty_version)s %(address_type)s address "
                 "found.")
         raise exceptions.CommandError(msg % {'pretty_version': pretty_version,
                                              'address_type': address_type})
@@ -4094,6 +4498,9 @@ def do_quota_defaults(cs, args):
 @cliutils.arg(
     '--floating_ips',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--floating-ips',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--fixed-ips',
@@ -4110,6 +4517,9 @@ def do_quota_defaults(cs, args):
 @cliutils.arg(
     '--metadata_items',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--metadata-items',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--injected-files',
@@ -4120,6 +4530,9 @@ def do_quota_defaults(cs, args):
 @cliutils.arg(
     '--injected_files',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--injected-files',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--injected-file-content-bytes',
@@ -4130,6 +4543,9 @@ def do_quota_defaults(cs, args):
 @cliutils.arg(
     '--injected_file_content_bytes',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--injected-file-content-bytes',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--injected-file-path-bytes',
@@ -4173,7 +4589,7 @@ def do_quota_defaults(cs, args):
     action="store_true",
     default=None,
     help=_('Whether force update the quota even if the already used and '
-           'reserved exceeds the new quota'))
+           'reserved exceeds the new quota.'))
 def do_quota_update(cs, args):
     """Update the quotas for a tenant/user."""
 
@@ -4235,6 +4651,9 @@ def do_quota_class_show(cs, args):
 @cliutils.arg(
     '--floating_ips',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--floating-ips',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--fixed-ips',
@@ -4251,6 +4670,9 @@ def do_quota_class_show(cs, args):
 @cliutils.arg(
     '--metadata_items',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--metadata-items',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--injected-files',
@@ -4261,6 +4683,9 @@ def do_quota_class_show(cs, args):
 @cliutils.arg(
     '--injected_files',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--injected-files',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--injected-file-content-bytes',
@@ -4271,6 +4696,9 @@ def do_quota_class_show(cs, args):
 @cliutils.arg(
     '--injected_file_content_bytes',
     type=int,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 3.3.0.') % '--injected-file-content-bytes',
     help=argparse.SUPPRESS)
 @cliutils.arg(
     '--injected-file-path-bytes',
@@ -4324,20 +4752,22 @@ def do_quota_class_update(cs, args):
     dest='password',
     metavar='<password>',
     help=_("Set the provided admin password on the evacuated server. Not"
-            " applicable with on-shared-storage flag"))
+            " applicable if the server is on shared storage."))
 @cliutils.arg(
     '--on-shared-storage',
     dest='on_shared_storage',
     action="store_true",
     default=False,
-    help=_('Specifies whether server files are located on shared storage'))
+    help=_('Specifies whether server files are located on shared storage.'),
+    start_version='2.0',
+    end_version='2.13')
 def do_evacuate(cs, args):
     """Evacuate server from failed host."""
 
     server = _find_server(cs, args.server)
-
-    res = server.evacuate(args.host, args.on_shared_storage, args.password)[1]
-    if type(res) is dict:
+    on_shared_storage = getattr(args, 'on_shared_storage', None)
+    res = server.evacuate(args.host, on_shared_storage, args.password)[1]
+    if isinstance(res, dict):
         utils.print_dict(res)
 
 
@@ -4362,7 +4792,7 @@ def do_interface_list(cs, args):
     server = _find_server(cs, args.server)
 
     res = server.interface_list()
-    if type(res) is list:
+    if isinstance(res, list):
         _print_interfaces(res)
 
 
@@ -4387,7 +4817,7 @@ def do_interface_attach(cs, args):
     server = _find_server(cs, args.server)
 
     res = server.interface_attach(args.port_id, args.net_id, args.fixed_ip)
-    if type(res) is dict:
+    if isinstance(res, dict):
         utils.print_dict(res)
 
 
@@ -4398,8 +4828,17 @@ def do_interface_detach(cs, args):
     server = _find_server(cs, args.server)
 
     res = server.interface_detach(args.port_id)
-    if type(res) is dict:
+    if isinstance(res, dict):
         utils.print_dict(res)
+
+
+@api_versions.wraps("2.17")
+@cliutils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+def do_trigger_crash_dump(cs, args):
+    """Trigger crash dump in an instance."""
+    server = _find_server(cs, args.server)
+
+    server.trigger_crash_dump()
 
 
 def _treeizeAvailabilityZone(zone):
@@ -4445,7 +4884,7 @@ def _treeizeAvailabilityZone(zone):
     return result
 
 
-@cliutils.service_type('compute')
+@utils.service_type('compute')
 def do_availability_zone_list(cs, _args):
     """List all the availability zones."""
     try:
@@ -4464,14 +4903,16 @@ def do_availability_zone_list(cs, _args):
                      sortby_index=None)
 
 
-def _print_server_group_details(server_group):
-    # This is for compatible with Nova v2 API, remove after v2
-    # is dropped.
-    if hasattr(server_group, 'project_id'):
-        columns = ['Id', 'Name', 'Project_id', 'Policies',
-                   'Members', 'Metadata']
-    else:
-        columns = ['Id', 'Name', 'Policies', 'Members', 'Metadata']
+@api_versions.wraps("2.0", "2.12")
+def _print_server_group_details(cs, server_group):
+    columns = ['Id', 'Name', 'Policies', 'Members', 'Metadata']
+    utils.print_list(server_group, columns)
+
+
+@api_versions.wraps("2.13")
+def _print_server_group_details(cs, server_group):    # noqa
+    columns = ['Id', 'Name', 'Project Id', 'User Id',
+               'Policies', 'Members', 'Metadata']
     utils.print_list(server_group, columns)
 
 
@@ -4484,7 +4925,7 @@ def _print_server_group_details(server_group):
 def do_server_group_list(cs, args):
     """Print a list of all server groups."""
     server_groups = cs.server_groups.list(args.all_projects)
-    _print_server_group_details(server_groups)
+    _print_server_group_details(cs, server_groups)
 
 
 def do_secgroup_list_default_rules(cs, args):
@@ -4551,7 +4992,7 @@ def do_secgroup_delete_default_rule(cs, args):
 @cliutils.arg('name', metavar='<name>', help=_('Server group name.'))
 # NOTE(wingwj): The '--policy' way is still reserved here for preserving
 # the backwards compatibility of CLI, even if a user won't get this usage
-# in '--help' description. It will be deprecated after an suitable deprecation
+# in '--help' description. It will be deprecated after a suitable deprecation
 # period(probably 2 coordinated releases or so).
 #
 # Moreover, we imagine that a given user will use only positional parameters or
@@ -4564,11 +5005,14 @@ def do_secgroup_delete_default_rule(cs, args):
     metavar='<policy>',
     default=argparse.SUPPRESS,
     nargs='*',
-    help=_('Policies for the server groups ("affinity" or "anti-affinity")'))
+    help=_('Policies for the server groups.'))
 @cliutils.arg(
     '--policy',
     default=[],
-    action='append',
+    real_action='append',
+    action=shell.DeprecatedAction,
+    use=_('use positional parameters; this option will be removed in '
+          'novaclient 3.3.0.'),
     help=argparse.SUPPRESS)
 def do_server_group_create(cs, args):
     """Create a new server group with the specified details."""
@@ -4578,14 +5022,14 @@ def do_server_group_create(cs, args):
     kwargs = {'name': args.name,
               'policies': args.policy}
     server_group = cs.server_groups.create(**kwargs)
-    _print_server_group_details([server_group])
+    _print_server_group_details(cs, [server_group])
 
 
 @cliutils.arg(
     'id',
     metavar='<id>',
     nargs='+',
-    help=_("Unique ID(s) of the server group to delete"))
+    help=_("Unique ID(s) of the server group to delete."))
 def do_server_group_delete(cs, args):
     """Delete specific server group(s)."""
     failure_count = 0
@@ -4606,11 +5050,11 @@ def do_server_group_delete(cs, args):
 @cliutils.arg(
     'id',
     metavar='<id>',
-    help=_("Unique ID of the server group to get"))
+    help=_("Unique ID of the server group to get."))
 def do_server_group_get(cs, args):
     """Get a specific server group."""
     server_group = cs.server_groups.get(args.id)
-    _print_server_group_details([server_group])
+    _print_server_group_details(cs, [server_group])
 
 
 def do_version_list(cs, args):
@@ -4620,4 +5064,33 @@ def do_version_list(cs, args):
         columns = ["Id", "Status", "Updated", "Min Version", "Version"]
     else:
         columns = ["Id", "Status", "Updated"]
+
+    print(_("Client supported API versions:"))
+    print(_("Minimum version %(v)s") %
+          {'v': novaclient.API_MIN_VERSION.get_string()})
+    print(_("Maximum version %(v)s") %
+          {'v': novaclient.API_MAX_VERSION.get_string()})
+
+    print (_("\nServer supported API versions:"))
     utils.print_list(result, columns)
+
+
+@api_versions.wraps("2.0", "2.11")
+def _print_virtual_interface_list(cs, interface_list):
+    columns = ['Id', 'Mac address']
+    utils.print_list(interface_list, columns)
+
+
+@api_versions.wraps("2.12")
+def _print_virtual_interface_list(cs, interface_list):
+    columns = ['Id', 'Mac address', 'Network ID']
+    formatters = {"Network ID": lambda o: o.net_id}
+    utils.print_list(interface_list, columns, formatters)
+
+
+@cliutils.arg('server', metavar='<server>', help=_('ID of server.'))
+def do_virtual_interface_list(cs, args):
+    """Show virtual interface info about the given server."""
+    server = _find_server(cs, args.server)
+    interface_list = cs.virtual_interfaces.list(base.getid(server))
+    _print_virtual_interface_list(cs, interface_list)

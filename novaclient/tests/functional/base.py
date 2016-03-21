@@ -20,7 +20,13 @@ import six
 import tempest_lib.cli.base
 import testtools
 
+import novaclient
+import novaclient.api_versions
 import novaclient.client
+import novaclient.v2.shell
+
+BOOT_IS_COMPLETE = ("login as 'cirros' user. default password: "
+                    "'cubswin:)'. use 'sudo' for root.")
 
 
 # The following are simple filter functions that filter our available
@@ -43,6 +49,16 @@ def pick_image(images):
     raise NoImageException()
 
 
+def pick_network(networks):
+    network_name = os.environ.get('OS_NOVACLIENT_NETWORK')
+    if network_name:
+        for network in networks:
+            if network.label == network_name:
+                return network
+        raise NoNetworkException()
+    return networks[0]
+
+
 class NoImageException(Exception):
     """We couldn't find an acceptable image."""
     pass
@@ -53,13 +69,19 @@ class NoFlavorException(Exception):
     pass
 
 
+class NoNetworkException(Exception):
+    """We couldn't find an acceptable network."""
+    pass
+
+
 class NoCloudConfigException(Exception):
     """We couldn't find a cloud configuration."""
     pass
 
 
 class ClientTestBase(testtools.TestCase):
-    """
+    """Base test class for read only python-novaclient commands.
+
     This is a first pass at a simple read only python-novaclient test. This
     only exercises client commands that are read only.
 
@@ -70,6 +92,8 @@ class ClientTestBase(testtools.TestCase):
     * initially just check return codes, and later test command outputs
 
     """
+    COMPUTE_API_VERSION = None
+
     log_format = ('%(asctime)s %(process)d %(levelname)-8s '
                   '[%(name)s] %(message)s')
 
@@ -133,7 +157,7 @@ class ClientTestBase(testtools.TestCase):
 
         if cloud_config is None:
             raise NoCloudConfigException(
-                "Cloud not find a cloud named functional_admin or a cloud"
+                "Could not find a cloud named functional_admin or a cloud"
                 " named devstack. Please check your clouds.yaml file and"
                 " try again.")
         auth_info = cloud_config.config['auth']
@@ -142,17 +166,23 @@ class ClientTestBase(testtools.TestCase):
         passwd = auth_info['password']
         tenant = auth_info['project_name']
         auth_url = auth_info['auth_url']
+        if 'insecure' in cloud_config.config:
+            insecure = cloud_config.config['insecure']
+        else:
+            insecure = False
 
-        # TODO(sdague): we made a lot of fun of the glanceclient team
-        # for version as int in first parameter. I guess we know where
-        # they copied it from.
+        if self.COMPUTE_API_VERSION == "2.latest":
+            version = novaclient.API_MAX_VERSION.get_string()
+        else:
+            version = self.COMPUTE_API_VERSION or "2"
         self.client = novaclient.client.Client(
-            2, user, passwd, tenant,
-            auth_url=auth_url)
+            version, user, passwd, tenant,
+            auth_url=auth_url, insecure=insecure)
 
         # pick some reasonable flavor / image combo
         self.flavor = pick_flavor(self.client.flavors.list())
         self.image = pick_image(self.client.images.list())
+        self.network = pick_network(self.client.networks.list())
 
         # create a CLI client in case we'd like to do CLI
         # testing. tempest_lib does this really weird thing where it
@@ -168,11 +198,15 @@ class ClientTestBase(testtools.TestCase):
             password=passwd,
             tenant_name=tenant,
             uri=auth_url,
-            cli_dir=cli_dir)
+            cli_dir=cli_dir,
+            insecure=insecure)
 
-    def nova(self, *args, **kwargs):
-        return self.cli_clients.nova(*args,
-                                     **kwargs)
+    def nova(self, action, flags='', params='', fail_ok=False,
+             endpoint_type='publicURL', merge_stderr=False):
+        if self.COMPUTE_API_VERSION:
+            flags += " --os-compute-api-version %s " % self.COMPUTE_API_VERSION
+        return self.cli_clients.nova(action, flags, params, fail_ok,
+                                     endpoint_type, merge_stderr)
 
     def wait_for_volume_status(self, volume, status, timeout=60,
                                poll_interval=1):
@@ -192,6 +226,23 @@ class ClientTestBase(testtools.TestCase):
         else:
             self.fail("Volume %s did not reach status %s after %d s"
                       % (volume.id, status, timeout))
+
+    def wait_for_server_os_boot(self, server_id, timeout=60,
+                                poll_interval=1):
+        """Wait until instance's operating system  is completely booted.
+
+        :param server_id: uuid4 id of given instance
+        :param timeout: timeout in seconds
+        :param poll_interval: poll interval in seconds
+        """
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if BOOT_IS_COMPLETE in self.nova('console-log %s ' % server_id):
+                break
+            time.sleep(poll_interval)
+        else:
+            self.fail("Server %s did not boot after %d s"
+                      % (server_id, timeout))
 
     def wait_for_resource_delete(self, resource, manager,
                                  timeout=60, poll_interval=1):
@@ -276,3 +327,57 @@ class ClientTestBase(testtools.TestCase):
                     return line.split("|")[1:-1][column_index].strip()
 
         raise ValueError("Unable to find value for column '%s'.")
+
+    def _create_server(self, name=None, with_network=True, add_cleanup=True,
+                       **kwargs):
+        name = name or self.name_generate(prefix='server')
+        if with_network:
+            nics = [{"net-id": self.network.id}]
+        else:
+            nics = None
+        server = self.client.servers.create(name, self.image, self.flavor,
+                                            nics=nics, **kwargs)
+        if add_cleanup:
+            self.addCleanup(server.delete)
+        novaclient.v2.shell._poll_for_status(
+            self.client.servers.get, server.id,
+            'building', ['active'])
+        return server
+
+
+class TenantTestBase(ClientTestBase):
+    """Base test class for additional tenant and user creation which
+    could be required in various test scenarios
+    """
+
+    def setUp(self):
+        super(TenantTestBase, self).setUp()
+        tenant = self.cli_clients.keystone(
+            'tenant-create --name %s --enabled True' %
+            self.name_generate('v' + self.COMPUTE_API_VERSION))
+        self.tenant_name = self._get_value_from_the_table(tenant, "name")
+        self.tenant_id = self._get_value_from_the_table(
+            self.cli_clients.keystone(
+                'tenant-get %s' % self.tenant_name), 'id')
+        self.addCleanup(self.cli_clients.keystone,
+                        "tenant-delete %s" % self.tenant_name)
+        user_name = self.name_generate('v' + self.COMPUTE_API_VERSION)
+        password = 'password'
+        user = self.cli_clients.keystone(
+            "user-create --name %(name)s --pass %(pass)s --tenant %(tenant)s" %
+            {"name": user_name, "pass": password, "tenant": self.tenant_name})
+        self.user_id = self._get_value_from_the_table(user, "id")
+        self.addCleanup(self.cli_clients.keystone,
+                        "user-delete %s" % self.user_id)
+        self.cli_clients_2 = tempest_lib.cli.base.CLIClient(
+            username=user_name,
+            password=password,
+            tenant_name=self.tenant_name,
+            uri=self.cli_clients.uri,
+            cli_dir=self.cli_clients.cli_dir)
+
+    def another_nova(self, action, flags='', params='', fail_ok=False,
+                     endpoint_type='publicURL', merge_stderr=False):
+        flags += " --os-compute-api-version %s " % self.COMPUTE_API_VERSION
+        return self.cli_clients_2.nova(action, flags, params, fail_ok,
+                                       endpoint_type, merge_stderr)

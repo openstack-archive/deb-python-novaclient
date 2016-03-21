@@ -38,8 +38,10 @@ class Volume(base.Resource):
     def delete(self):
         """
         DEPRECATED: Delete this volume.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.delete(self)
+        return self.manager.delete(self)
 
 
 class VolumeManager(base.ManagerWithFind):
@@ -68,7 +70,8 @@ class VolumeManager(base.ManagerWithFind):
                       '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
         # NOTE(melwitt): Ensure we use the volume endpoint for this call
-        with self.alternate_service_type('volume'):
+        with self.alternate_service_type(
+                'volumev2', allowed_types=('volume', 'volumev2')):
             body = {'volume': {'size': size,
                                'snapshot_id': snapshot_id,
                                'display_name': display_name,
@@ -89,7 +92,8 @@ class VolumeManager(base.ManagerWithFind):
                       'method is deprecated and will be removed after Nova '
                       '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
-        with self.alternate_service_type('volume'):
+        with self.alternate_service_type(
+                'volumev2', allowed_types=('volume', 'volumev2')):
             return self._get("/volumes/%s" % volume_id, "volume")
 
     def list(self, detailed=True, search_opts=None):
@@ -102,7 +106,8 @@ class VolumeManager(base.ManagerWithFind):
                       'method is deprecated and will be removed after Nova '
                       '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
-        with self.alternate_service_type('volume'):
+        with self.alternate_service_type(
+                'volumev2', allowed_types=('volume', 'volumev2')):
             search_opts = search_opts or {}
 
             if 'name' in search_opts.keys():
@@ -123,13 +128,15 @@ class VolumeManager(base.ManagerWithFind):
         DEPRECATED: Delete a volume.
 
         :param volume: The :class:`Volume` to delete.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
         warnings.warn('The novaclient.v2.volumes.VolumeManager.delete() '
                       'method is deprecated and will be removed after Nova '
                       '13.0.0 is released. Use python-cinderclient or '
                       'python-openstacksdk instead.', DeprecationWarning)
-        with self.alternate_service_type('volume'):
-            self._delete("/volumes/%s" % base.getid(volume))
+        with self.alternate_service_type(
+                'volumev2', allowed_types=('volume', 'volumev2')):
+            return self._delete("/volumes/%s" % base.getid(volume))
 
     def create_server_volume(self, server_id, volume_id, device=None):
         """
@@ -189,6 +196,7 @@ class VolumeManager(base.ManagerWithFind):
 
         :param server_id: The ID of the server
         :param attachment_id: The ID of the attachment
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._delete("/servers/%s/os-volume_attachments/%s" %
-                     (server_id, attachment_id,))
+        return self._delete("/servers/%s/os-volume_attachments/%s" %
+                            (server_id, attachment_id,))

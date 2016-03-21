@@ -26,9 +26,7 @@ from novaclient import utils
 
 
 class Flavor(base.Resource):
-    """
-    A flavor is an available hardware configuration for a server.
-    """
+    """A flavor is an available hardware configuration for a server."""
     HUMAN_ID = True
 
     def __repr__(self):
@@ -36,29 +34,26 @@ class Flavor(base.Resource):
 
     @property
     def ephemeral(self):
-        """
-        Provide a user-friendly accessor to OS-FLV-EXT-DATA:ephemeral
-        """
+        """Provide a user-friendly accessor to OS-FLV-EXT-DATA:ephemeral."""
         return self._info.get("OS-FLV-EXT-DATA:ephemeral", 'N/A')
 
     @property
     def is_public(self):
-        """
-        Provide a user-friendly accessor to os-flavor-access:is_public
-        """
+        """Provide a user-friendly accessor to os-flavor-access:is_public."""
         return self._info.get("os-flavor-access:is_public", 'N/A')
 
     def get_keys(self):
         """
         Get extra specs from a flavor.
+
+        :returns: An instance of novaclient.base.DictWithMeta
         """
-        _resp, body = self.manager.api.client.get(
+        resp, body = self.manager.api.client.get(
             "/flavors/%s/os-extra_specs" % base.getid(self))
-        return body["extra_specs"]
+        return self.manager.convert_into_with_meta(body["extra_specs"], resp)
 
     def set_keys(self, metadata):
-        """
-        Set extra specs on a flavor.
+        """Set extra specs on a flavor.
 
         :param metadata: A dict of key/value pairs to be set
         """
@@ -70,37 +65,48 @@ class Flavor(base.Resource):
             "extra_specs", return_raw=True)
 
     def unset_keys(self, keys):
-        """
-        Unset extra specs on a flavor.
+        """Unset extra specs on a flavor.
 
         :param keys: A list of keys to be unset
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
+        result = base.TupleWithMeta((), None)
         for k in keys:
-            self.manager._delete(
+            ret = self.manager._delete(
                 "/flavors/%s/os-extra_specs/%s" % (base.getid(self), k))
+            result.append_request_ids(ret.request_ids)
+
+        return result
 
     def delete(self):
         """
         Delete this flavor.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.delete(self)
+        return self.manager.delete(self)
 
 
 class FlavorManager(base.ManagerWithFind):
-    """
-    Manage :class:`Flavor` resources.
-    """
+    """Manage :class:`Flavor` resources."""
     resource_class = Flavor
     is_alphanum_id_allowed = True
 
-    def list(self, detailed=True, is_public=True, marker=None, limit=None):
-        """
-        Get a list of all flavors.
+    def list(self, detailed=True, is_public=True, marker=None, limit=None,
+             sort_key=None, sort_dir=None):
+        """Get a list of all flavors.
 
-        :rtype: list of :class:`Flavor`.
-        :param limit: maximum number of flavors to return (optional).
+        :param detailed: Whether flavor needs to be return with details
+                         (optional).
+        :param is_public: Filter flavors with provided access type (optional).
+                          None means give all flavors and only admin has query
+                          access to all flavor types.
         :param marker: Begin returning flavors that appear later in the flavor
                        list than that represented by this flavor id (optional).
+        :param limit: maximum number of flavors to return (optional).
+        :param sort_key: Flavors list sort key (optional).
+        :param sort_dir: Flavors list sort direction (optional).
+        :returns: list of :class:`Flavor`.
         """
         qparams = {}
         # is_public is ternary - None means give all flavors.
@@ -110,6 +116,10 @@ class FlavorManager(base.ManagerWithFind):
             qparams['marker'] = str(marker)
         if limit:
             qparams['limit'] = int(limit)
+        if sort_key:
+            qparams['sort_key'] = str(sort_key)
+        if sort_dir:
+            qparams['sort_dir'] = str(sort_dir)
         if not is_public:
             qparams['is_public'] = is_public
         qparams = sorted(qparams.items(), key=lambda x: x[0])
@@ -122,21 +132,20 @@ class FlavorManager(base.ManagerWithFind):
         return self._list("/flavors%s%s" % (detail, query_string), "flavors")
 
     def get(self, flavor):
-        """
-        Get a specific flavor.
+        """Get a specific flavor.
 
         :param flavor: The ID of the :class:`Flavor` to get.
-        :rtype: :class:`Flavor`
+        :returns: :class:`Flavor`
         """
         return self._get("/flavors/%s" % base.getid(flavor), "flavor")
 
     def delete(self, flavor):
-        """
-        Delete a specific flavor.
+        """Delete a specific flavor.
 
         :param flavor: The ID of the :class:`Flavor` to get.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._delete("/flavors/%s" % base.getid(flavor))
+        return self._delete("/flavors/%s" % base.getid(flavor))
 
     def _build_body(self, name, ram, vcpus, disk, id, swap,
                     ephemeral, rxtx_factor, is_public):
@@ -156,8 +165,7 @@ class FlavorManager(base.ManagerWithFind):
 
     def create(self, name, ram, vcpus, disk, flavorid="auto",
                ephemeral=0, swap=0, rxtx_factor=1.0, is_public=True):
-        """
-        Create a flavor.
+        """Create a flavor.
 
         :param name: Descriptive name of the flavor
         :param ram: Memory in MB for the flavor
@@ -168,7 +176,7 @@ class FlavorManager(base.ManagerWithFind):
                          flavor in cases where you cannot simply pass ``None``.
         :param swap: Swap space in MB
         :param rxtx_factor: RX/TX factor
-        :rtype: :class:`Flavor`
+        :returns: :class:`Flavor`
         """
 
         try:

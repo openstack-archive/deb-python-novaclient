@@ -11,12 +11,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import argparse
 import distutils.version as dist_version
 import re
 import sys
 
 import fixtures
-from keystoneclient import fixture
+from keystoneauth1 import fixture
 import mock
 import prettytable
 import requests_mock
@@ -65,9 +66,270 @@ FAKE_ENV5 = {'OS_USERNAME': 'username',
              'OS_COMPUTE_API_VERSION': '2',
              'OS_AUTH_SYSTEM': 'rackspace'}
 
+FAKE_ENV6 = {'OS_USERNAME': 'username',
+             'OS_PASSWORD': 'password',
+             'OS_TENANT_NAME': 'tenant_name',
+             'OS_AUTH_URL': 'http://no.where/v2.0',
+             'OS_AUTH_SYSTEM': 'rackspace'}
+
 
 def _create_ver_list(versions):
     return {'versions': {'values': versions}}
+
+
+class DeprecatedActionTest(utils.TestCase):
+    @mock.patch.object(argparse.Action, '__init__', return_value=None)
+    def test_init_emptyhelp_nouse(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertIsNone(result.use)
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest', 'Deprecated',
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated', a=1, b=2, c=3)
+
+    @mock.patch.object(novaclient.shell.argparse.Action, '__init__',
+                       return_value=None)
+    def test_init_emptyhelp_withuse(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', use='use this instead', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertEqual(result.use, 'use this instead')
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest',
+                          'Deprecated; use this instead',
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated; use this instead',
+            a=1, b=2, c=3)
+
+    @mock.patch.object(argparse.Action, '__init__', return_value=None)
+    def test_init_withhelp_nouse(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', help='some help', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertIsNone(result.use)
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest',
+                          'some help (Deprecated)',
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help='some help (Deprecated)',
+            a=1, b=2, c=3)
+
+    @mock.patch.object(novaclient.shell.argparse.Action, '__init__',
+                       return_value=None)
+    def test_init_withhelp_withuse(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', help='some help',
+            use='use this instead', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertEqual(result.use, 'use this instead')
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest',
+                          'some help (Deprecated; use this instead)',
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest',
+            help='some help (Deprecated; use this instead)',
+            a=1, b=2, c=3)
+
+    @mock.patch.object(argparse.Action, '__init__', return_value=None)
+    def test_init_suppresshelp_nouse(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', help=argparse.SUPPRESS, a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertIsNone(result.use)
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest', argparse.SUPPRESS,
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help=argparse.SUPPRESS, a=1, b=2, c=3)
+
+    @mock.patch.object(novaclient.shell.argparse.Action, '__init__',
+                       return_value=None)
+    def test_init_suppresshelp_withuse(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', help=argparse.SUPPRESS,
+            use='use this instead', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertEqual(result.use, 'use this instead')
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest', argparse.SUPPRESS,
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help=argparse.SUPPRESS, a=1, b=2, c=3)
+
+    @mock.patch.object(argparse.Action, '__init__', return_value=None)
+    def test_init_action_nothing(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', real_action='nothing', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertIsNone(result.use)
+        self.assertEqual(result.real_action_args, False)
+        self.assertIsNone(result.real_action)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated', a=1, b=2, c=3)
+
+    @mock.patch.object(argparse.Action, '__init__', return_value=None)
+    def test_init_action_string(self, mock_init):
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', real_action='store', a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertIsNone(result.use)
+        self.assertEqual(result.real_action_args,
+                         ('option_strings', 'dest', 'Deprecated',
+                          {'a': 1, 'b': 2, 'c': 3}))
+        self.assertEqual(result.real_action, 'store')
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated', a=1, b=2, c=3)
+
+    @mock.patch.object(argparse.Action, '__init__', return_value=None)
+    def test_init_action_other(self, mock_init):
+        action = mock.Mock()
+        result = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', real_action=action, a=1, b=2, c=3)
+
+        self.assertEqual(result.emitted, set())
+        self.assertIsNone(result.use)
+        self.assertEqual(result.real_action_args, False)
+        self.assertEqual(result.real_action, action.return_value)
+        mock_init.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated', a=1, b=2, c=3)
+        action.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated', a=1, b=2, c=3)
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    def test_get_action_nolookup(self):
+        action_class = mock.Mock()
+        parser = mock.Mock(**{
+            '_registry_get.return_value': action_class,
+        })
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', real_action='nothing', const=1)
+        obj.real_action = 'action'
+
+        result = obj._get_action(parser)
+
+        self.assertEqual(result, 'action')
+        self.assertEqual(obj.real_action, 'action')
+        self.assertFalse(parser._registry_get.called)
+        self.assertFalse(action_class.called)
+        self.assertEqual(sys.stderr.getvalue(), '')
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    def test_get_action_lookup_noresult(self):
+        parser = mock.Mock(**{
+            '_registry_get.return_value': None,
+        })
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', real_action='store', const=1)
+
+        result = obj._get_action(parser)
+
+        self.assertIsNone(result)
+        self.assertIsNone(obj.real_action)
+        parser._registry_get.assert_called_once_with(
+            'action', 'store')
+        self.assertEqual(sys.stderr.getvalue(),
+                         'WARNING: Programming error: Unknown real action '
+                         '"store"\n')
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    def test_get_action_lookup_withresult(self):
+        action_class = mock.Mock()
+        parser = mock.Mock(**{
+            '_registry_get.return_value': action_class,
+        })
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', real_action='store', const=1)
+
+        result = obj._get_action(parser)
+
+        self.assertEqual(result, action_class.return_value)
+        self.assertEqual(obj.real_action, action_class.return_value)
+        parser._registry_get.assert_called_once_with(
+            'action', 'store')
+        action_class.assert_called_once_with(
+            'option_strings', 'dest', help='Deprecated', const=1)
+        self.assertEqual(sys.stderr.getvalue(), '')
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    @mock.patch.object(novaclient.shell.DeprecatedAction, '_get_action')
+    def test_call_unemitted_nouse(self, mock_get_action):
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest')
+
+        obj('parser', 'namespace', 'values', 'option_string')
+
+        self.assertEqual(obj.emitted, set(['option_string']))
+        mock_get_action.assert_called_once_with('parser')
+        mock_get_action.return_value.assert_called_once_with(
+            'parser', 'namespace', 'values', 'option_string')
+        self.assertEqual(sys.stderr.getvalue(),
+                         'WARNING: Option "option_string" is deprecated\n')
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    @mock.patch.object(novaclient.shell.DeprecatedAction, '_get_action')
+    def test_call_unemitted_withuse(self, mock_get_action):
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', use='use this instead')
+
+        obj('parser', 'namespace', 'values', 'option_string')
+
+        self.assertEqual(obj.emitted, set(['option_string']))
+        mock_get_action.assert_called_once_with('parser')
+        mock_get_action.return_value.assert_called_once_with(
+            'parser', 'namespace', 'values', 'option_string')
+        self.assertEqual(sys.stderr.getvalue(),
+                         'WARNING: Option "option_string" is deprecated; '
+                         'use this instead\n')
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    @mock.patch.object(novaclient.shell.DeprecatedAction, '_get_action')
+    def test_call_emitted_nouse(self, mock_get_action):
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest')
+        obj.emitted.add('option_string')
+
+        obj('parser', 'namespace', 'values', 'option_string')
+
+        self.assertEqual(obj.emitted, set(['option_string']))
+        mock_get_action.assert_called_once_with('parser')
+        mock_get_action.return_value.assert_called_once_with(
+            'parser', 'namespace', 'values', 'option_string')
+        self.assertEqual(sys.stderr.getvalue(), '')
+
+    @mock.patch.object(sys, 'stderr', six.StringIO())
+    @mock.patch.object(novaclient.shell.DeprecatedAction, '_get_action')
+    def test_call_emitted_withuse(self, mock_get_action):
+        obj = novaclient.shell.DeprecatedAction(
+            'option_strings', 'dest', use='use this instead')
+        obj.emitted.add('option_string')
+
+        obj('parser', 'namespace', 'values', 'option_string')
+
+        self.assertEqual(obj.emitted, set(['option_string']))
+        mock_get_action.assert_called_once_with('parser')
+        mock_get_action.return_value.assert_called_once_with(
+            'parser', 'namespace', 'values', 'option_string')
+        self.assertEqual(sys.stderr.getvalue(), '')
 
 
 class ParserTest(utils.TestCase):
@@ -98,7 +360,7 @@ class ParserTest(utils.TestCase):
 class ShellTest(utils.TestCase):
 
     _msg_no_tenant_project = ("You must provide a project name or project"
-                              " id via --os-project-name, --os-project-id,"
+                              " ID via --os-project-name, --os-project-id,"
                               " env[OS_PROJECT_ID] or env[OS_PROJECT_NAME]."
                               " You may use os-project and os-tenant"
                               " interchangeably.")
@@ -112,8 +374,7 @@ class ShellTest(utils.TestCase):
         self.useFixture(fixtures.MonkeyPatch(
                         'novaclient.client.Client',
                         mock.MagicMock()))
-        self.nc_util = mock.patch(
-            'novaclient.openstack.common.cliutils.isunauthenticated').start()
+        self.nc_util = mock.patch('novaclient.utils.isunauthenticated').start()
         self.nc_util.return_value = False
         self.mock_server_version_range = mock.patch(
             'novaclient.api_versions._get_server_version_range').start()
@@ -213,7 +474,7 @@ class ShellTest(utils.TestCase):
                             matchers.MatchesRegex(r, re.DOTALL | re.MULTILINE))
 
     def test_no_username(self):
-        required = ('You must provide a username or user id'
+        required = ('You must provide a username or user ID'
                     ' via --os-username, --os-user-id,'
                     ' env[OS_USERNAME] or env[OS_USER_ID]')
         self.make_env(exclude='OS_USERNAME')
@@ -225,7 +486,7 @@ class ShellTest(utils.TestCase):
             self.fail('CommandError not raised')
 
     def test_no_user_id(self):
-        required = ('You must provide a username or user id'
+        required = ('You must provide a username or user ID'
                     ' via --os-username, --os-user-id,'
                     ' env[OS_USERNAME] or env[OS_USER_ID]')
         self.make_env(exclude='OS_USER_ID', fake_env=FAKE_ENV2)
@@ -425,6 +686,25 @@ class ShellTest(utils.TestCase):
         self.assertIsInstance(keyring_saver, novaclient.shell.SecretsHelper)
 
     @mock.patch('novaclient.client.Client')
+    def test_microversion_with_default_behaviour(self, mock_client):
+        self.make_env(fake_env=FAKE_ENV6)
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion("2.1"), api_versions.APIVersion("2.3"))
+        self.shell('list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.3"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
+    def test_microversion_with_default_behaviour_with_legacy_server(
+            self, mock_client):
+        self.make_env(fake_env=FAKE_ENV6)
+        self.mock_server_version_range.return_value = (
+            api_versions.APIVersion(), api_versions.APIVersion())
+        self.shell('list')
+        client_args = mock_client.call_args_list[1][0]
+        self.assertEqual(api_versions.APIVersion("2.0"), client_args[0])
+
+    @mock.patch('novaclient.client.Client')
     def test_microversion_with_latest(self, mock_client):
         self.make_env()
         novaclient.API_MAX_VERSION = api_versions.APIVersion('2.3')
@@ -557,12 +837,27 @@ class TestLoadVersionedActions(utils.TestCase):
         shell = novaclient.shell.OpenStackComputeShell()
         shell.subcommands = {}
         shell._find_actions(subparsers, fake_actions_module,
-                            api_versions.APIVersion("2.10000"), True)
+                            api_versions.APIVersion("2.15"), True)
         self.assertIn('fake-action', shell.subcommands.keys())
-        expected_desc = ("(Supported by API versions '%(start)s' - "
+        expected_desc = (" (Supported by API versions '%(start)s' - "
                          "'%(end)s')") % {'start': '2.10', 'end': '2.30'}
-        self.assertIn(expected_desc,
-                      shell.subcommands['fake-action'].description)
+        self.assertEqual(expected_desc,
+                         shell.subcommands['fake-action'].description)
+
+    def test_load_versioned_actions_with_help_on_latest(self):
+        parser = novaclient.shell.NovaClientArgumentParser()
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.latest"), True)
+        self.assertIn('another-fake-action', shell.subcommands.keys())
+        expected_desc = (" (Supported by API versions '%(start)s' - "
+                         "'%(end)s')%(hint)s") % {
+            'start': '2.0', 'end': '2.latest',
+            'hint': novaclient.shell.HINT_HELP_MSG}
+        self.assertEqual(expected_desc,
+                         shell.subcommands['another-fake-action'].description)
 
     @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
                        'add_argument')
@@ -617,11 +912,31 @@ class TestLoadVersionedActions(utils.TestCase):
                             api_versions.APIVersion("2.4"), True)
         mock_add_arg.assert_has_calls([
             mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
-            mock.call('-h', '--help', action='help', help='==SUPPRESS=='),
-            mock.call('--foo',
-                      help=" (Supported by API versions '2.1' - '2.2')"),
             mock.call('--bar',
                       help=" (Supported by API versions '2.3' - '2.4')")])
+
+    @mock.patch.object(novaclient.shell.NovaClientArgumentParser,
+                       'add_argument')
+    def test_load_actions_with_versioned_args(self, mock_add_arg):
+        parser = novaclient.shell.NovaClientArgumentParser(add_help=False)
+        subparsers = parser.add_subparsers(metavar='<subcommand>')
+        shell = novaclient.shell.OpenStackComputeShell()
+        shell.subcommands = {}
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.20"), False)
+        self.assertIn(mock.call('--foo', help="first foo"),
+                      mock_add_arg.call_args_list)
+        self.assertNotIn(mock.call('--foo', help="second foo"),
+                         mock_add_arg.call_args_list)
+
+        mock_add_arg.reset_mock()
+
+        shell._find_actions(subparsers, fake_actions_module,
+                            api_versions.APIVersion("2.21"), False)
+        self.assertNotIn(mock.call('--foo', help="first foo"),
+                         mock_add_arg.call_args_list)
+        self.assertIn(mock.call('--foo', help="second foo"),
+                      mock_add_arg.call_args_list)
 
 
 class ShellTestKeystoneV3(ShellTest):

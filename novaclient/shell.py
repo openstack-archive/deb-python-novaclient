@@ -23,14 +23,13 @@ import argparse
 import getpass
 import logging
 import sys
+import warnings
 
-from keystoneclient.auth.identity.generic import password
-from keystoneclient.auth.identity.generic import token
-from keystoneclient.auth.identity import v3 as identity
-from keystoneclient import session as ksession
+from keystoneauth1 import loading
 from oslo_utils import encodeutils
 from oslo_utils import importutils
 from oslo_utils import strutils
+import six
 
 HAS_KEYRING = False
 all_errors = ValueError
@@ -51,11 +50,165 @@ from novaclient.openstack.common import cliutils
 from novaclient import utils
 
 DEFAULT_MAJOR_OS_COMPUTE_API_VERSION = "2.0"
-DEFAULT_OS_COMPUTE_API_VERSION = "2.latest"
+# The default behaviour of nova client CLI is that CLI negotiates with server
+# to find out the most recent version between client and server, and
+# '2.latest' means to that. This value never be changed until we decided to
+# change the default behaviour of nova client CLI.
+DEFAULT_OS_COMPUTE_API_VERSION = '2.latest'
 DEFAULT_NOVA_ENDPOINT_TYPE = 'publicURL'
 DEFAULT_NOVA_SERVICE_TYPE = "compute"
 
+HINT_HELP_MSG = (" [hint: use '--os-compute-api-version' flag to show help "
+                 "message for proper version]")
+
 logger = logging.getLogger(__name__)
+
+
+class DeprecatedAction(argparse.Action):
+    """An argparse action for deprecated options.
+
+    This class is an ``argparse.Action`` subclass that allows command
+    line options to be explicitly deprecated.  It modifies the help
+    text for the option to indicate that it's deprecated (unless help
+    has been suppressed using ``argparse.SUPPRESS``), and provides a
+    means to specify an alternate option to use using the ``use``
+    keyword argument to ``argparse.ArgumentParser.add_argument()``.
+    The original action may be specified with the ``real_action``
+    keyword argument, which has the same interpretation as the
+    ``action`` argument to ``argparse.ArgumentParser.add_argument()``,
+    with the addition of the special "nothing" action which completely
+    ignores the option (other than emitting the deprecation warning).
+    Note that the deprecation warning is only emitted once per
+    specific option string.
+
+    Note: If the ``real_action`` keyword argument specifies an unknown
+    action, no warning will be emitted unless the action is used, due
+    to limitations with the method used to resolve the action names.
+    """
+
+    def __init__(self, option_strings, dest, help=None,
+                 real_action=None, use=None, **kwargs):
+        """Initialize a ``DeprecatedAction`` instance.
+
+        :param option_strings: The recognized option strings.
+        :param dest: The attribute that will be set.
+        :param help: Help text.  This will be updated to indicate the
+                     deprecation, and if ``use`` is provided, that
+                     text will be included as well.
+        :param real_action: The actual action to invoke.  This is
+                            interpreted the same way as the ``action``
+                            parameter.
+        :param use: Text explaining which option to use instead.
+        """
+
+        # Update the help text
+        if not help:
+            if use:
+                help = _('Deprecated; %(use)s') % {'use': use}
+            else:
+                help = _('Deprecated')
+        elif help != argparse.SUPPRESS:
+            if use:
+                help = _('%(help)s (Deprecated; %(use)s)') % {
+                    'help': help,
+                    'use': use,
+                }
+            else:
+                help = _('%(help)s (Deprecated)') % {'help': help}
+
+        # Initialize ourself appropriately
+        super(DeprecatedAction, self).__init__(
+            option_strings, dest, help=help, **kwargs)
+
+        # 'emitted' tracks which warnings we've emitted
+        self.emitted = set()
+        self.use = use
+
+        # Select the appropriate action
+        if real_action == 'nothing':
+            # NOTE(Vek): "nothing" is distinct from a real_action=None
+            # argument.  When real_action=None, the argparse default
+            # action of "store" is used; when real_action='nothing',
+            # however, we explicitly inhibit doing anything with the
+            # option
+            self.real_action_args = False
+            self.real_action = None
+        elif real_action is None or isinstance(real_action, six.string_types):
+            # Specified by string (or None); we have to have a parser
+            # to look up the actual action, so defer to later
+            self.real_action_args = (option_strings, dest, help, kwargs)
+            self.real_action = real_action
+        else:
+            self.real_action_args = False
+            self.real_action = real_action(
+                option_strings, dest, help=help, **kwargs)
+
+    def _get_action(self, parser):
+        """Retrieve the action callable.
+
+        This internal method is used to retrieve the callable
+        implementing the action.  If ``real_action`` was specified as
+        ``None`` or one of the standard string names, an internal
+        method of the ``argparse.ArgumentParser`` instance is used to
+        resolve it into an actual action class, which is then
+        instantiated.  This is cached, in case the action is called
+        multiple times.
+
+        :param parser: The ``argparse.ArgumentParser`` instance.
+
+        :returns: The action callable.
+        """
+
+        # If a lookup is needed, look up the action in the parser
+        if self.real_action_args is not False:
+            option_strings, dest, help, kwargs = self.real_action_args
+            action_class = parser._registry_get('action', self.real_action)
+
+            # Did we find the action class?
+            if action_class is None:
+                print(_('WARNING: Programming error: Unknown real action '
+                        '"%s"') % self.real_action, file=sys.stderr)
+                self.real_action = None
+            else:
+                # OK, instantiate the action class
+                self.real_action = action_class(
+                    option_strings, dest, help=help, **kwargs)
+
+            # It's been resolved, no further need to look it up
+            self.real_action_args = False
+
+        return self.real_action
+
+    def __call__(self, parser, namespace, values, option_string):
+        """Implement the action.
+
+        Emits the deprecation warning message (only once for any given
+        option string), then calls the real action (if any).
+
+        :param parser: The ``argparse.ArgumentParser`` instance.
+        :param namespace: The ``argparse.Namespace`` object which
+                          should have an attribute set.
+        :param values: Any arguments provided to the option.
+        :param option_string: The option string that was used.
+        """
+
+        action = self._get_action(parser)
+
+        # Only emit the deprecation warning once per option
+        if option_string not in self.emitted:
+            if self.use:
+                print(_('WARNING: Option "%(option)s" is deprecated; '
+                        '%(use)s') % {
+                    'option': option_string,
+                    'use': self.use,
+                }, file=sys.stderr)
+            else:
+                print(_('WARNING: Option "%(option)s" is deprecated') %
+                      {'option': option_string}, file=sys.stderr)
+            self.emitted.add(option_string)
+
+        if action:
+            action(parser, namespace, values, option_string)
 
 
 def positive_non_zero_float(text):
@@ -147,7 +300,7 @@ class SecretsHelper(object):
             self._password = self.args.os_password
         else:
             verify_pass = strutils.bool_from_string(
-                cliutils.env("OS_VERIFY_PASSWORD", default=False), True)
+                utils.env("OS_VERIFY_PASSWORD", default=False), True)
             self._password = self._prompt_password(verify_pass)
         if not self._password:
             raise exc.CommandError(
@@ -242,23 +395,32 @@ class NovaClientArgumentParser(argparse.ArgumentParser):
 class OpenStackComputeShell(object):
     times = []
 
-    def _append_global_identity_args(self, parser):
+    def _append_global_identity_args(self, parser, argv):
         # Register the CLI arguments that have moved to the session object.
-        ksession.Session.register_cli_options(parser)
+        loading.register_session_argparse_arguments(parser)
+        # Peek into argv to see if os-auth-token or os-token were given,
+        # in which case, the token auth plugin is what the user wants
+        # else, we'll default to password
+        default_auth_plugin = 'password'
+        if 'os-token' in argv:
+            default_auth_plugin = 'token'
+        loading.register_auth_argparse_arguments(
+            parser, argv, default=default_auth_plugin)
 
-        parser.set_defaults(insecure=cliutils.env('NOVACLIENT_INSECURE',
+        parser.set_defaults(insecure=utils.env('NOVACLIENT_INSECURE',
                             default=False))
+        parser.set_defaults(os_auth_url=utils.env('OS_AUTH_URL', 'NOVA_URL'))
 
-        identity.Password.register_argparse_arguments(parser)
+        parser.set_defaults(os_username=utils.env('OS_USERNAME',
+                                                  'NOVA_USERNAME'))
+        parser.set_defaults(os_password=utils.env('OS_PASSWORD',
+                                                  'NOVA_PASSWORD'))
+        parser.set_defaults(os_project_name=utils.env(
+            'OS_PROJECT_NAME', 'OS_TENANT_NAME', 'NOVA_PROJECT_ID'))
+        parser.set_defaults(os_project_id=utils.env(
+            'OS_PROJECT_ID', 'OS_TENANT_ID'))
 
-        parser.set_defaults(os_username=cliutils.env('OS_USERNAME',
-                                                     'NOVA_USERNAME'))
-        parser.set_defaults(os_password=cliutils.env('OS_PASSWORD',
-                                                     'NOVA_PASSWORD'))
-        parser.set_defaults(os_auth_url=cliutils.env('OS_AUTH_URL',
-                                                     'NOVA_URL'))
-
-    def get_base_parser(self):
+    def get_base_parser(self, argv):
         parser = NovaClientArgumentParser(
             prog='nova',
             description=__doc__.strip(),
@@ -283,12 +445,12 @@ class OpenStackComputeShell(object):
             '--debug',
             default=False,
             action='store_true',
-            help=_("Print debugging output"))
+            help=_("Print debugging output."))
 
         parser.add_argument(
             '--os-cache',
             default=strutils.bool_from_string(
-                cliutils.env('OS_CACHE', default=False), True),
+                utils.env('OS_CACHE', default=False), True),
             action='store_true',
             help=_("Use the auth token cache. Defaults to False if "
                    "env[OS_CACHE] is not set."))
@@ -297,91 +459,101 @@ class OpenStackComputeShell(object):
             '--timings',
             default=False,
             action='store_true',
-            help=_("Print call timing info"))
-
-        parser.add_argument(
-            '--os-auth-token',
-            default=cliutils.env('OS_AUTH_TOKEN'),
-            help='Defaults to env[OS_AUTH_TOKEN]')
+            help=_("Print call timing info."))
 
         parser.add_argument(
             '--os_username',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-username',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--os_password',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-password',
             help=argparse.SUPPRESS)
 
-        parser.add_argument(
-            '--os-tenant-name',
-            metavar='<auth-tenant-name>',
-            default=cliutils.env('OS_TENANT_NAME', 'NOVA_PROJECT_ID'),
-            help=_('Defaults to env[OS_TENANT_NAME].'))
         parser.add_argument(
             '--os_tenant_name',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-tenant-name',
             help=argparse.SUPPRESS)
-
-        parser.add_argument(
-            '--os-tenant-id',
-            metavar='<auth-tenant-id>',
-            default=cliutils.env('OS_TENANT_ID'),
-            help=_('Defaults to env[OS_TENANT_ID].'))
 
         parser.add_argument(
             '--os_auth_url',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-auth-url',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--os-region-name',
             metavar='<region-name>',
-            default=cliutils.env('OS_REGION_NAME', 'NOVA_REGION_NAME'),
+            default=utils.env('OS_REGION_NAME', 'NOVA_REGION_NAME'),
             help=_('Defaults to env[OS_REGION_NAME].'))
         parser.add_argument(
             '--os_region_name',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-region-name',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--os-auth-system',
             metavar='<auth-system>',
-            default=cliutils.env('OS_AUTH_SYSTEM'),
-            help='Defaults to env[OS_AUTH_SYSTEM].')
+            default=utils.env('OS_AUTH_SYSTEM'),
+            help=argparse.SUPPRESS)
         parser.add_argument(
             '--os_auth_system',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-auth-system',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--service-type',
             metavar='<service-type>',
-            help=_('Defaults to compute for most actions'))
+            help=_('Defaults to compute for most actions.'))
         parser.add_argument(
             '--service_type',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--service-type',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--service-name',
             metavar='<service-name>',
-            default=cliutils.env('NOVA_SERVICE_NAME'),
-            help=_('Defaults to env[NOVA_SERVICE_NAME]'))
+            default=utils.env('NOVA_SERVICE_NAME'),
+            help=_('Defaults to env[NOVA_SERVICE_NAME].'))
         parser.add_argument(
             '--service_name',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--service-name',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--volume-service-name',
             metavar='<volume-service-name>',
-            default=cliutils.env('NOVA_VOLUME_SERVICE_NAME'),
-            help=_('Defaults to env[NOVA_VOLUME_SERVICE_NAME]'))
+            default=utils.env('NOVA_VOLUME_SERVICE_NAME'),
+            help=_('Defaults to env[NOVA_VOLUME_SERVICE_NAME].'))
         parser.add_argument(
             '--volume_service_name',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--volume-service-name',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--os-endpoint-type',
             metavar='<endpoint-type>',
             dest='endpoint_type',
-            default=cliutils.env(
-                'NOVA_ENDPOINT_TYPE',
-                default=cliutils.env(
+            default=utils.env(
+                'NOVA_ENDPOINT_TYPE', default=utils.env(
                     'OS_ENDPOINT_TYPE',
                     default=DEFAULT_NOVA_ENDPOINT_TYPE)),
             help=_('Defaults to env[NOVA_ENDPOINT_TYPE], '
@@ -390,6 +562,9 @@ class OpenStackComputeShell(object):
 
         parser.add_argument(
             '--endpoint-type',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-endpoint-type',
             help=argparse.SUPPRESS)
         # NOTE(dtroyer): We can't add --endpoint_type here due to argparse
         #                thinking usage-list --end is ambiguous; but it
@@ -401,33 +576,40 @@ class OpenStackComputeShell(object):
         parser.add_argument(
             '--os-compute-api-version',
             metavar='<compute-api-ver>',
-            default=cliutils.env('OS_COMPUTE_API_VERSION',
-                                 default=DEFAULT_OS_COMPUTE_API_VERSION),
+            default=utils.env('OS_COMPUTE_API_VERSION',
+                              default=DEFAULT_OS_COMPUTE_API_VERSION),
             help=_('Accepts X, X.Y (where X is major and Y is minor part) or '
                    '"X.latest", defaults to env[OS_COMPUTE_API_VERSION].'))
         parser.add_argument(
             '--os_compute_api_version',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--os-compute-api-version',
             help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--bypass-url',
             metavar='<bypass-url>',
             dest='bypass_url',
-            default=cliutils.env('NOVACLIENT_BYPASS_URL'),
-            help="Use this API endpoint instead of the Service Catalog. "
-                 "Defaults to env[NOVACLIENT_BYPASS_URL]")
-        parser.add_argument('--bypass_url',
-                            help=argparse.SUPPRESS)
+            default=utils.env('NOVACLIENT_BYPASS_URL'),
+            help=_("Use this API endpoint instead of the Service Catalog. "
+                   "Defaults to env[NOVACLIENT_BYPASS_URL]."))
+        parser.add_argument(
+            '--bypass_url',
+            action=DeprecatedAction,
+            use=_('use "%s"; this option will be removed '
+                  'in novaclient 3.3.0.') % '--bypass-url',
+            help=argparse.SUPPRESS)
 
         # The auth-system-plugins might require some extra options
         novaclient.auth_plugin.load_auth_system_opts(parser)
 
-        self._append_global_identity_args(parser)
+        self._append_global_identity_args(parser, argv)
 
         return parser
 
-    def get_subcommand_parser(self, version, do_help=False):
-        parser = self.get_base_parser()
+    def get_subcommand_parser(self, version, do_help=False, argv=None):
+        parser = self.get_base_parser(argv)
 
         self.subcommands = {}
         subparsers = parser.add_subparsers(metavar='<subcommand>')
@@ -462,19 +644,26 @@ class OpenStackComputeShell(object):
             callback = getattr(actions_module, attr)
             desc = callback.__doc__ or ''
             if hasattr(callback, "versioned"):
+                additional_msg = ""
                 subs = api_versions.get_substitutions(
                     utils.get_function_name(callback))
                 if do_help:
-                    desc += msg % {'start': subs[0].start_version.get_string(),
-                                   'end': subs[-1].end_version.get_string()}
-                else:
-                    for versioned_method in subs:
+                    additional_msg = msg % {
+                        'start': subs[0].start_version.get_string(),
+                        'end': subs[-1].end_version.get_string()}
+                    if version.is_latest():
+                        additional_msg += HINT_HELP_MSG
+                subs = [versioned_method for versioned_method in subs
                         if version.matches(versioned_method.start_version,
-                                           versioned_method.end_version):
-                            callback = versioned_method.func
-                            break
-                    else:
-                        continue
+                                           versioned_method.end_version)]
+                if subs:
+                    # use the "latest" substitution
+                    callback = subs[-1].func
+                else:
+                    # there is no proper versioned method
+                    continue
+                desc = callback.__doc__ or desc
+                desc += additional_msg
 
             action_help = desc.strip()
             arguments = getattr(callback, 'arguments', [])
@@ -505,9 +694,8 @@ class OpenStackComputeShell(object):
                         kwargs["help"] = kwargs.get("help", "") + (msg % {
                             "start": start_version.get_string(),
                             "end": end_version.get_string()})
-                    else:
-                        if not version.matches(start_version, end_version):
-                            continue
+                    if not version.matches(start_version, end_version):
+                        continue
                 kw = kwargs.copy()
                 kw.pop("start_version", None)
                 kw.pop("end_version", None)
@@ -525,23 +713,9 @@ class OpenStackComputeShell(object):
                             format=streamformat)
         logging.getLogger('iso8601').setLevel(logging.WARNING)
 
-    def _get_keystone_auth(self, session, auth_url, **kwargs):
-        auth_token = kwargs.pop('auth_token', None)
-        if auth_token:
-            return token.Token(auth_url, auth_token, **kwargs)
-        else:
-            return password.Password(
-                auth_url,
-                username=kwargs.pop('username'),
-                user_id=kwargs.pop('user_id'),
-                password=kwargs.pop('password'),
-                user_domain_id=kwargs.pop('user_domain_id'),
-                user_domain_name=kwargs.pop('user_domain_name'),
-                **kwargs)
-
     def main(self, argv):
         # Parse args once to find version and debug settings
-        parser = self.get_base_parser()
+        parser = self.get_base_parser(argv)
 
         # NOTE(dtroyer): Hackery to handle --endpoint_type due to argparse
         #                thinking usage-list --end is ambiguous; but it
@@ -550,6 +724,18 @@ class OpenStackComputeShell(object):
         if '--endpoint_type' in argv:
             spot = argv.index('--endpoint_type')
             argv[spot] = '--endpoint-type'
+            # NOTE(Vek): Not emitting a warning here, as that will
+            #            occur when "--endpoint-type" is processed
+
+        # For backwards compat with old os-auth-token parameter
+        if '--os-auth-token' in argv:
+            spot = argv.index('--os-auth-token')
+            argv[spot] = '--os-token'
+            print(_('WARNING: Option "%(option)s" is deprecated; %(use)s') % {
+                'option': '--os-auth-token',
+                'use': _('use "%s"; this option will be removed in '
+                         'novaclient 3.3.0.') % '--os-token',
+            }, file=sys.stderr)
 
         (args, args_list) = parser.parse_known_args(argv)
 
@@ -575,8 +761,10 @@ class OpenStackComputeShell(object):
         os_username = args.os_username
         os_user_id = args.os_user_id
         os_password = None  # Fetched and set later as needed
-        os_tenant_name = args.os_tenant_name
-        os_tenant_id = args.os_tenant_id
+        os_project_name = getattr(
+            args, 'os_project_name', getattr(args, 'os_tenant_name', None))
+        os_project_id = getattr(
+            args, 'os_project_id', getattr(args, 'os_tenant_id', None))
         os_auth_url = args.os_auth_url
         os_region_name = args.os_region_name
         os_auth_system = args.os_auth_system
@@ -599,10 +787,14 @@ class OpenStackComputeShell(object):
         # Finally, authenticate unless we have both.
         # Note if we don't auth we probably don't have a tenant ID so we can't
         # cache the token.
-        auth_token = args.os_auth_token if args.os_auth_token else None
+        auth_token = getattr(args, 'os_token', None)
         management_url = bypass_url if bypass_url else None
 
         if os_auth_system and os_auth_system != "keystone":
+            warnings.warn(_(
+                'novaclient auth plugins that are not keystone are deprecated.'
+                ' Auth plugins should now be done as plugins to keystoneauth'
+                ' and selected with --os-auth-type or OS_AUTH_TYPE'))
             auth_plugin = novaclient.auth_plugin.load_plugin(os_auth_system)
         else:
             auth_plugin = None
@@ -641,13 +833,12 @@ class OpenStackComputeShell(object):
                 if not os_username and not os_user_id:
                     raise exc.CommandError(
                         _("You must provide a username "
-                          "or user id via --os-username, --os-user-id, "
+                          "or user ID via --os-username, --os-user-id, "
                           "env[OS_USERNAME] or env[OS_USER_ID]"))
 
-            if not any([args.os_tenant_name, args.os_tenant_id,
-                        args.os_project_id, args.os_project_name]):
+            if not any([os_project_name, os_project_id]):
                 raise exc.CommandError(_("You must provide a project name or"
-                                         " project id via --os-project-name,"
+                                         " project ID via --os-project-name,"
                                          " --os-project-id, env[OS_PROJECT_ID]"
                                          " or env[OS_PROJECT_NAME]. You may"
                                          " use os-project and os-tenant"
@@ -665,34 +856,20 @@ class OpenStackComputeShell(object):
                           "default url with --os-auth-system "
                           "or env[OS_AUTH_SYSTEM]"))
 
-            project_id = args.os_project_id or args.os_tenant_id
-            project_name = args.os_project_name or args.os_tenant_name
             if use_session:
                 # Not using Nova auth plugin, so use keystone
                 with utils.record_time(self.times, args.timings,
                                        'auth_url', args.os_auth_url):
-                    keystone_session = (ksession.Session
-                                        .load_from_cli_options(args))
-                    keystone_auth = self._get_keystone_auth(
-                        keystone_session,
-                        args.os_auth_url,
-                        username=args.os_username,
-                        user_id=args.os_user_id,
-                        user_domain_id=args.os_user_domain_id,
-                        user_domain_name=args.os_user_domain_name,
-                        password=args.os_password,
-                        auth_token=args.os_auth_token,
-                        project_id=project_id,
-                        project_name=project_name,
-                        project_domain_id=args.os_project_domain_id,
-                        project_domain_name=args.os_project_domain_name)
+                    keystone_session = (
+                        loading.load_session_from_argparse_arguments(args))
+                    keystone_auth = (
+                        loading.load_auth_from_argparse_arguments(args))
             else:
                 # set password for auth plugins
                 os_password = args.os_password
 
         if (not skip_auth and
-                not any([args.os_tenant_id, args.os_tenant_name,
-                         args.os_project_id, args.os_project_name])):
+                not any([os_project_name, os_project_id])):
             raise exc.CommandError(_("You must provide a project name or"
                                      " project id via --os-project-name,"
                                      " --os-project-id, env[OS_PROJECT_ID]"
@@ -709,8 +886,8 @@ class OpenStackComputeShell(object):
         # microversion, so we just pass version 2 at here.
         self.cs = client.Client(
             api_versions.APIVersion("2.0"),
-            os_username, os_password, os_tenant_name,
-            tenant_id=os_tenant_id, user_id=os_user_id,
+            os_username, os_password, os_project_name,
+            tenant_id=os_project_id, user_id=os_user_id,
             auth_url=os_auth_url, insecure=insecure,
             region_name=os_region_name, endpoint_type=endpoint_type,
             extensions=self.extensions, service_type=service_type,
@@ -741,7 +918,7 @@ class OpenStackComputeShell(object):
         self._run_extension_hooks('__pre_parse_args__')
 
         subcommand_parser = self.get_subcommand_parser(
-            api_version, do_help=do_help)
+            api_version, do_help=do_help, argv=argv)
         self.parser = subcommand_parser
 
         if args.help or not argv:
@@ -760,10 +937,10 @@ class OpenStackComputeShell(object):
             return 0
 
         if not args.service_type:
-            service_type = (cliutils.get_service_type(args.func) or
+            service_type = (utils.get_service_type(args.func) or
                             DEFAULT_NOVA_SERVICE_TYPE)
 
-        if cliutils.isunauthenticated(args.func):
+        if utils.isunauthenticated(args.func):
             # NOTE(alex_xu): We need authentication for discover microversion.
             # But the subcommands may needn't it. If the subcommand needn't,
             # we clear the session arguements.
@@ -773,8 +950,8 @@ class OpenStackComputeShell(object):
         # Recreate client object with discovered version.
         self.cs = client.Client(
             api_version,
-            os_username, os_password, os_tenant_name,
-            tenant_id=os_tenant_id, user_id=os_user_id,
+            os_username, os_password, os_project_name,
+            tenant_id=os_project_id, user_id=os_user_id,
             auth_url=os_auth_url, insecure=insecure,
             region_name=os_region_name, endpoint_type=endpoint_type,
             extensions=self.extensions, service_type=service_type,
@@ -816,7 +993,7 @@ class OpenStackComputeShell(object):
         try:
             # This does a couple of bits which are useful even if we've
             # got the token + service URL already. It exits fast in that case.
-            if not cliutils.isunauthenticated(args.func):
+            if not utils.isunauthenticated(args.func):
                 if not use_session:
                     # Only call authenticate() if Nova auth plugin is used.
                     # If keystone is used, authentication is handled as part
@@ -869,7 +1046,7 @@ class OpenStackComputeShell(object):
         'command',
         metavar='<subcommand>',
         nargs='?',
-        help='Display help for <subcommand>')
+        help=_('Display help for <subcommand>.'))
     def do_help(self, args):
         """
         Display help about this program or one of its subcommands.
@@ -903,13 +1080,13 @@ def main():
         OpenStackComputeShell().main(argv)
     except Exception as exc:
         logger.debug(exc, exc_info=1)
-        print("ERROR (%s): %s"
-              % (exc.__class__.__name__,
-                 encodeutils.exception_to_unicode(exc)),
+        print(_("ERROR (%(type)s): %(msg)s") % {
+              'type': exc.__class__.__name__,
+              'msg': encodeutils.exception_to_unicode(exc)},
               file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        print("... terminating nova client", file=sys.stderr)
+        print(_("... terminating nova client"), file=sys.stderr)
         sys.exit(130)
 
 

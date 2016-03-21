@@ -24,6 +24,24 @@ class UnsupportedVersion(Exception):
     pass
 
 
+class UnsupportedAttribute(AttributeError):
+    """Indicates that the user is trying to transmit the argument to a method,
+    which is not supported by selected version.
+    """
+
+    def __init__(self, argument_name, start_version, end_version=None):
+        if end_version:
+            self.message = (
+                "'%(name)s' argument is only allowed for microversions "
+                "%(start)s - %(end)s." % {"name": argument_name,
+                                          "start": start_version,
+                                          "end": end_version})
+        else:
+            self.message = (
+                "'%(name)s' argument is only allowed since microversion "
+                "%(start)s." % {"name": argument_name, "start": start_version})
+
+
 class CommandError(Exception):
     pass
 
@@ -77,9 +95,15 @@ class ConnectionRefused(Exception):
         return "ConnectionRefused: %s" % repr(self.response)
 
 
-class InstanceInErrorState(Exception):
-    """Instance is in the error state."""
-    pass
+class ResourceInErrorState(Exception):
+    """Resource is in the error state."""
+
+    def __init__(self, obj):
+        msg = "`%s` resource is in the error state" % obj.__class__.__name__
+        fault_msg = getattr(obj, "fault", {}).get("message")
+        if fault_msg:
+            msg += "due to '%s'" % fault_msg
+        self.message = "%s." % msg
 
 
 class VersionNotFoundForAPIMethod(Exception):
@@ -231,7 +255,7 @@ _code_map = dict((c.http_status, c) for c in _error_classes)
 class InvalidUsage(RuntimeError):
     """This function call is invalid in the way you are using this client.
 
-    Due to the transition to using keystoneclient some function calls are no
+    Due to the transition to using keystoneauth some function calls are no
     longer available. You should make a similar call to the session object
     instead.
     """
@@ -241,7 +265,7 @@ class InvalidUsage(RuntimeError):
 def from_response(response, body, url, method=None):
     """
     Return an instance of an ClientException or subclass
-    based on an requests response.
+    based on a requests response.
 
     Usage::
 

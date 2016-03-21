@@ -41,6 +41,7 @@ from novaclient.v2 import security_group_default_rules
 from novaclient.v2 import security_group_rules
 from novaclient.v2 import security_groups
 from novaclient.v2 import server_groups
+from novaclient.v2 import server_migrations
 from novaclient.v2 import servers
 from novaclient.v2 import services
 from novaclient.v2 import usage
@@ -52,8 +53,7 @@ from novaclient.v2 import volumes
 
 
 class Client(object):
-    """
-    Top-level object to access the OpenStack Compute API.
+    """Top-level object to access the OpenStack Compute API.
 
     .. warning:: All scripts and projects should not initialize this class
       directly. It should be done via `novaclient.client.Client` interface.
@@ -70,7 +70,8 @@ class Client(object):
                  cacert=None, tenant_id=None, user_id=None,
                  connection_pool=False, session=None, auth=None,
                  api_version=None, direct_use=True, **kwargs):
-        """
+        """Initialization of Client object.
+
         :param str username: Username
         :param str api_key: API Key
         :param str project_id: Project ID
@@ -167,6 +168,8 @@ class Client(object):
         self.availability_zones = \
             availability_zones.AvailabilityZoneManager(self)
         self.server_groups = server_groups.ServerGroupsManager(self)
+        self.server_migrations = \
+            server_migrations.ServerMigrationsManager(self)
 
         # Add in any extensions...
         if extensions:
@@ -226,8 +229,7 @@ class Client(object):
 
     @client._original_only
     def authenticate(self):
-        """
-        Authenticate against the server.
+        """Authenticate against the server.
 
         Normally this is called automatically when you first access the API,
         but you can call this method to force authentication right now.

@@ -25,8 +25,10 @@ from oslo_utils import encodeutils
 import six
 from six.moves.urllib import parse
 
+from novaclient import api_versions
 from novaclient import base
 from novaclient import crypto
+from novaclient import exceptions
 from novaclient.i18n import _
 from novaclient.v2 import security_groups
 
@@ -43,16 +45,27 @@ class Server(base.Resource):
     def delete(self):
         """
         Delete (i.e. shut down and delete the image) this server.
-        """
-        self.manager.delete(self)
 
-    def update(self, name=None):
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        Update the name for this server.
+        return self.manager.delete(self)
+
+    def update(self, name=None, description=None):
+        """
+        Update the name and the description for this server.
 
         :param name: Update the server's name.
+        :param description: Update the server's description(
+                            allowed for 2.19-latest).
+        :returns: :class:`Server`
         """
-        self.manager.update(self, name=name)
+        if (description is not None and
+                self.manager.api_version < api_versions.APIVersion("2.19")):
+            raise exceptions.UnsupportedAttribute("description", "2.19")
+        update_kwargs = {"name": name}
+        if description is not None:
+            update_kwargs["description"] = description
+        return self.manager.update(self, **update_kwargs)
 
     def get_console_output(self, length=None):
         """
@@ -94,6 +107,13 @@ class Server(base.Resource):
         """
         return self.manager.get_serial_console(self, console_type)
 
+    def get_mks_console(self):
+        """
+        Get mks console for a Server.
+
+        """
+        return self.manager.get_mks_console(self)
+
     def get_password(self, private_key=None):
         """
         Get password for a Server.
@@ -118,8 +138,9 @@ class Server(base.Resource):
         Add an IP address on a network.
 
         :param network_id: The ID of the network the IP should be on.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.add_fixed_ip(self, network_id)
+        return self.manager.add_fixed_ip(self, network_id)
 
     def add_floating_ip(self, address, fixed_address=None):
         """
@@ -128,76 +149,98 @@ class Server(base.Resource):
         :param address: The IP address or FloatingIP to add to the instance
         :param fixed_address: The fixedIP address the FloatingIP is to be
                associated with (optional)
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.add_floating_ip(self, address, fixed_address)
+        return self.manager.add_floating_ip(self, address, fixed_address)
 
     def remove_floating_ip(self, address):
         """
         Remove floating IP from an instance
 
         :param address: The IP address or FloatingIP to remove
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.remove_floating_ip(self, address)
+        return self.manager.remove_floating_ip(self, address)
 
     def stop(self):
         """
         Stop -- Stop the running server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.stop(self)
+        return self.manager.stop(self)
 
     def force_delete(self):
         """
         Force delete -- Force delete a server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.force_delete(self)
+        return self.manager.force_delete(self)
 
     def restore(self):
         """
         Restore -- Restore a server in 'soft-deleted' state.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.restore(self)
+        return self.manager.restore(self)
 
     def start(self):
         """
         Start -- Start the paused server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.start(self)
+        return self.manager.start(self)
 
     def pause(self):
         """
         Pause -- Pause the running server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.pause(self)
+        return self.manager.pause(self)
 
     def unpause(self):
         """
         Unpause -- Unpause the paused server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.unpause(self)
+        return self.manager.unpause(self)
 
     def lock(self):
         """
         Lock -- Lock the instance from certain operations.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.lock(self)
+        return self.manager.lock(self)
 
     def unlock(self):
         """
         Unlock -- Remove instance lock.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.unlock(self)
+        return self.manager.unlock(self)
 
     def suspend(self):
         """
         Suspend -- Suspend the running server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.suspend(self)
+        return self.manager.suspend(self)
 
     def resume(self):
         """
         Resume -- Resume the suspended server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.resume(self)
+        return self.manager.resume(self)
 
     def rescue(self, password=None, image=None):
         """
@@ -205,32 +248,41 @@ class Server(base.Resource):
 
         :param password: The admin password to be set in the rescue instance.
         :param image: The :class:`Image` to rescue with.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
         return self.manager.rescue(self, password, image)
 
     def unrescue(self):
         """
         Unrescue -- Unrescue the rescued server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.unrescue(self)
+        return self.manager.unrescue(self)
 
     def shelve(self):
         """
         Shelve -- Shelve the server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.shelve(self)
+        return self.manager.shelve(self)
 
     def shelve_offload(self):
         """
         Shelve_offload -- Remove a shelved server from the compute node.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.shelve_offload(self)
+        return self.manager.shelve_offload(self)
 
     def unshelve(self):
         """
         Unshelve -- Unshelve the server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.unshelve(self)
+        return self.manager.unshelve(self)
 
     def diagnostics(self):
         """Diagnostics -- Retrieve server diagnostics."""
@@ -239,24 +291,28 @@ class Server(base.Resource):
     def migrate(self):
         """
         Migrate a server to a new host.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.migrate(self)
+        return self.manager.migrate(self)
 
     def remove_fixed_ip(self, address):
         """
         Remove an IP address.
 
         :param address: The IP address to remove.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.remove_fixed_ip(self, address)
+        return self.manager.remove_fixed_ip(self, address)
 
     def change_password(self, password):
         """
         Update the admin password for a server.
 
         :param password: string to set as the admin password on the server
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.change_password(self, password)
+        return self.manager.change_password(self, password)
 
     def reboot(self, reboot_type=REBOOT_SOFT):
         """
@@ -264,8 +320,9 @@ class Server(base.Resource):
 
         :param reboot_type: either :data:`REBOOT_SOFT` for a software-level
                 reboot, or `REBOOT_HARD` for a virtual power cycle hard reboot.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.reboot(self, reboot_type)
+        return self.manager.reboot(self, reboot_type)
 
     def rebuild(self, image, password=None, preserve_ephemeral=False,
                 **kwargs):
@@ -287,13 +344,14 @@ class Server(base.Resource):
         Resize the server's resources.
 
         :param flavor: the :class:`Flavor` (or its ID) to resize to.
+        :returns: An instance of novaclient.base.TupleWithMeta
 
         Until a resize event is confirmed with :meth:`confirm_resize`, the old
         server will be kept around and you'll be able to roll back to the old
         flavor quickly with :meth:`revert_resize`. All resizes are
         automatically confirmed after 24 hours.
         """
-        self.manager.resize(self, flavor, **kwargs)
+        return self.manager.resize(self, flavor, **kwargs)
 
     def create_image(self, image_name, metadata=None):
         """
@@ -312,20 +370,25 @@ class Server(base.Resource):
         :param backup_type: The backup type, like 'daily' or 'weekly'
         :param rotation: Int parameter representing how many backups to
                         keep around.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.backup(self, backup_name, backup_type, rotation)
+        return self.manager.backup(self, backup_name, backup_type, rotation)
 
     def confirm_resize(self):
         """
         Confirm that the resize worked, thus removing the original server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.confirm_resize(self)
+        return self.manager.confirm_resize(self)
 
     def revert_resize(self):
         """
         Revert a previous resize, switching back to the old server.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.revert_resize(self)
+        return self.manager.revert_resize(self)
 
     @property
     def networks(self):
@@ -341,38 +404,75 @@ class Server(base.Resource):
             return {}
 
     def live_migrate(self, host=None,
-                     block_migration=False,
-                     disk_over_commit=False):
+                     block_migration=None,
+                     disk_over_commit=None):
         """
         Migrates a running instance to a new machine.
+
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration, the default
+                                value None will be mapped to False for 2.0 -
+                                2.24, 'auto' for higher than 2.25
+        :param disk_over_commit: if True, allow disk over commit, the default
+                                 value None will be mapped to False. It will
+                                 not be supported since 2.25
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.live_migrate(self, host,
-                                  block_migration,
-                                  disk_over_commit)
+
+        if (self.manager.api_version < api_versions.APIVersion("2.25")):
+            # NOTE(eliqiao): We do this to keep old version api has same
+            # default value if user don't pass these parameters when using
+            # SDK
+            if block_migration is None:
+                block_migration = False
+            if disk_over_commit is None:
+                disk_over_commit = False
+
+            return self.manager.live_migrate(self, host,
+                                             block_migration,
+                                             disk_over_commit)
+        else:
+            if block_migration is None:
+                block_migration = 'auto'
+            if disk_over_commit is not None:
+                raise ValueError("Setting 'disk_over_commit' argument is "
+                                 "prohibited after microversion 2.25.")
+
+            return self.manager.live_migrate(self, host,
+                                             block_migration)
 
     def reset_state(self, state='error'):
         """
         Reset the state of an instance to active or error.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.reset_state(self, state)
+        return self.manager.reset_state(self, state)
 
     def reset_network(self):
         """
         Reset network of an instance.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.reset_network(self)
+        return self.manager.reset_network(self)
 
     def add_security_group(self, security_group):
         """
         Add a security group to an instance.
+
+        :param security_group: The name of security group to add
+        :returns: An instance of novaclient.base.DictWithMeta
         """
-        self.manager.add_security_group(self, security_group)
+        return self.manager.add_security_group(self, security_group)
 
     def remove_security_group(self, security_group):
         """
         Remove a security group from an instance.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self.manager.remove_security_group(self, security_group)
+        return self.manager.remove_security_group(self, security_group)
 
     def list_security_group(self):
         """
@@ -380,17 +480,29 @@ class Server(base.Resource):
         """
         return self.manager.list_security_group(self)
 
-    def evacuate(self, host=None, on_shared_storage=True, password=None):
+    def evacuate(self, host=None, on_shared_storage=None, password=None):
         """
         Evacuate an instance from failed host to specified host.
 
         :param host: Name of the target host
         :param on_shared_storage: Specifies whether instance files located
-                        on shared storage
+                        on shared storage. After microversion 2.14, this
+                        parameter must have its default value of None.
         :param password: string to set as admin password on the evacuated
                          server.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        return self.manager.evacuate(self, host, on_shared_storage, password)
+        if api_versions.APIVersion("2.14") <= self.manager.api_version:
+            if on_shared_storage is not None:
+                raise ValueError("Setting 'on_shared_storage' argument is "
+                                 "prohibited after microversion 2.14.")
+            return self.manager.evacuate(self, host, password)
+        else:
+            # microversions 2.0 - 2.13
+            if on_shared_storage is None:
+                on_shared_storage = True
+            return self.manager.evacuate(self, host, on_shared_storage,
+                                         password)
 
     def interface_list(self):
         """
@@ -410,6 +522,10 @@ class Server(base.Resource):
         """
         return self.manager.interface_detach(self, port_id)
 
+    def trigger_crash_dump(self):
+        """Trigger crash dump in an instance"""
+        return self.manager.trigger_crash_dump(self)
+
 
 class ServerManager(base.BootingManagerWithFind):
     resource_class = Server
@@ -420,7 +536,9 @@ class ServerManager(base.BootingManagerWithFind):
               max_count=None, security_groups=None, key_name=None,
               availability_zone=None, block_device_mapping=None,
               block_device_mapping_v2=None, nics=None, scheduler_hints=None,
-              config_drive=None, admin_pass=None, disk_config=None, **kwargs):
+              config_drive=None, admin_pass=None, disk_config=None,
+              access_ip_v4=None, access_ip_v6=None, description=None,
+              **kwargs):
         """
         Create (boot) a new server.
         """
@@ -536,6 +654,15 @@ class ServerManager(base.BootingManagerWithFind):
         if disk_config is not None:
             body['server']['OS-DCF:diskConfig'] = disk_config
 
+        if access_ip_v4 is not None:
+            body['server']['accessIPv4'] = access_ip_v4
+
+        if access_ip_v6 is not None:
+            body['server']['accessIPv6'] = access_ip_v6
+
+        if description:
+            body['server']['description'] = description
+
         return self._create(resource_url, body, response_key,
                             return_raw=return_raw, **kwargs)
 
@@ -554,7 +681,11 @@ class ServerManager(base.BootingManagerWithFind):
         Get a list of servers.
 
         :param detailed: Whether to return detailed server info (optional).
-        :param search_opts: Search options to filter out servers (optional).
+        :param search_opts: Search options to filter out servers which don't
+            match the search_opts (optional). The search opts format is a
+            dictionary of key / value pairs that will be appended to the query
+            string.  For a complete list of keys see:
+            http://developer.openstack.org/api-ref-compute-v2.1.html#listServers
         :param marker: Begin returning servers that appear later in the server
                        list than that represented by this server id (optional).
         :param limit: Maximum number of servers to return (optional).
@@ -562,6 +693,16 @@ class ServerManager(base.BootingManagerWithFind):
         :param sort_dirs: List of sort directions
 
         :rtype: list of :class:`Server`
+
+        Examples:
+
+        client.servers.list() - returns detailed list of servers
+
+        client.servers.list(search_opts={'status': 'ERROR'}) -
+        returns list of servers in error state.
+
+        client.servers.list(limit=10) - returns only 10 servers
+
         """
         if search_opts is None:
             search_opts = {}
@@ -578,7 +719,7 @@ class ServerManager(base.BootingManagerWithFind):
         if detailed:
             detail = "/detail"
 
-        result = []
+        result = base.ListWithMeta([], None)
         while True:
             if marker:
                 qparams['marker'] = marker
@@ -607,6 +748,7 @@ class ServerManager(base.BootingManagerWithFind):
             servers = self._list("/servers%s%s" % (detail, query_string),
                                  "servers")
             result.extend(servers)
+            result.append_request_ids(servers.request_ids)
 
             if not servers or limit != -1:
                 break
@@ -619,8 +761,9 @@ class ServerManager(base.BootingManagerWithFind):
 
         :param server: The :class:`Server` (or its ID) to add an IP to.
         :param network_id: The ID of the network the IP should be on.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('addFixedIp', server, {'networkId': network_id})
+        return self._action('addFixedIp', server, {'networkId': network_id})
 
     def remove_fixed_ip(self, server, address):
         """
@@ -628,8 +771,9 @@ class ServerManager(base.BootingManagerWithFind):
 
         :param server: The :class:`Server` (or its ID) to add an IP to.
         :param address: The IP address to remove.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('removeFixedIp', server, {'address': address})
+        return self._action('removeFixedIp', server, {'address': address})
 
     def add_floating_ip(self, server, address, fixed_address=None):
         """
@@ -639,16 +783,18 @@ class ServerManager(base.BootingManagerWithFind):
         :param address: The FloatingIP or string floating address to add.
         :param fixed_address: The FixedIP the floatingIP should be
                               associated with (optional)
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
 
         address = address.ip if hasattr(address, 'ip') else address
         if fixed_address:
             if hasattr(fixed_address, 'ip'):
                 fixed_address = fixed_address.ip
-            self._action('addFloatingIp', server,
-                         {'address': address, 'fixed_address': fixed_address})
+            return self._action('addFloatingIp', server,
+                                {'address': address,
+                                 'fixed_address': fixed_address})
         else:
-            self._action('addFloatingIp', server, {'address': address})
+            return self._action('addFloatingIp', server, {'address': address})
 
     def remove_floating_ip(self, server, address):
         """
@@ -656,54 +802,126 @@ class ServerManager(base.BootingManagerWithFind):
 
         :param server: The :class:`Server` (or its ID) to remove an IP from.
         :param address: The FloatingIP or string floating address to remove.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
 
         address = address.ip if hasattr(address, 'ip') else address
-        self._action('removeFloatingIp', server, {'address': address})
+        return self._action('removeFloatingIp', server, {'address': address})
 
+    @api_versions.wraps('2.0', '2.5')
     def get_vnc_console(self, server, console_type):
         """
         Get a vnc console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of vnc console to get ('novnc' or 'xvpvnc')
+        :returns: An instance of novaclient.base.DictWithMeta
         """
 
-        return self._action('os-getVNCConsole', server,
-                            {'type': console_type})[1]
+        return self._action('os-getVNCConsole', server, {'type': console_type})
 
+    @api_versions.wraps('2.0', '2.5')
     def get_spice_console(self, server, console_type):
         """
         Get a spice console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of spice console to get ('spice-html5')
+        :returns: An instance of novaclient.base.DictWithMeta
         """
 
         return self._action('os-getSPICEConsole', server,
-                            {'type': console_type})[1]
+                            {'type': console_type})
 
+    @api_versions.wraps('2.0', '2.5')
     def get_rdp_console(self, server, console_type):
         """
         Get a rdp console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of rdp console to get ('rdp-html5')
+        :returns: An instance of novaclient.base.DictWithMeta
         """
 
         return self._action('os-getRDPConsole', server,
-                            {'type': console_type})[1]
+                            {'type': console_type})
 
+    @api_versions.wraps('2.0', '2.5')
     def get_serial_console(self, server, console_type):
         """
         Get a serial console for an instance
 
-        :param server: The :class:`Server` (or its ID) to add an IP to.
+        :param server: The :class:`Server` (or its ID) to get console for.
         :param console_type: Type of serial console to get ('serial')
+        :returns: An instance of novaclient.base.DictWithMeta
         """
 
         return self._action('os-getSerialConsole', server,
-                            {'type': console_type})[1]
+                            {'type': console_type})
+
+    @api_versions.wraps('2.6')
+    def get_vnc_console(self, server, console_type):
+        """
+        Get a vnc console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of vnc console to get ('novnc' or 'xvpvnc')
+        :returns: An instance of novaclient.base.DictWithMeta
+        """
+
+        return self._console(server,
+                             {'protocol': 'vnc', 'type': console_type})
+
+    @api_versions.wraps('2.6')
+    def get_spice_console(self, server, console_type):
+        """
+        Get a spice console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of spice console to get ('spice-html5')
+        :returns: An instance of novaclient.base.DictWithMeta
+        """
+
+        return self._console(server,
+                             {'protocol': 'spice', 'type': console_type})
+
+    @api_versions.wraps('2.6')
+    def get_rdp_console(self, server, console_type):
+        """
+        Get a rdp console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of rdp console to get ('rdp-html5')
+        :returns: An instance of novaclient.base.DictWithMeta
+        """
+
+        return self._console(server,
+                             {'protocol': 'rdp', 'type': console_type})
+
+    @api_versions.wraps('2.6')
+    def get_serial_console(self, server, console_type):
+        """
+        Get a serial console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :param console_type: Type of serial console to get ('serial')
+        :returns: An instance of novaclient.base.DictWithMeta
+        """
+
+        return self._console(server,
+                             {'protocol': 'serial', 'type': console_type})
+
+    @api_versions.wraps('2.8')
+    def get_mks_console(self, server):
+        """
+        Get a mks console for an instance
+
+        :param server: The :class:`Server` (or its ID) to get console for.
+        :returns: An instance of novaclient.base.DictWithMeta
+        """
+
+        return self._console(server,
+                             {'protocol': 'mks', 'type': 'webmks'})
 
     def get_password(self, server, private_key=None):
         """
@@ -718,17 +936,20 @@ class ServerManager(base.BootingManagerWithFind):
                        password is to be returned
         :param private_key: The private key to decrypt password
                             (optional)
+        :returns: An instance of novaclient.base.StrWithMeta or
+                  novaclient.base.BytesWithMeta or
+                  novaclient.base.UnicodeWithMeta
         """
 
-        _resp, body = self.api.client.get("/servers/%s/os-server-password"
-                                          % base.getid(server))
+        resp, body = self.api.client.get("/servers/%s/os-server-password"
+                                         % base.getid(server))
         ciphered_pw = body.get('password', '') if body else ''
         if private_key and ciphered_pw:
             try:
-                return crypto.decrypt_password(private_key, ciphered_pw)
+                ciphered_pw = crypto.decrypt_password(private_key, ciphered_pw)
             except Exception as exc:
-                return '%sFailed to decrypt:\n%s' % (exc, ciphered_pw)
-        return ciphered_pw
+                ciphered_pw = '%sFailed to decrypt:\n%s' % (exc, ciphered_pw)
+        return self.convert_into_with_meta(ciphered_pw, resp)
 
     def clear_password(self, server):
         """
@@ -746,62 +967,96 @@ class ServerManager(base.BootingManagerWithFind):
     def stop(self, server):
         """
         Stop the server.
+
+        :param server: The :class:`Server` (or its ID) to stop
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        return self._action('os-stop', server, None)
+        resp, body = self._action_return_resp_and_body('os-stop', server, None)
+        return base.TupleWithMeta((resp, body), resp)
 
     def force_delete(self, server):
         """
         Force delete the server.
+
+        :param server: The :class:`Server` (or its ID) to force delete
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        return self._action('forceDelete', server, None)
+        resp, body = self._action_return_resp_and_body('forceDelete', server,
+                                                       None)
+        return base.TupleWithMeta((resp, body), resp)
 
     def restore(self, server):
         """
         Restore soft-deleted server.
+
+        :param server: The :class:`Server` (or its ID) to restore
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        return self._action('restore', server, None)
+        resp, body = self._action_return_resp_and_body('restore', server, None)
+        return base.TupleWithMeta((resp, body), resp)
 
     def start(self, server):
         """
         Start the server.
+
+        :param server: The :class:`Server` (or its ID) to start
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('os-start', server, None)
+        return self._action('os-start', server, None)
 
     def pause(self, server):
         """
         Pause the server.
+
+        :param server: The :class:`Server` (or its ID) to pause
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('pause', server, None)
+        return self._action('pause', server, None)
 
     def unpause(self, server):
         """
         Unpause the server.
+
+        :param server: The :class:`Server` (or its ID) to unpause
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('unpause', server, None)
+        return self._action('unpause', server, None)
 
     def lock(self, server):
         """
         Lock the server.
+
+        :param server: The :class:`Server` (or its ID) to lock
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('lock', server, None)
+        return self._action('lock', server, None)
 
     def unlock(self, server):
         """
         Unlock the server.
+
+        :param server: The :class:`Server` (or its ID) to unlock
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('unlock', server, None)
+        return self._action('unlock', server, None)
 
     def suspend(self, server):
         """
         Suspend the server.
+
+        :param server: The :class:`Server` (or its ID) to suspend
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('suspend', server, None)
+        return self._action('suspend', server, None)
 
     def resume(self, server):
         """
         Resume the server.
+
+        :param server: The :class:`Server` (or its ID) to resume
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('resume', server, None)
+        return self._action('resume', server, None)
 
     def rescue(self, server, password=None, image=None):
         """
@@ -810,52 +1065,78 @@ class ServerManager(base.BootingManagerWithFind):
         :param server: The :class:`Server` to rescue.
         :param password: The admin password to be set in the rescue instance.
         :param image: The :class:`Image` to rescue with.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
         info = {}
         if password:
             info['adminPass'] = password
         if image:
             info['rescue_image_ref'] = base.getid(image)
-        return self._action('rescue', server, info or None)
+        resp, body = self._action_return_resp_and_body('rescue', server,
+                                                       info or None)
+        return base.TupleWithMeta((resp, body), resp)
 
     def unrescue(self, server):
         """
         Unrescue the server.
+
+        :param server: The :class:`Server` (or its ID) to unrescue
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('unrescue', server, None)
+        return self._action('unrescue', server, None)
 
     def shelve(self, server):
         """
         Shelve the server.
+
+        :param server: The :class:`Server` (or its ID) to shelve
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('shelve', server, None)
+        return self._action('shelve', server, None)
 
     def shelve_offload(self, server):
         """
         Remove a shelved instance from the compute node.
+
+        :param server: The :class:`Server` (or its ID) to shelve offload
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('shelveOffload', server, None)
+        return self._action('shelveOffload', server, None)
 
     def unshelve(self, server):
         """
         Unshelve the server.
+
+        :param server: The :class:`Server` (or its ID) to unshelve
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('unshelve', server, None)
+        return self._action('unshelve', server, None)
 
     def ips(self, server):
         """
         Return IP Addresses associated with the server.
 
         Often a cheaper call then getting all the details for a server.
+
+        :param server: The :class:`Server` (or its ID) for which
+                       the IP adresses are to be returned
+        :returns: An instance of novaclient.base.DictWithMeta
         """
-        _resp, body = self.api.client.get("/servers/%s/ips" %
-                                          base.getid(server))
-        return body['addresses']
+        resp, body = self.api.client.get("/servers/%s/ips" %
+                                         base.getid(server))
+        return base.DictWithMeta(body['addresses'], resp)
 
     def diagnostics(self, server):
-        """Retrieve server diagnostics."""
-        return self.api.client.get("/servers/%s/diagnostics" %
-                                   base.getid(server))
+        """
+        Retrieve server diagnostics.
+
+        :param server: The :class:`Server` (or its ID) for which
+                       diagnostics to be returned
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        resp, body = self.api.client.get("/servers/%s/diagnostics" %
+                                         base.getid(server))
+        return base.TupleWithMeta((resp, body), resp)
 
     def create(self, name, image, flavor, meta=None, files=None,
                reservation_id=None, min_count=None,
@@ -863,7 +1144,8 @@ class ServerManager(base.BootingManagerWithFind):
                key_name=None, availability_zone=None,
                block_device_mapping=None, block_device_mapping_v2=None,
                nics=None, scheduler_hints=None,
-               config_drive=None, disk_config=None, admin_pass=None, **kwargs):
+               config_drive=None, disk_config=None, admin_pass=None,
+               access_ip_v4=None, access_ip_v6=None, **kwargs):
         # TODO(anthony): indicate in doc string if param is an extension
         # and/or optional
         """
@@ -908,6 +1190,10 @@ class ServerManager(base.BootingManagerWithFind):
                             values are 'AUTO' or 'MANUAL'.
         :param admin_pass: (optional extension) add a user supplied admin
                            password.
+        :param access_ip_v4: (optional extension) add alternative access ip v4
+        :param access_ip_v6: (optional extension) add alternative access ip v6
+        :param description: optional description of the server (allowed since
+                            microversion 2.19)
         """
         if not min_count:
             min_count = 1
@@ -918,13 +1204,18 @@ class ServerManager(base.BootingManagerWithFind):
 
         boot_args = [name, image, flavor]
 
+        descr_microversion = api_versions.APIVersion("2.19")
+        if "description" in kwargs and self.api_version < descr_microversion:
+            raise exceptions.UnsupportedAttribute("description", "2.19")
+
         boot_kwargs = dict(
             meta=meta, files=files, userdata=userdata,
             reservation_id=reservation_id, min_count=min_count,
             max_count=max_count, security_groups=security_groups,
             key_name=key_name, availability_zone=availability_zone,
             scheduler_hints=scheduler_hints, config_drive=config_drive,
-            disk_config=disk_config, admin_pass=admin_pass, **kwargs)
+            disk_config=disk_config, admin_pass=admin_pass,
+            access_ip_v4=access_ip_v4, access_ip_v6=access_ip_v6, **kwargs)
 
         if block_device_mapping:
             resource_url = "/os-volumes_boot"
@@ -941,9 +1232,10 @@ class ServerManager(base.BootingManagerWithFind):
         return self._boot(resource_url, response_key, *boot_args,
                           **boot_kwargs)
 
+    @api_versions.wraps("2.0", "2.18")
     def update(self, server, name=None):
         """
-        Update the name or the password for a server.
+        Update the name for a server.
 
         :param server: The :class:`Server` (or its ID) to update.
         :param name: Update the server's name.
@@ -959,17 +1251,47 @@ class ServerManager(base.BootingManagerWithFind):
 
         return self._update("/servers/%s" % base.getid(server), body, "server")
 
+    @api_versions.wraps("2.19")
+    def update(self, server, name=None, description=None):
+        """
+        Update the name or the description for a server.
+
+        :param server: The :class:`Server` (or its ID) to update.
+        :param name: Update the server's name.
+        :param description: Update the server's description. If it equals to
+            empty string(i.g. ""), the server description will be removed.
+        """
+        if name is None and description is None:
+            return
+
+        body = {"server": {}}
+        if name:
+            body["server"]["name"] = name
+        if description == "":
+            body["server"]["description"] = None
+        elif description:
+            body["server"]["description"] = description
+
+        return self._update("/servers/%s" % base.getid(server), body, "server")
+
     def change_password(self, server, password):
         """
         Update the password for a server.
+
+        :param server: The :class:`Server` (or its ID) for which the admin
+                       password is to be changed
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action("changePassword", server, {"adminPass": password})
+        return self._action("changePassword", server, {"adminPass": password})
 
     def delete(self, server):
         """
         Delete (i.e. shut down and delete the image) this server.
+
+        :param server: The :class:`Server` (or its ID) to delete
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._delete("/servers/%s" % base.getid(server))
+        return self._delete("/servers/%s" % base.getid(server))
 
     def reboot(self, server, reboot_type=REBOOT_SOFT):
         """
@@ -978,8 +1300,9 @@ class ServerManager(base.BootingManagerWithFind):
         :param server: The :class:`Server` (or its ID) to share onto.
         :param reboot_type: either :data:`REBOOT_SOFT` for a software-level
                 reboot, or `REBOOT_HARD` for a virtual power cycle hard reboot.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('reboot', server, {'type': reboot_type})
+        return self._action('reboot', server, {'type': reboot_type})
 
     def rebuild(self, server, image, password=None, disk_config=None,
                 preserve_ephemeral=False, name=None, meta=None, files=None,
@@ -1002,7 +1325,14 @@ class ServerManager(base.BootingManagerWithFind):
                       are the file contents (either as a string or as a
                       file-like object). A maximum of five entries is allowed,
                       and each file must be 10k or less.
+        :param description: optional description of the server (allowed since
+                            microversion 2.19)
+        :returns: :class:`Server`
         """
+        descr_microversion = api_versions.APIVersion("2.19")
+        if "description" in kwargs and self.api_version < descr_microversion:
+            raise exceptions.UnsupportedAttribute("description", "2.19")
+
         body = {'imageRef': base.getid(image)}
         if password is not None:
             body['adminPass'] = password
@@ -1012,6 +1342,8 @@ class ServerManager(base.BootingManagerWithFind):
             body['preserve_ephemeral'] = True
         if name is not None:
             body['name'] = name
+        if "description" in kwargs:
+            body["description"] = kwargs["description"]
         if meta:
             body['metadata'] = meta
         if files:
@@ -1029,16 +1361,18 @@ class ServerManager(base.BootingManagerWithFind):
                     'contents': cont,
                 })
 
-        _resp, body = self._action('rebuild', server, body, **kwargs)
-        return Server(self, body['server'])
+        resp, body = self._action_return_resp_and_body('rebuild', server,
+                                                       body, **kwargs)
+        return Server(self, body['server'], resp=resp)
 
     def migrate(self, server):
         """
         Migrate a server to a new host.
 
         :param server: The :class:`Server` (or its ID).
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('migrate', server)
+        return self._action('migrate', server)
 
     def resize(self, server, flavor, disk_config=None, **kwargs):
         """
@@ -1048,6 +1382,7 @@ class ServerManager(base.BootingManagerWithFind):
         :param flavor: the :class:`Flavor` (or its ID) to resize to.
         :param disk_config: partitioning mode to use on the rebuilt server.
                             Valid values are 'AUTO' or 'MANUAL'
+        :returns: An instance of novaclient.base.TupleWithMeta
 
         Until a resize event is confirmed with :meth:`confirm_resize`, the old
         server will be kept around and you'll be able to roll back to the old
@@ -1058,23 +1393,25 @@ class ServerManager(base.BootingManagerWithFind):
         if disk_config is not None:
             info['OS-DCF:diskConfig'] = disk_config
 
-        self._action('resize', server, info=info, **kwargs)
+        return self._action('resize', server, info=info, **kwargs)
 
     def confirm_resize(self, server):
         """
         Confirm that the resize worked, thus removing the original server.
 
         :param server: The :class:`Server` (or its ID) to share onto.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('confirmResize', server)
+        return self._action('confirmResize', server)
 
     def revert_resize(self, server):
         """
         Revert a previous resize, switching back to the old server.
 
         :param server: The :class:`Server` (or its ID) to share onto.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('revertResize', server)
+        return self._action('revertResize', server)
 
     def create_image(self, server, image_name, metadata=None):
         """
@@ -1083,12 +1420,15 @@ class ServerManager(base.BootingManagerWithFind):
         :param server: The :class:`Server` (or its ID) to share onto.
         :param image_name: Name to give the snapshot image
         :param metadata: Metadata to give newly-created image entity
+        :returns: An instance of novaclient.base.StrWithMeta
+                  (The snapshot image's UUID)
         """
         body = {'name': image_name, 'metadata': metadata or {}}
-        resp = self._action('createImage', server, body)[0]
+        resp, body = self._action_return_resp_and_body('createImage', server,
+                                                       body)
         location = resp.headers['location']
         image_uuid = location.split('/')[-1]
-        return image_uuid
+        return base.StrWithMeta(image_uuid, resp)
 
     def backup(self, server, backup_name, backup_type, rotation):
         """
@@ -1099,11 +1439,12 @@ class ServerManager(base.BootingManagerWithFind):
         :param backup_type: The backup type, like 'daily' or 'weekly'
         :param rotation: Int parameter representing how many backups to
                         keep around.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
         body = {'name': backup_name,
                 'backup_type': backup_type,
                 'rotation': rotation}
-        self._action('createBackup', server, body)
+        return self._action('createBackup', server, body)
 
     def set_meta(self, server, metadata):
         """
@@ -1133,20 +1474,31 @@ class ServerManager(base.BootingManagerWithFind):
         :param server: The :class:`Server` (or its ID) whose console output
                         you would like to retrieve.
         :param length: The number of tail loglines you would like to retrieve.
+        :returns: An instance of novaclient.base.StrWithMeta or
+                  novaclient.base.UnicodeWithMeta
         """
-        return self._action('os-getConsoleOutput',
-                            server,
-                            {'length': length})[1]['output']
+        resp, body = self._action_return_resp_and_body('os-getConsoleOutput',
+                                                       server,
+                                                       {'length': length})
+        return self.convert_into_with_meta(body['output'], resp)
 
     def delete_meta(self, server, keys):
         """
-        Delete metadata from an server
+        Delete metadata from a server
+
         :param server: The :class:`Server` to add metadata to
         :param keys: A list of metadata keys to delete from the server
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
+        result = base.TupleWithMeta((), None)
         for k in keys:
-            self._delete("/servers/%s/metadata/%s" % (base.getid(server), k))
+            ret = self._delete("/servers/%s/metadata/%s" %
+                               (base.getid(server), k))
+            result.append_request_ids(ret.request_ids)
 
+        return result
+
+    @api_versions.wraps('2.0', '2.24')
     def live_migrate(self, server, host, block_migration, disk_over_commit):
         """
         Migrates a running instance to a new machine.
@@ -1154,13 +1506,28 @@ class ServerManager(base.BootingManagerWithFind):
         :param server: instance id which comes from nova list.
         :param host: destination host name.
         :param block_migration: if True, do block_migration.
-        :param disk_over_commit: if True, Allow overcommit.
-
+        :param disk_over_commit: if True, allow disk overcommit.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('os-migrateLive', server,
-                     {'host': host,
-                      'block_migration': block_migration,
-                      'disk_over_commit': disk_over_commit})
+        return self._action('os-migrateLive', server,
+                            {'host': host,
+                             'block_migration': block_migration,
+                             'disk_over_commit': disk_over_commit})
+
+    @api_versions.wraps('2.25')
+    def live_migrate(self, server, host, block_migration):
+        """
+        Migrates a running instance to a new machine.
+
+        :param server: instance id which comes from nova list.
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration, can be set as
+                                'auto'
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        return self._action('os-migrateLive', server,
+                            {'host': host,
+                             'block_migration': block_migration})
 
     def reset_state(self, server, state='error'):
         """
@@ -1169,14 +1536,18 @@ class ServerManager(base.BootingManagerWithFind):
         :param server: ID of the instance to reset the state of.
         :param state: Desired state; either 'active' or 'error'.
                       Defaults to 'error'.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('os-resetState', server, dict(state=state))
+        return self._action('os-resetState', server, dict(state=state))
 
     def reset_network(self, server):
         """
         Reset network of an instance.
+
+        :param server: The :class:`Server` for network is to be reset
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('resetNetwork', server)
+        return self._action('resetNetwork', server)
 
     def add_security_group(self, server, security_group):
         """
@@ -1184,19 +1555,21 @@ class ServerManager(base.BootingManagerWithFind):
 
         :param server: ID of the instance.
         :param security_group: The name of security group to add.
-
+        :returns: An instance of novaclient.base.DictWithMeta
         """
-        self._action('addSecurityGroup', server, {'name': security_group})
+        return self._action('addSecurityGroup', server,
+                            {'name': security_group})
 
     def remove_security_group(self, server, security_group):
         """
-        Add a Security Group to an instance
+        Remove a Security Group to an instance
 
         :param server: ID of the instance.
         :param security_group: The name of security group to remove.
-
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._action('removeSecurityGroup', server, {'name': security_group})
+        return self._action('removeSecurityGroup', server,
+                            {'name': security_group})
 
     def list_security_group(self, server):
         """
@@ -1209,6 +1582,7 @@ class ServerManager(base.BootingManagerWithFind):
                           base.getid(server), 'security_groups',
                           security_groups.SecurityGroup)
 
+    @api_versions.wraps("2.0", "2.13")
     def evacuate(self, server, host=None, on_shared_storage=True,
                  password=None):
         """
@@ -1219,6 +1593,7 @@ class ServerManager(base.BootingManagerWithFind):
         :param on_shared_storage: Specifies whether instance files located
                         on shared storage
         :param password: string to set as password on the evacuated server.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
 
         body = {'onSharedStorage': on_shared_storage}
@@ -1228,7 +1603,31 @@ class ServerManager(base.BootingManagerWithFind):
         if password is not None:
             body['adminPass'] = password
 
-        return self._action('evacuate', server, body)
+        resp, body = self._action_return_resp_and_body('evacuate', server,
+                                                       body)
+        return base.TupleWithMeta((resp, body), resp)
+
+    @api_versions.wraps("2.14")
+    def evacuate(self, server, host=None, password=None):
+        """
+        Evacuate a server instance.
+
+        :param server: The :class:`Server` (or its ID) to share onto.
+        :param host: Name of the target host.
+        :param password: string to set as password on the evacuated server.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+
+        body = {}
+        if host is not None:
+            body['host'] = host
+
+        if password is not None:
+            body['adminPass'] = password
+
+        resp, body = self._action_return_resp_and_body('evacuate', server,
+                                                       body)
+        return base.TupleWithMeta((resp, body), resp)
 
     def interface_list(self, server):
         """
@@ -1265,15 +1664,39 @@ class ServerManager(base.BootingManagerWithFind):
 
         :param server: The :class:`Server` (or its ID) to detach from.
         :param port_id: The port to detach.
+        :returns: An instance of novaclient.base.TupleWithMeta
         """
-        self._delete('/servers/%s/os-interface/%s' % (base.getid(server),
-                                                      port_id))
+        return self._delete('/servers/%s/os-interface/%s' %
+                            (base.getid(server), port_id))
+
+    @api_versions.wraps("2.17")
+    def trigger_crash_dump(self, server):
+        """Trigger crash dump in an instance"""
+        return self._action("trigger_crash_dump", server)
 
     def _action(self, action, server, info=None, **kwargs):
         """
         Perform a server "action" -- reboot/rebuild/resize/etc.
         """
+        resp, body = self._action_return_resp_and_body(action, server,
+                                                       info=info, **kwargs)
+        return self.convert_into_with_meta(body, resp)
+
+    def _action_return_resp_and_body(self, action, server, info=None,
+                                     **kwargs):
+        """
+        Perform a server "action" and return response headers and body
+        """
         body = {action: info}
         self.run_hooks('modify_body_for_action', body, **kwargs)
         url = '/servers/%s/action' % base.getid(server)
         return self.api.client.post(url, body=body)
+
+    def _console(self, server, info=None, **kwargs):
+        """
+        Retrieve a console of a particular protocol -- vnc/spice/rdp/serial
+        """
+        body = {'remote_console': info}
+        url = '/servers/%s/remote-consoles' % base.getid(server)
+        resp, body = self.api.client.post(url, body=body)
+        return self.convert_into_with_meta(body, resp)

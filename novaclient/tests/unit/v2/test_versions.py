@@ -14,6 +14,7 @@
 
 import mock
 
+from novaclient import base
 from novaclient import exceptions as exc
 from novaclient.tests.unit import utils
 from novaclient.tests.unit.v2 import fakes
@@ -29,13 +30,15 @@ class VersionsTest(utils.TestCase):
     @mock.patch.object(versions.VersionManager, '_is_session_client',
                        return_value=False)
     def test_list_services_with_http_client(self, mock_is_session_client):
-        self.cs.versions.list()
+        vl = self.cs.versions.list()
+        self.assert_request_id(vl, fakes.FAKE_REQUEST_ID_LIST)
         self.cs.assert_called('GET', None)
 
     @mock.patch.object(versions.VersionManager, '_is_session_client',
                        return_value=True)
     def test_list_services_with_session_client(self, mock_is_session_client):
-        self.cs.versions.list()
+        vl = self.cs.versions.list()
+        self.assert_request_id(vl, fakes.FAKE_REQUEST_ID_LIST)
         self.cs.assert_called('GET', 'http://nova-api:8774/')
 
     @mock.patch.object(versions.VersionManager, '_is_session_client',
@@ -43,11 +46,13 @@ class VersionsTest(utils.TestCase):
     @mock.patch.object(versions.VersionManager, 'list')
     def test_get_current_with_http_client(self, mock_list,
                                           mock_is_session_client):
+        headers = {'x-openstack-request-id': fakes.FAKE_REQUEST_ID}
+        resp = utils.TestResponse({"headers": headers})
         current_version = versions.Version(
             None, {"links": [{"href": "http://nova-api:8774/v2.1"}]},
             loaded=True)
 
-        mock_list.return_value = [
+        all_versions = [
             versions.Version(
                 None, {"links": [{"href": "http://url/v1"}]}, loaded=True),
             versions.Version(
@@ -57,13 +62,17 @@ class VersionsTest(utils.TestCase):
             current_version,
             versions.Version(
                 None, {"links": [{"href": "http://url/v21"}]}, loaded=True)]
-        self.assertEqual(current_version, self.cs.versions.get_current())
+        mock_list.return_value = base.ListWithMeta(all_versions, resp)
+        v = self.cs.versions.get_current()
+        self.assert_request_id(v, fakes.FAKE_REQUEST_ID_LIST)
+        self.assertEqual(current_version, v)
 
     @mock.patch.object(versions.VersionManager, '_is_session_client',
                        return_value=True)
     def test_get_current_with_session_client(self, mock_is_session_client):
         self.cs.callback = []
-        self.cs.versions.get_current()
+        v = self.cs.versions.get_current()
+        self.assert_request_id(v, fakes.FAKE_REQUEST_ID_LIST)
         self.cs.assert_called('GET', 'http://nova-api:8774/v2.1/')
 
     @mock.patch.object(versions.VersionManager, '_is_session_client',
@@ -81,3 +90,41 @@ class VersionsTest(utils.TestCase):
     def test_get_current_with_rax_auth_plugin_workaround(self, session, _list):
         self.cs.callback = []
         self.assertIsNone(self.cs.versions.get_current())
+
+    @mock.patch.object(versions.VersionManager, '_is_session_client',
+                       return_value=True)
+    def test_get_endpoint_without_project_id(self, mock_is_session_client):
+        # create a fake client such that get_endpoint()
+        # doesn't return uuid in url
+        endpoint_type = 'v2.1'
+        expected_endpoint = 'http://nova-api:8774/v2.1/'
+        cs_2_1 = fakes.FakeClient(endpoint_type=endpoint_type)
+
+        result = cs_2_1.versions.get_current()
+        self.assert_request_id(result, fakes.FAKE_REQUEST_ID_LIST)
+        self.assertEqual(result.manager.api.client.endpoint_type,
+                         endpoint_type, "Check endpoint_type was set")
+        self.assertEqual(result.manager.api.client.management_url,
+                         expected_endpoint, "Check endpoint without uuid")
+
+        # check that the full request works as expected
+        cs_2_1.assert_called('GET', 'http://nova-api:8774/v2.1/')
+
+    @mock.patch.object(versions.VersionManager, '_is_session_client',
+                       return_value=True)
+    def test_v2_get_endpoint_without_project_id(self, mock_is_session_client):
+        # create a fake client such that get_endpoint()
+        #  doesn't return uuid in url
+        endpoint_type = 'v2'
+        expected_endpoint = 'http://nova-api:8774/v2/'
+        cs_2 = fakes.FakeClient(endpoint_type=endpoint_type)
+
+        result = cs_2.versions.get_current()
+        self.assert_request_id(result, fakes.FAKE_REQUEST_ID_LIST)
+        self.assertEqual(result.manager.api.client.endpoint_type,
+                         endpoint_type, "Check v2 endpoint_type was set")
+        self.assertEqual(result.manager.api.client.management_url,
+                         expected_endpoint, "Check v2 endpoint without uuid")
+
+        # check that the full request works as expected
+        cs_2.assert_called('GET', 'http://nova-api:8774/v2/')

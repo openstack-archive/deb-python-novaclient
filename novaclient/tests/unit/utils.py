@@ -66,6 +66,9 @@ class TestCase(testtools.TestCase):
             stderr = self.useFixture(fixtures.StringStream('stderr')).stream
             self.useFixture(fixtures.MonkeyPatch('sys.stderr', stderr))
 
+    def assert_request_id(self, request_id_mixin, request_id_list):
+        self.assertEqual(request_id_list, request_id_mixin.request_ids)
+
 
 class FixturedTestCase(testscenarios.TestWithScenarios, TestCase):
 
@@ -104,9 +107,9 @@ class FixturedTestCase(testscenarios.TestWithScenarios, TestCase):
 
 
 class TestResponse(requests.Response):
-    """
-    Class used to wrap requests.Response and provide some
-    convenience to initialize with a dict
+    """Class used to wrap requests.Response.
+
+    Provide some convenience to initialize with a dict.
     """
 
     def __init__(self, data):

@@ -40,6 +40,18 @@ class Host(base.Resource):
     def reboot(self):
         return self.manager.host_action(self.host, 'reboot')
 
+    @property
+    def host_name(self):
+        return self.host
+
+    @host_name.setter
+    def host_name(self, value):
+        # A host from hosts.list() has the attribute "host_name" instead of
+        # "host." This sets "host" if that's the case. Even though it doesn't
+        # exactly mirror the response format, it enables users to work with
+        # host objects from list and non-list operations interchangeably.
+        self.host = value
+
 
 class HostManager(base.ManagerWithFind):
     resource_class = Host
@@ -57,9 +69,16 @@ class HostManager(base.ManagerWithFind):
         return self._update("/os-hosts/%s" % host, values)
 
     def host_action(self, host, action):
-        """Perform an action on a host."""
+        """
+        Perform an action on a host.
+
+        :param host: The host to perform an action
+        :param actiob: The action to perform
+        returns: An instance of novaclient.base.TupleWithMeta
+        """
         url = '/os-hosts/{0}/{1}'.format(host, action)
-        return self.api.client.get(url)
+        resp, body = self.api.client.get(url)
+        return base.TupleWithMeta((resp, body), resp)
 
     def list(self, zone=None):
         url = '/os-hosts'

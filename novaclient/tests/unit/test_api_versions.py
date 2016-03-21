@@ -20,6 +20,7 @@ from novaclient import api_versions
 from novaclient import exceptions
 from novaclient.openstack.common import cliutils
 from novaclient.tests.unit import utils
+from novaclient import utils as nutils
 from novaclient.v2 import versions
 
 
@@ -145,6 +146,32 @@ class UpdateHeadersTestCase(utils.TestCase):
             headers)
 
 
+class CheckHeadersTestCase(utils.TestCase):
+    def setUp(self):
+        super(CheckHeadersTestCase, self).setUp()
+        mock_log_patch = mock.patch("novaclient.api_versions.LOG")
+        self.mock_log = mock_log_patch.start()
+        self.addCleanup(mock_log_patch.stop)
+
+    def test_microversion_is_specified(self):
+        response = mock.MagicMock(headers={api_versions.HEADER_NAME: ""})
+        api_versions.check_headers(response, api_versions.APIVersion("2.2"))
+        self.assertFalse(self.mock_log.warning.called)
+
+        response = mock.MagicMock(headers={})
+        api_versions.check_headers(response, api_versions.APIVersion("2.2"))
+        self.assertTrue(self.mock_log.warning.called)
+
+    def test_microversion_is_not_specified(self):
+        response = mock.MagicMock(headers={api_versions.HEADER_NAME: ""})
+        api_versions.check_headers(response, api_versions.APIVersion("2.2"))
+        self.assertFalse(self.mock_log.warning.called)
+
+        response = mock.MagicMock(headers={})
+        api_versions.check_headers(response, api_versions.APIVersion("2.0"))
+        self.assertFalse(self.mock_log.warning.called)
+
+
 class GetAPIVersionTestCase(utils.TestCase):
     def test_get_available_client_versions(self):
         output = api_versions.get_available_major_versions()
@@ -251,27 +278,21 @@ class WrapsTestCase(utils.TestCase):
 
         checker.assert_called_once_with(*((obj,) + some_args), **some_kwargs)
 
-    def test_cli_args_are_copied(self):
-
-        @api_versions.wraps("2.2", "2.6")
-        @cliutils.arg("name_1", help="Name of the something")
-        @cliutils.arg("action_1", help="Some action")
-        def some_func_1(cs, args):
+    def test_arguments_property_is_copied(self):
+        @cliutils.arg("argument_1")
+        @api_versions.wraps("2.666", "2.777")
+        @cliutils.arg("argument_2")
+        def some_func():
             pass
 
-        @cliutils.arg("name_2", help="Name of the something")
-        @cliutils.arg("action_2", help="Some action")
-        @api_versions.wraps("2.2", "2.6")
-        def some_func_2(cs, args):
-            pass
+        versioned_method = api_versions.get_substitutions(
+            nutils.get_function_name(some_func),
+            api_versions.APIVersion("2.700"))[0]
 
-        args_1 = [(('name_1',), {'help': 'Name of the something'}),
-                  (('action_1',), {'help': 'Some action'})]
-        self.assertEqual(args_1, some_func_1.arguments)
-
-        args_2 = [(('name_2',), {'help': 'Name of the something'}),
-                  (('action_2',), {'help': 'Some action'})]
-        self.assertEqual(args_2, some_func_2.arguments)
+        self.assertEqual(some_func.arguments,
+                         versioned_method.func.arguments)
+        self.assertIn((("argument_1",), {}), versioned_method.func.arguments)
+        self.assertIn((("argument_2",), {}), versioned_method.func.arguments)
 
 
 class DiscoverVersionTestCase(utils.TestCase):

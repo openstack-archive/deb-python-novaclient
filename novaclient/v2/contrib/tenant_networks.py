@@ -20,7 +20,12 @@ from novaclient import utils
 
 class TenantNetwork(base.Resource):
     def delete(self):
-        self.manager.delete(network=self)
+        """
+        Delete this project network.
+
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        return self.manager.delete(network=self)
 
 
 class TenantNetworkManager(base.ManagerWithFind):
@@ -34,7 +39,13 @@ class TenantNetworkManager(base.ManagerWithFind):
                          'network')
 
     def delete(self, network):
-        self._delete('/os-tenant-networks/%s' % base.getid(network))
+        """
+        Delete a specified project network.
+
+        :param network: a project network to delete
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        return self._delete('/os-tenant-networks/%s' % base.getid(network))
 
     def create(self, label, cidr):
         body = {'network': {'label': label, 'cidr': cidr}}
@@ -44,7 +55,7 @@ class TenantNetworkManager(base.ManagerWithFind):
 @cliutils.arg('network_id', metavar='<network_id>', help='ID of network')
 def do_net(cs, args):
     """
-    DEPRECATED, Use tenant-network-show instead.
+    DEPRECATED, use tenant-network-show instead.
     """
     do_tenant_network_show(cs, args)
 
