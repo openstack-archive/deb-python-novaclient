@@ -2,6 +2,8 @@ python-novaclient (2:3.3.0-1) experimental; urgency=medium
 
   * New upstream release.
   * Standards-Version: 3.9.7 (no change).
+  * Some fixes in debian/copyright.
+  * Fixed (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 12:48:52 +0100
 
