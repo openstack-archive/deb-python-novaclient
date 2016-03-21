@@ -7,6 +7,34 @@ python-novaclient (2:3.3.0-1) experimental; urgency=medium
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 12:48:52 +0100
 
+python-novaclient (2:3.2.0-3) experimental; urgency=medium
+
+  [ Corey Bryant ]
+  * d/rules: Use PYTHON3S instead of hardcoded 3.4 for override_dh_auto_test.
+
+  [ Ondřej Nový ]
+  * Fixed VCS URLs (https).
+
+  [ Thomas Goirand ]
+  * Standards-Version: 3.9.7 (no change).
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 03 Mar 2016 04:06:13 +0000
+
+python-novaclient (2:3.2.0-2) experimental; urgency=medium
+
+  * Added build-depends version of python-keyring to 7.2, adding runtime
+    depends to python-keyring >= 7.2, after experiencing failures on the
+    "nova" cli with version 6.1.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 29 Jan 2016 13:28:12 +0000
+
+python-novaclient (2:3.2.0-1) experimental; urgency=medium
+
+  * New upstream release.
+  * Fixed (build-)depends for this release.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 18 Jan 2016 10:37:46 +0000
+
 python-novaclient (2:2.30.1-4) unstable; urgency=medium
 
   * override_dh_python3 to fix Py3 shebang.
