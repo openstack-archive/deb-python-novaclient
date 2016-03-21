@@ -1,3 +1,9 @@
+python-novaclient (2:3.3.0-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 12:48:52 +0100
+
 python-novaclient (2:2.30.1-4) unstable; urgency=medium
 
   * override_dh_python3 to fix Py3 shebang.
