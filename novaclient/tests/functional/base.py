@@ -14,7 +14,11 @@ import os
 import time
 import uuid
 
+from cinderclient.v2 import client as cinderclient
 import fixtures
+from keystoneauth1 import loading
+from keystoneauth1 import session as ksession
+from keystoneclient import client as keystoneclient
 import os_client_config
 import six
 import tempest_lib.cli.base
@@ -166,18 +170,25 @@ class ClientTestBase(testtools.TestCase):
         passwd = auth_info['password']
         tenant = auth_info['project_name']
         auth_url = auth_info['auth_url']
+        self.project_domain_id = auth_info['project_domain_id']
         if 'insecure' in cloud_config.config:
-            insecure = cloud_config.config['insecure']
+            self.insecure = cloud_config.config['insecure']
         else:
-            insecure = False
+            self.insecure = False
 
         if self.COMPUTE_API_VERSION == "2.latest":
             version = novaclient.API_MAX_VERSION.get_string()
         else:
             version = self.COMPUTE_API_VERSION or "2"
-        self.client = novaclient.client.Client(
-            version, user, passwd, tenant,
-            auth_url=auth_url, insecure=insecure)
+
+        loader = loading.get_plugin_loader("password")
+        auth = loader.load_from_options(username=user,
+                                        password=passwd,
+                                        project_name=tenant,
+                                        auth_url=auth_url)
+        session = ksession.Session(auth=auth, verify=(not self.insecure))
+
+        self.client = novaclient.client.Client(version, session=session)
 
         # pick some reasonable flavor / image combo
         self.flavor = pick_flavor(self.client.flavors.list())
@@ -199,7 +210,12 @@ class ClientTestBase(testtools.TestCase):
             tenant_name=tenant,
             uri=auth_url,
             cli_dir=cli_dir,
-            insecure=insecure)
+            insecure=self.insecure)
+
+        self.keystone = keystoneclient.Client(session=session,
+                                              username=user,
+                                              password=passwd)
+        self.cinder = cinderclient.Client(auth=auth, session=session)
 
     def nova(self, action, flags='', params='', fail_ok=False,
              endpoint_type='publicURL', merge_stderr=False):
@@ -212,14 +228,14 @@ class ClientTestBase(testtools.TestCase):
                                poll_interval=1):
         """Wait until volume reaches given status.
 
-        :param volume_id: uuid4 id of given volume
+        :param volume: volume resource
         :param status: expected status of volume
         :param timeout: timeout in seconds
         :param poll_interval: poll interval in seconds
         """
         start_time = time.time()
         while time.time() - start_time < timeout:
-            volume = self.client.volumes.get(volume.id)
+            volume = self.cinder.volumes.get(volume.id)
             if volume.status == status:
                 break
             time.sleep(poll_interval)
@@ -344,6 +360,14 @@ class ClientTestBase(testtools.TestCase):
             'building', ['active'])
         return server
 
+    def _get_project_id(self, name):
+        """Obtain project id by project name."""
+        if self.keystone.version == "v3":
+            project = self.keystone.projects.find(name=name)
+        else:
+            project = self.keystone.tenants.find(name=name)
+        return project.id
+
 
 class TenantTestBase(ClientTestBase):
     """Base test class for additional tenant and user creation which
@@ -352,29 +376,41 @@ class TenantTestBase(ClientTestBase):
 
     def setUp(self):
         super(TenantTestBase, self).setUp()
-        tenant = self.cli_clients.keystone(
-            'tenant-create --name %s --enabled True' %
-            self.name_generate('v' + self.COMPUTE_API_VERSION))
-        self.tenant_name = self._get_value_from_the_table(tenant, "name")
-        self.tenant_id = self._get_value_from_the_table(
-            self.cli_clients.keystone(
-                'tenant-get %s' % self.tenant_name), 'id')
-        self.addCleanup(self.cli_clients.keystone,
-                        "tenant-delete %s" % self.tenant_name)
         user_name = self.name_generate('v' + self.COMPUTE_API_VERSION)
+        project_name = self.name_generate('v' + self.COMPUTE_API_VERSION)
         password = 'password'
-        user = self.cli_clients.keystone(
-            "user-create --name %(name)s --pass %(pass)s --tenant %(tenant)s" %
-            {"name": user_name, "pass": password, "tenant": self.tenant_name})
-        self.user_id = self._get_value_from_the_table(user, "id")
-        self.addCleanup(self.cli_clients.keystone,
-                        "user-delete %s" % self.user_id)
+
+        if self.keystone.version == "v3":
+            project = self.keystone.projects.create(project_name,
+                                                    self.project_domain_id)
+            self.project_id = project.id
+            self.addCleanup(self.keystone.projects.delete, self.project_id)
+
+            self.user_id = self.keystone.users.create(
+                name=user_name, password=password,
+                default_project=self.project_id).id
+
+            for role in self.keystone.roles.list():
+                if "member" in role.name.lower():
+                    self.keystone.roles.grant(role.id, user=self.user_id,
+                                              project=self.project_id)
+                    break
+        else:
+            project = self.keystone.tenants.create(project_name)
+            self.project_id = project.id
+            self.addCleanup(self.keystone.tenants.delete, self.project_id)
+
+            self.user_id = self.keystone.users.create(
+                user_name, password, tenant_id=self.project_id).id
+
+        self.addCleanup(self.keystone.users.delete, self.user_id)
         self.cli_clients_2 = tempest_lib.cli.base.CLIClient(
             username=user_name,
             password=password,
-            tenant_name=self.tenant_name,
+            tenant_name=project_name,
             uri=self.cli_clients.uri,
-            cli_dir=self.cli_clients.cli_dir)
+            cli_dir=self.cli_clients.cli_dir,
+            insecure=self.insecure)
 
     def another_nova(self, action, flags='', params='', fail_ok=False,
                      endpoint_type='publicURL', merge_stderr=False):

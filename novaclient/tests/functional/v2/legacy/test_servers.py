@@ -13,6 +13,7 @@
 import uuid
 
 from novaclient.tests.functional import base
+from oslo_utils import timeutils
 
 
 class TestServersBootNovaClient(base.ClientTestBase):
@@ -23,8 +24,8 @@ class TestServersBootNovaClient(base.ClientTestBase):
     def _boot_server_with_legacy_bdm(self, bdm_params=()):
         volume_size = 1
         volume_name = str(uuid.uuid4())
-        volume = self.client.volumes.create(size=volume_size,
-                                            display_name=volume_name,
+        volume = self.cinder.volumes.create(size=volume_size,
+                                            name=volume_name,
                                             imageRef=self.image.id)
         self.wait_for_volume_status(volume, "available")
 
@@ -83,6 +84,16 @@ class TestServersListNovaClient(base.ClientTestBase):
         # Cut header and footer of the table
         servers = output.split("\n")[3:-2]
         self.assertEqual(1, len(servers), output)
+
+    def test_list_with_changes_since(self):
+        now = timeutils.isotime()
+        name = str(uuid.uuid4())
+        self._create_servers(name, 1)
+        output = self.nova("list", params="--changes-since %s" % now)
+        self.assertIn(name, output, output)
+        now = timeutils.isotime()
+        output = self.nova("list", params="--changes-since %s" % now)
+        self.assertNotIn(name, output, output)
 
     def test_list_all_servers(self):
         name = str(uuid.uuid4())

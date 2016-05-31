@@ -46,7 +46,6 @@ from novaclient import client
 from novaclient import exceptions as exc
 import novaclient.extension
 from novaclient.i18n import _
-from novaclient.openstack.common import cliutils
 from novaclient import utils
 
 DEFAULT_MAJOR_OS_COMPUTE_API_VERSION = "2.0"
@@ -209,20 +208,6 @@ class DeprecatedAction(argparse.Action):
 
         if action:
             action(parser, namespace, values, option_string)
-
-
-def positive_non_zero_float(text):
-    if text is None:
-        return None
-    try:
-        value = float(text)
-    except ValueError:
-        msg = _("%s must be a float") % text
-        raise argparse.ArgumentTypeError(msg)
-    if value <= 0:
-        msg = _("%s must be greater than 0") % text
-        raise argparse.ArgumentTypeError(msg)
-    return value
 
 
 class SecretsHelper(object):
@@ -744,7 +729,7 @@ class OpenStackComputeShell(object):
         do_help = ('help' in argv) or (
             '--help' in argv) or ('-h' in argv) or not argv
 
-        # bash-completion should not require authentification
+        # bash-completion should not require authentication
         skip_auth = do_help or (
             'bash-completion' in argv)
 
@@ -768,6 +753,16 @@ class OpenStackComputeShell(object):
         os_auth_url = args.os_auth_url
         os_region_name = args.os_region_name
         os_auth_system = args.os_auth_system
+
+        if "v2.0" not in os_auth_url:
+            # NOTE(andreykurilin): assume that keystone V3 is used and try to
+            # be more user-friendly, i.e provide default values for domains
+            if (not args.os_project_domain_id and
+                    not args.os_project_domain_name):
+                setattr(args, "os_project_domain_id", "default")
+            if not args.os_user_domain_id and not args.os_user_domain_name:
+                setattr(args, "os_user_domain_id", "default")
+
         endpoint_type = args.endpoint_type
         insecure = args.insecure
         service_type = args.service_type
@@ -943,7 +938,7 @@ class OpenStackComputeShell(object):
         if utils.isunauthenticated(args.func):
             # NOTE(alex_xu): We need authentication for discover microversion.
             # But the subcommands may needn't it. If the subcommand needn't,
-            # we clear the session arguements.
+            # we clear the session arguments.
             keystone_session = None
             keystone_auth = None
 
@@ -1042,7 +1037,7 @@ class OpenStackComputeShell(object):
         commands.remove('bash_completion')
         print(' '.join(commands | options))
 
-    @cliutils.arg(
+    @utils.arg(
         'command',
         metavar='<subcommand>',
         nargs='?',

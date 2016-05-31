@@ -47,8 +47,6 @@ from novaclient.v2 import services
 from novaclient.v2 import usage
 from novaclient.v2 import versions
 from novaclient.v2 import virtual_interfaces
-from novaclient.v2 import volume_snapshots
-from novaclient.v2 import volume_types
 from novaclient.v2 import volumes
 
 
@@ -82,7 +80,7 @@ class Client(object):
         :param str proxy_token: Proxy Token
         :param str region_name: Region Name
         :param str endpoint_type: Endpoint Type
-        :param str extensions: Exensions
+        :param str extensions: Extensions
         :param str service_type: Service Type
         :param str service_name: Service Name
         :param str volume_service_name: Volume Service Name
@@ -131,7 +129,7 @@ class Client(object):
         self.limits = limits.LimitsManager(self)
         self.servers = servers.ServerManager(self)
         self.versions = versions.VersionManager(self)
-        self.api_version = api_version or api_versions.APIVersion("2.0")
+        self.api_version = api_version or api_versions.APIVersion("2.1")
 
         # extensions
         self.agents = agents.AgentsManager(self)
@@ -143,8 +141,6 @@ class Client(object):
         self.floating_ip_pools = floating_ip_pools.FloatingIPPoolManager(self)
         self.fping = fping.FpingManager(self)
         self.volumes = volumes.VolumeManager(self)
-        self.volume_snapshots = volume_snapshots.SnapshotManager(self)
-        self.volume_types = volume_types.VolumeTypeManager(self)
         self.keypairs = keypairs.KeypairManager(self)
         self.networks = networks.NetworkManager(self)
         self.quota_classes = quota_classes.QuotaClassSetManager(self)

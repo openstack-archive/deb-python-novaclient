@@ -464,6 +464,13 @@ class ShellTest(utils.TestCase):
             }},
         )
 
+    def test_boot_bdms_v2_invalid_shutdown_value(self):
+        self.assertRaises(exceptions.CommandError, self.run_command,
+                          ('boot --flavor 1 --image 1 --block-device '
+                           'id=fake-id,source=volume,dest=volume,device=vda,'
+                           'size=1,format=ext4,type=disk,shutdown=foobar '
+                           'some-server'))
+
     def test_boot_metadata(self):
         self.run_command('boot --image 1 --flavor 1 --meta foo=bar=pants'
                          ' --meta spam=eggs some-server ')
@@ -851,6 +858,10 @@ class ShellTest(utils.TestCase):
         cmd = 'flavor-access-list'
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
+    def test_flavor_access_list_public(self):
+        cmd = 'flavor-access-list --flavor 1'
+        self.assertRaises(exceptions.CommandError, self.run_command, cmd)
+
     def test_flavor_access_add_by_id(self):
         self.run_command('flavor-access-add 2 proj2')
         self.assert_called('POST', '/flavors/2/action',
@@ -872,11 +883,13 @@ class ShellTest(utils.TestCase):
                            {'removeTenantAccess': {'tenant': 'proj2'}})
 
     def test_image_show(self):
-        self.run_command('image-show 1')
+        _, err = self.run_command('image-show 1')
+        self.assertIn('Command image-show is deprecated', err)
         self.assert_called('GET', '/images/1')
 
     def test_image_meta_set(self):
-        self.run_command('image-meta 1 set test_key=test_value')
+        _, err = self.run_command('image-meta 1 set test_key=test_value')
+        self.assertIn('Command image-meta is deprecated', err)
         self.assert_called('POST', '/images/1/metadata',
                            {'metadata': {'test_key': 'test_value'}})
 
@@ -939,7 +952,8 @@ class ShellTest(utils.TestCase):
             'image-create sample-server mysnapshot_deleted --poll')
 
     def test_image_delete(self):
-        self.run_command('image-delete 1')
+        _, err = self.run_command('image-delete 1')
+        self.assertIn('Command image-delete is deprecated', err)
         self.assert_called('DELETE', '/images/1')
 
     def test_image_delete_multiple(self):
@@ -1058,6 +1072,15 @@ class ShellTest(utils.TestCase):
     def test_list_with_limit(self):
         self.run_command('list --limit 3')
         self.assert_called('GET', '/servers/detail?limit=3')
+
+    def test_list_with_changes_since(self):
+        self.run_command('list --changes-since 2016-02-29T06:23:22')
+        self.assert_called(
+            'GET', '/servers/detail?changes-since=2016-02-29T06%3A23%3A22')
+
+    def test_list_with_changes_since_invalid_value(self):
+        self.assertRaises(exceptions.CommandError,
+                          self.run_command, 'list --changes-since 0123456789')
 
     def test_meta_parsing(self):
         meta = ['key1=meta1', 'key2=meta2']
@@ -1660,6 +1683,14 @@ class ShellTest(utils.TestCase):
 
     def test_aggregate_details_by_name(self):
         self.run_command('aggregate-details test')
+        self.assert_called('GET', '/os-aggregates')
+
+    def test_aggregate_show_by_id(self):
+        self.run_command('aggregate-show 1')
+        self.assert_called('GET', '/os-aggregates/1')
+
+    def test_aggregate_show_by_name(self):
+        self.run_command('aggregate-show test')
         self.assert_called('GET', '/os-aggregates')
 
     def test_live_migration(self):
@@ -2460,52 +2491,9 @@ class ShellTest(utils.TestCase):
         self.run_command('interface-detach 1234 port_id')
         self.assert_called('DELETE', '/servers/1234/os-interface/port_id')
 
-    def test_volume_list(self):
-        _, err = self.run_command('volume-list')
-        self.assertIn('Command volume-list is deprecated', err)
-        self.assert_called('GET', '/volumes/detail')
-
-    def test_volume_show(self):
-        _, err = self.run_command('volume-show Work')
-        self.assertIn('Command volume-show is deprecated', err)
-        self.assert_called('GET', '/volumes?display_name=Work', pos=-2)
-        self.assert_called(
-            'GET',
-            '/volumes/15e59938-07d5-11e1-90e3-e3dffe0c5983',
-            pos=-1
-        )
-
     def test_volume_attachments(self):
         self.run_command('volume-attachments 1234')
         self.assert_called('GET', '/servers/1234/os-volume_attachments')
-
-    def test_volume_create(self):
-        _, err = self.run_command('volume-create 2 --display-name Work')
-        self.assertIn('Command volume-create is deprecated', err)
-        self.assert_called('POST', '/volumes',
-                           {'volume':
-                               {'display_name': 'Work',
-                                'imageRef': None,
-                                'availability_zone': None,
-                                'volume_type': None,
-                                'display_description': None,
-                                'snapshot_id': None,
-                                'size': 2}})
-
-    def test_volume_delete(self):
-        _, err = self.run_command('volume-delete Work')
-        self.assertIn('Command volume-delete is deprecated', err)
-        self.assert_called('DELETE',
-                           '/volumes/15e59938-07d5-11e1-90e3-e3dffe0c5983')
-
-    def test_volume_delete_multiple(self):
-        self.run_command('volume-delete Work Work2')
-        self.assert_called('DELETE',
-                           '/volumes/15e59938-07d5-11e1-90e3-e3dffe0c5983',
-                           pos=-4)
-        self.assert_called('DELETE',
-                           '/volumes/15e59938-07d5-11e1-90e3-ee32ba30feaa',
-                           pos=-1)
 
     def test_volume_attach(self):
         self.run_command('volume-attach sample-server Work /dev/vdb')
