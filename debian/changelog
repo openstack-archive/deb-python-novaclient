@@ -1,9 +1,13 @@
-python-novaclient (2:3.3.1-3) UNRELEASED; urgency=medium
+python-novaclient (2:4.0.0-1) UNRELEASED; urgency=medium
 
+  [ Ondřej Nový ]
   * Standards-Version is 3.9.8 now (no change)
   * d/copyright: Changed source URL to https protocol
 
- -- Ondřej Nový <novy@ondrej.org>  Sat, 09 Apr 2016 19:28:25 +0200
+  [ Corey Bryant ]
+  * New upstream release.
+
+ -- Corey Bryant <corey.bryant@canonical.com>  Tue, 31 May 2016 15:13:34 -0400
 
 python-novaclient (2:3.3.1-2) unstable; urgency=medium
 
