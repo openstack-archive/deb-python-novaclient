@@ -6,6 +6,7 @@ python-novaclient (2:4.0.0-1) UNRELEASED; urgency=medium
 
   [ Corey Bryant ]
   * New upstream release.
+  * d/gbp.conf: Update branch for Newton.
 
  -- Corey Bryant <corey.bryant@canonical.com>  Tue, 31 May 2016 15:13:34 -0400
 
