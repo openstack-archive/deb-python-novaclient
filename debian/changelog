@@ -1,4 +1,4 @@
-python-novaclient (2:4.0.0-1) UNRELEASED; urgency=medium
+python-novaclient (2:4.0.0-1) experimental; urgency=medium
 
   [ Ondřej Nový ]
   * Standards-Version is 3.9.8 now (no change)
@@ -10,7 +10,7 @@ python-novaclient (2:4.0.0-1) UNRELEASED; urgency=medium
   * d/control: Align (Build-)Depends with upstream.
   * d/p/skip-tests.patch: Skip test_find() until bug is resolved.
 
- -- Corey Bryant <corey.bryant@canonical.com>  Tue, 31 May 2016 15:13:34 -0400
+ -- Corey Bryant <corey.bryant@canonical.com>  Sun, 05 Jun 2016 23:53:04 +0000
 
 python-novaclient (2:3.3.1-2) unstable; urgency=medium
 
