@@ -1,3 +1,9 @@
+python-novaclient (2:4.1.0-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+
+ -- Corey Bryant <corey.bryant@canonical.com>  Fri, 08 Jul 2016 09:03:32 -0400
+
 python-novaclient (2:4.0.0-1) experimental; urgency=medium
 
   [ Ondřej Nový ]
