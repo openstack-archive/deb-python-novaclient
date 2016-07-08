@@ -878,20 +878,19 @@ def do_flavor_key(cs, args):
     help=_("Filter results by flavor name or ID."))
 @utils.arg(
     '--tenant', metavar='<tenant_id>',
-    help=_('Filter results by tenant ID.'))
+    help=_('Filter results by tenant ID.'),
+    action=shell.DeprecatedAction,
+    real_action='nothing',
+    use=_('this option is not supported, and will be '
+          'removed in version 5.0.0.'))
 def do_flavor_access_list(cs, args):
     """Print access information about the given flavor."""
-    if args.flavor and args.tenant:
-        raise exceptions.CommandError(_("Unable to filter results by "
-                                        "both --flavor and --tenant."))
-    elif args.flavor:
+    if args.flavor:
         flavor = _find_flavor(cs, args.flavor)
         if flavor.is_public:
             raise exceptions.CommandError(_("Access list not available "
                                             "for public flavors."))
         kwargs = {'flavor': flavor}
-    elif args.tenant:
-        kwargs = {'tenant': args.tenant}
     else:
         raise exceptions.CommandError(_("Unable to get all access lists. "
                                         "Specify --flavor"))
@@ -963,24 +962,9 @@ def do_network_list(cs, args):
     """Print a list of available networks."""
     network_list = cs.networks.list()
     columns = ['ID', 'Label', 'Cidr']
-
-    formatters = {}
-    field_titles = []
-    non_existent_fields = []
-    if args.fields:
-        for field in args.fields.split(','):
-            if network_list and not hasattr(network_list[0], field):
-                non_existent_fields.append(field)
-                continue
-            field_title, formatter = utils._make_field_formatter(field, {})
-            field_titles.append(field_title)
-            formatters[field_title] = formatter
-        if non_existent_fields:
-            raise exceptions.CommandError(
-                _("Non-existent fields are specified: %s")
-                % non_existent_fields)
-
-    columns = columns + field_titles
+    columns += _get_list_table_columns_and_formatters(
+        args.fields, network_list,
+        exclude_fields=(c.lower() for c in columns))[0]
     utils.print_list(network_list, columns)
 
 
@@ -1476,6 +1460,45 @@ def do_image_delete(cs, args):
     help=_("List only servers changed after a certain point of time."
            "The provided time should be an ISO 8061 formatted time."
            "ex 2016-03-04T06:27:59Z ."))
+@utils.arg(
+    '--tags',
+    dest='tags',
+    metavar='<tags>',
+    default=None,
+    help=_("The given tags must all be present for a server to be included in "
+           "the list result. Boolean expression in this case is 't1 AND t2'. "
+           "Tags must be separated by commas: --tags <tag1,tag2>"),
+    start_version="2.26")
+@utils.arg(
+    '--tags-any',
+    dest='tags-any',
+    metavar='<tags-any>',
+    default=None,
+    help=_("If one of the given tags is present the server will be included "
+           "in the list result. Boolean expression in this case is "
+           "'t1 OR t2'. Tags must be separated by commas: "
+           "--tags-any <tag1,tag2>"),
+    start_version="2.26")
+@utils.arg(
+    '--not-tags',
+    dest='not-tags',
+    metavar='<not-tags>',
+    default=None,
+    help=_("Only the servers that do not have any of the given tags will"
+           "be included in the list results. Boolean expression in this case "
+           "is 'NOT(t1 AND t2)'. Tags must be separated by commas: "
+           "--not-tags <tag1,tag2>"),
+    start_version="2.26")
+@utils.arg(
+    '--not-tags-any',
+    dest='not-tags-any',
+    metavar='<not-tags-any>',
+    default=None,
+    help=_("Only the servers that do not have at least one of the given tags"
+           "will be included in the list result. Boolean expression in this "
+           "case is 'NOT(t1 OR t2)'. Tags must be separated by commas: "
+           "--not-tags-any <tag1,tag2>"),
+    start_version="2.26")
 def do_list(cs, args):
     """List active servers."""
     imageid = None
@@ -1503,8 +1526,12 @@ def do_list(cs, args):
         'instance_name': args.instance_name,
         'changes-since': args.changes_since}
 
+    for arg in ('tags', "tags-any", 'not-tags', 'not-tags-any'):
+        if arg in args:
+            search_opts[arg] = getattr(args, arg)
+
     filters = {'flavor': lambda f: f['id'],
-               'security_groups': utils._format_security_groups}
+               'security_groups': utils.format_security_groups}
 
     id_col = 'ID'
 
@@ -1545,28 +1572,17 @@ def do_list(cs, args):
     _translate_extended_states(servers)
 
     formatters = {}
-    field_titles = []
-    non_existent_fields = []
-    if args.fields:
-        for field in args.fields.split(','):
-            if servers and not hasattr(servers[0], field):
-                non_existent_fields.append(field)
-                continue
-            field_title, formatter = utils._make_field_formatter(field,
-                                                                 filters)
-            field_titles.append(field_title)
-            formatters[field_title] = formatter
-        if non_existent_fields:
-            raise exceptions.CommandError(
-                _("Non-existent fields are specified: %s")
-                % non_existent_fields)
+
+    cols, fmts = _get_list_table_columns_and_formatters(
+        args.fields, servers, exclude_fields=('id',), filters=filters)
 
     if args.minimal:
         columns = [
             id_col,
             'Name']
-    elif field_titles:
-        columns = [id_col] + field_titles
+    elif cols:
+        columns = [id_col] + cols
+        formatters.update(fmts)
     else:
         columns = [
             id_col,
@@ -1582,12 +1598,77 @@ def do_list(cs, args):
             columns.insert(2, 'Tenant ID')
         if search_opts['changes-since']:
             columns.append('Updated')
-    formatters['Networks'] = utils._format_servers_list_networks
+    formatters['Networks'] = utils.format_servers_list_networks
     sortby_index = 1
     if args.sort:
         sortby_index = None
     utils.print_list(servers, columns,
                      formatters, sortby_index=sortby_index)
+
+
+def _get_list_table_columns_and_formatters(fields, objs, exclude_fields=(),
+                                           filters=None):
+    """Check and add fields to output columns.
+
+    If there is any value in fields that not an attribute of obj,
+    CommandError will be raised.
+
+    If fields has duplicate values (case sensitive), we will make them unique
+    and ignore duplicate ones.
+
+    If exclude_fields is specified, any field both in fields and
+    exclude_fields will be ignored.
+
+    :param fields: A list of string contains the fields to be printed.
+    :param objs: An list of object which will be used to check if field is
+                 valid or not. Note, we don't check fields if obj is None or
+                 empty.
+    :param exclude_fields: A tuple of string which contains the fields to be
+                           excluded.
+    :param filters: A dictionary defines how to get value from fields, this
+                    is useful when field's value is a complex object such as
+                    dictionary.
+
+    :return: columns, formatters.
+             columns is a list of string which will be used as table header.
+             formatters is a dictionary specifies how to display the value
+             of the field.
+             They can be [], {}.
+    :raise: novaclient.exceptions.CommandError
+    """
+    if not fields:
+        return [], {}
+
+    if not objs:
+        obj = None
+    elif isinstance(objs, list):
+        obj = objs[0]
+    else:
+        obj = objs
+
+    columns = []
+    formatters = {}
+
+    non_existent_fields = []
+    exclude_fields = set(exclude_fields)
+
+    for field in fields.split(','):
+        if not hasattr(obj, field):
+            non_existent_fields.append(field)
+            continue
+        if field in exclude_fields:
+            continue
+        field_title, formatter = utils.make_field_formatter(field,
+                                                            filters)
+        columns.append(field_title)
+        formatters[field_title] = formatter
+        exclude_fields.add(field)
+
+    if non_existent_fields:
+        raise exceptions.CommandError(
+            _("Non-existent fields are specified: %s") % non_existent_fields)
+
+    return columns, formatters
 
 
 @utils.arg(
@@ -1596,7 +1677,10 @@ def do_list(cs, args):
     action='store_const',
     const=servers.REBOOT_HARD,
     default=servers.REBOOT_SOFT,
-    help=_('Perform a hard reboot (instead of a soft one).'))
+    help=_('Perform a hard reboot (instead of a soft one). '
+           'Note: Ironic does not currently support soft reboot; '
+           'consequently, bare metal nodes will always do a hard '
+           'reboot, regardless of the use of this option.'))
 @utils.arg(
     'server',
     metavar='<server>', nargs='+',
@@ -2156,9 +2240,25 @@ def do_delete(cs, args):
         _("Unable to delete the specified server(s)."))
 
 
-def _find_server(cs, server, **find_args):
-    """Get a server by name or ID."""
-    return utils.find_resource(cs.servers, server, **find_args)
+def _find_server(cs, server, raise_if_notfound=True, **find_args):
+    """Get a server by name or ID.
+
+    :param cs: NovaClient's instance
+    :param server: identifier of server
+    :param raise_if_notfound: raise an exception if server is not found
+    :param find_args: argument to search server
+    """
+    if raise_if_notfound:
+        return utils.find_resource(cs.servers, server, **find_args)
+    else:
+        try:
+            return utils.find_resource(cs.servers, server,
+                                       wrap_exception=False)
+        except exceptions.NoUniqueMatch as e:
+            raise exceptions.CommandError(six.text_type(e))
+        except exceptions.NotFound:
+            # The server can be deleted
+            return server
 
 
 def _find_image(cs, image):
@@ -2427,7 +2527,10 @@ def do_get_mks_console(cs, args):
     nargs='?',
     default=None)
 def do_get_password(cs, args):
-    """Get the admin password for a server."""
+    """Get the admin password for a server. This operation calls the metadata
+    service to query metadata information and does not read password
+    information from the server itself.
+    """
     server = _find_server(cs, args.server)
     data = server.get_password(args.private_key)
     print(data)
@@ -2435,7 +2538,9 @@ def do_get_password(cs, args):
 
 @utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
 def do_clear_password(cs, args):
-    """Clear the admin password for a server."""
+    """Clear the admin password for a server from the metadata server.
+    This action does not actually change the instance server password.
+    """
     server = _find_server(cs, args.server)
     server.clear_password()
 
@@ -3043,7 +3148,8 @@ def do_keypair_delete(cs, args):
     '--user',
     metavar='<user-id>',
     default=None,
-    help=_('ID of key-pair owner (Admin only).'))
+    help=_('ID of key-pair owner (Admin only).'),
+    start_version="2.10")
 def do_keypair_delete(cs, args):
     """Delete keypair given by its name."""
     cs.keypairs.delete(args.name, args.user)
@@ -3072,7 +3178,8 @@ def do_keypair_list(cs, args):
     '--user',
     metavar='<user-id>',
     default=None,
-    help=_('List key-pairs of specified user ID (Admin only).'))
+    help=_('List key-pairs of specified user ID (Admin only).'),
+    start_version="2.10")
 def do_keypair_list(cs, args):
     """Print a list of keypairs for a user"""
     keypairs = cs.keypairs.list(args.user)
@@ -3107,7 +3214,8 @@ def do_keypair_show(cs, args):
     '--user',
     metavar='<user-id>',
     default=None,
-    help=_('ID of key-pair owner (Admin only).'))
+    help=_('ID of key-pair owner (Admin only).'),
+    start_version="2.10")
 def do_keypair_show(cs, args):
     """Show details about the given keypair."""
     keypair = cs.keypairs.get(args.keypair, args.user)
@@ -3487,17 +3595,37 @@ def do_aggregate_delete(cs, args):
     'aggregate',
     metavar='<aggregate>',
     help=_('Name or ID of aggregate to update.'))
-@utils.arg('name', metavar='<name>', help=_('Name of aggregate.'))
+@utils.arg(
+    'name',
+    nargs='?',
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 5.0.0.') % '--name',
+    help=argparse.SUPPRESS)
+@utils.arg(
+    '--name',
+    dest='name',
+    help=_('Name of aggregate.'))
 @utils.arg(
     'availability_zone',
     metavar='<availability-zone>',
     nargs='?',
     default=None,
+    action=shell.DeprecatedAction,
+    use=_('use "%s"; this option will be removed in '
+          'novaclient 5.0.0.') % '--availability_zone',
+    help=argparse.SUPPRESS)
+@utils.arg(
+    '--availability-zone',
+    metavar='<availability-zone>',
+    dest='availability_zone',
     help=_('The availability zone of the aggregate.'))
 def do_aggregate_update(cs, args):
     """Update the aggregate's name and optionally availability zone."""
     aggregate = _find_aggregate(cs, args.aggregate)
-    updates = {"name": args.name}
+    updates = {}
+    if args.name:
+        updates["name"] = args.name
     if args.availability_zone:
         updates["availability_zone"] = args.availability_zone
 
@@ -3680,7 +3808,7 @@ def do_server_migration_list(cs, args):
                   "memory_remaining_bytes", "disk_total_bytes",
                   "disk_processed_bytes", "disk_remaining_bytes"]
 
-    formatters = map(lambda field: utils._make_field_formatter(field)[1],
+    formatters = map(lambda field: utils.make_field_formatter(field)[1],
                      format_key)
     formatters = dict(zip(format_name, formatters))
 
@@ -4893,3 +5021,48 @@ def do_virtual_interface_list(cs, args):
     server = _find_server(cs, args.server)
     interface_list = cs.virtual_interfaces.list(base.getid(server))
     _print_virtual_interface_list(cs, interface_list)
+
+
+@api_versions.wraps("2.26")
+@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+def do_server_tag_list(cs, args):
+    """Get list of tags from a server."""
+    server = _find_server(cs, args.server)
+    tags = server.tag_list()
+    formatters = {'Tag': lambda o: o}
+    utils.print_list(tags, ['Tag'], formatters=formatters)
+
+
+@api_versions.wraps("2.26")
+@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@utils.arg('tag', metavar='<tag>', help=_('Tag to add.'))
+def do_server_tag_add(cs, args):
+    """Add single tag to a server."""
+    server = _find_server(cs, args.server)
+    server.add_tag(args.tag)
+
+
+@api_versions.wraps("2.26")
+@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@utils.arg('tags', metavar='<tags>', nargs='+', help=_('Tag(s) to set.'))
+def do_server_tag_set(cs, args):
+    """Set list of tags to a server."""
+    server = _find_server(cs, args.server)
+    server.set_tags(args.tags)
+
+
+@api_versions.wraps("2.26")
+@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@utils.arg('tag', metavar='<tag>', help=_('Tag to delete.'))
+def do_server_tag_delete(cs, args):
+    """Delete single tag from a server."""
+    server = _find_server(cs, args.server)
+    server.delete_tag(args.tag)
+
+
+@api_versions.wraps("2.26")
+@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+def do_server_tag_delete_all(cs, args):
+    """Delete all tags from a server."""
+    server = _find_server(cs, args.server)
+    server.delete_all_tags()

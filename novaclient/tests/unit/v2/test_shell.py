@@ -845,14 +845,11 @@ class ShellTest(utils.TestCase):
         self.run_command('flavor-access-list --flavor 2')
         self.assert_called('GET', '/flavors/2/os-flavor-access')
 
-    # FIXME: flavor-access-list is not implemented yet
-    #    def test_flavor_access_list_tenant(self):
-    #        self.run_command('flavor-access-list --tenant proj2')
-    #        self.assert_called('GET', '/flavors/2/os-flavor-access')
-
     def test_flavor_access_list_bad_filter(self):
         cmd = 'flavor-access-list --flavor 2 --tenant proj2'
-        self.assertRaises(exceptions.CommandError, self.run_command, cmd)
+        _, err = self.run_command(cmd)
+        # assert the deprecation warning for using --tenant
+        self.assertIn('WARNING: Option "--tenant" is deprecated', err)
 
     def test_flavor_access_list_no_filter(self):
         cmd = 'flavor-access-list'
@@ -1081,6 +1078,13 @@ class ShellTest(utils.TestCase):
     def test_list_with_changes_since_invalid_value(self):
         self.assertRaises(exceptions.CommandError,
                           self.run_command, 'list --changes-since 0123456789')
+
+    def test_list_fields_redundant(self):
+        output, __ = self.run_command('list --fields id,status,status')
+        header = output.splitlines()[1]
+        self.assertEqual(1, header.count('ID'))
+        self.assertEqual(0, header.count('Id'))
+        self.assertEqual(1, header.count('Status'))
 
     def test_meta_parsing(self):
         meta = ['key1=meta1', 'key2=meta2']
@@ -1604,24 +1608,50 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/os-aggregates/1')
 
     def test_aggregate_update_by_id(self):
-        self.run_command('aggregate-update 1 new_name')
+        self.run_command('aggregate-update 1 --name new_name')
         body = {"aggregate": {"name": "new_name"}}
         self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
         self.assert_called('GET', '/os-aggregates/1', pos=-1)
 
     def test_aggregate_update_by_name(self):
-        self.run_command('aggregate-update test new_name')
+        self.run_command('aggregate-update test --name new_name ')
         body = {"aggregate": {"name": "new_name"}}
         self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
         self.assert_called('GET', '/os-aggregates/1', pos=-1)
 
     def test_aggregate_update_with_availability_zone_by_id(self):
-        self.run_command('aggregate-update 1 foo new_zone')
+        self.run_command('aggregate-update 1 --name foo '
+                         '--availability-zone new_zone')
         body = {"aggregate": {"name": "foo", "availability_zone": "new_zone"}}
         self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
         self.assert_called('GET', '/os-aggregates/1', pos=-1)
 
     def test_aggregate_update_with_availability_zone_by_name(self):
+        self.run_command('aggregate-update test --name foo '
+                         '--availability-zone new_zone')
+        body = {"aggregate": {"name": "foo", "availability_zone": "new_zone"}}
+        self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
+        self.assert_called('GET', '/os-aggregates/1', pos=-1)
+
+    def test_aggregate_update_by_id_legacy(self):
+        self.run_command('aggregate-update 1 new_name')
+        body = {"aggregate": {"name": "new_name"}}
+        self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
+        self.assert_called('GET', '/os-aggregates/1', pos=-1)
+
+    def test_aggregate_update_by_name_legacy(self):
+        self.run_command('aggregate-update test new_name')
+        body = {"aggregate": {"name": "new_name"}}
+        self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
+        self.assert_called('GET', '/os-aggregates/1', pos=-1)
+
+    def test_aggregate_update_with_availability_zone_by_id_legacy(self):
+        self.run_command('aggregate-update 1 foo new_zone')
+        body = {"aggregate": {"name": "foo", "availability_zone": "new_zone"}}
+        self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
+        self.assert_called('GET', '/os-aggregates/1', pos=-1)
+
+    def test_aggregate_update_with_availability_zone_by_name_legacy(self):
         self.run_command('aggregate-update test foo new_zone')
         body = {"aggregate": {"name": "foo", "availability_zone": "new_zone"}}
         self.assert_called('PUT', '/os-aggregates/1', body, pos=-2)
@@ -1950,6 +1980,19 @@ class ShellTest(utils.TestCase):
         self.assert_called(
             'GET', '/os-hosts/sample-host/reboot')
 
+    def test_host_evacuate_v2_14(self):
+        self.run_command('host-evacuate hyper --target target_hyper',
+                         api_version='2.14')
+        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
+        self.assert_called('POST', '/servers/uuid1/action',
+                           {'evacuate': {'host': 'target_hyper'}}, pos=1)
+        self.assert_called('POST', '/servers/uuid2/action',
+                           {'evacuate': {'host': 'target_hyper'}}, pos=2)
+        self.assert_called('POST', '/servers/uuid3/action',
+                           {'evacuate': {'host': 'target_hyper'}}, pos=3)
+        self.assert_called('POST', '/servers/uuid4/action',
+                           {'evacuate': {'host': 'target_hyper'}}, pos=4)
+
     def test_host_evacuate(self):
         self.run_command('host-evacuate hyper --target target_hyper')
         self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
@@ -2168,6 +2211,13 @@ class ShellTest(utils.TestCase):
         self.assertRaises(exceptions.CommandError,
                           self.run_command,
                           'network-list --fields vlan,project_id,invalid')
+
+    def test_network_list_redundant_fields(self):
+        output, __ = self.run_command(
+            'network-list --fields label,project_id,project_id')
+        header = output.splitlines()[1]
+        self.assertEqual(1, header.count('Label'))
+        self.assertEqual(1, header.count('Project Id'))
 
     def test_network_show(self):
         self.run_command('network-show 1')
@@ -2739,6 +2789,10 @@ class ShellTest(utils.TestCase):
                  #   new microversion, just an additional checks. See
                  #   https://review.openstack.org/#/c/233076/ for more details)
             20,  # doesn't require any changes in novaclient
+            27,  # NOTE(cdent): 27 adds support for updated microversion
+                 #   headers, and is tested in test_api_versions, but is
+                 #   not explicitly tested via wraps and _SUBSTITUTIONS.
+            28,  # doesn't require any changes in novaclient
         ])
         versions_supported = set(range(0,
                                  novaclient.API_MAX_VERSION.ver_minor + 1))
@@ -2760,6 +2814,47 @@ class ShellTest(utils.TestCase):
     def test_list_v2_10(self):
         self.run_command('list', api_version='2.10')
         self.assert_called('GET', '/servers/detail')
+
+    def test_server_tag_add(self):
+        self.run_command('server-tag-add sample-server tag',
+                         api_version='2.26')
+        self.assert_called('PUT', '/servers/1234/tags/tag', None)
+
+    def test_server_tag_set(self):
+        self.run_command('server-tag-set sample-server tag1 tag2',
+                         api_version='2.26')
+        self.assert_called('PUT', '/servers/1234/tags',
+                           {'tags': ['tag1', 'tag2']})
+
+    def test_server_tag_list(self):
+        self.run_command('server-tag-list sample-server', api_version='2.26')
+        self.assert_called('GET', '/servers/1234/tags')
+
+    def test_server_tag_delete(self):
+        self.run_command('server-tag-delete sample-server tag',
+                         api_version='2.26')
+        self.assert_called('DELETE', '/servers/1234/tags/tag')
+
+    def test_server_tag_delete_all(self):
+        self.run_command('server-tag-delete-all sample-server',
+                         api_version='2.26')
+        self.assert_called('DELETE', '/servers/1234/tags')
+
+    def test_list_v2_26_tags(self):
+        self.run_command('list --tags tag1,tag2', api_version='2.26')
+        self.assert_called('GET', '/servers/detail?tags=tag1%2Ctag2')
+
+    def test_list_v2_26_tags_any(self):
+        self.run_command('list --tags-any tag1,tag2', api_version='2.26')
+        self.assert_called('GET', '/servers/detail?tags-any=tag1%2Ctag2')
+
+    def test_list_v2_26_not_tags(self):
+        self.run_command('list --not-tags tag1,tag2', api_version='2.26')
+        self.assert_called('GET', '/servers/detail?not-tags=tag1%2Ctag2')
+
+    def test_list_v2_26_not_tags_any(self):
+        self.run_command('list --not-tags-any tag1,tag2', api_version='2.26')
+        self.assert_called('GET', '/servers/detail?not-tags-any=tag1%2Ctag2')
 
 
 class ShellWithSessionClientTest(ShellTest):
