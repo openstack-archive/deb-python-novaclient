@@ -1,30 +1,14 @@
 #!/usr/bin/make -f
 
-PYTHONS:=$(shell pyversions -vr)
-PYTHON3S:=$(shell py3versions -vr)
-
 include /usr/share/openstack-pkg-tools/pkgos.make
-
-export OSLO_PACKAGE_VERSION=$(VERSION)
 
 %:
 	dh $@ --with python2,python3,sphinxdoc
 
 override_dh_auto_install:
-	set -e ; for pyvers in $(PYTHONS); do \
-		python$$pyvers setup.py install --install-layout=deb \
-			--root $(CURDIR)/debian/python-novaclient; \
-	done
-	set -e ; for pyvers in $(PYTHON3S); do \
-		python$$pyvers setup.py install --install-layout=deb \
-			--root $(CURDIR)/debian/python3-novaclient; \
-	done
-	rm -f $(CURDIR)/debian/python*-oslo.utils/usr/lib/python*/dist-packages/*.pth
+	pkgos-dh_auto_install
 	install -D -m 0644 tools/nova.bash_completion $(CURDIR)/debian/python-novaclient-doc/usr/share/bash-completion/completions/nova
 	rm -rf $(CURDIR)/debian/python-novaclient/usr/novaclient
-
-	mv $(CURDIR)/debian/python-novaclient/usr/bin/nova $(CURDIR)/debian/python-novaclient/usr/bin/python2-nova
-	mv $(CURDIR)/debian/python3-novaclient/usr/bin/nova $(CURDIR)/debian/python3-novaclient/usr/bin/python3-nova
 
 override_dh_python3:
 	dh_python3 --shebang=/usr/bin/python3
@@ -35,18 +19,7 @@ override_dh_auto_clean:
 
 override_dh_auto_test:
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
-	@echo "===> Running tests"
-	set -e ; set -x ; for i in 2.7 $(PYTHON3S) ; do \
-		PYMAJOR=`echo $$i | cut -d'.' -f1` ; \
-		echo "===> Testing with python$$i (python$$PYMAJOR)" ; \
-		rm -rf .testrepository ; \
-		testr-python$$PYMAJOR init ; \
-		TEMP_REZ=`mktemp -t` ; \
-		PYTHONPATH=$(CURDIR) PYTHON=python$$i testr-python$$PYMAJOR run --subunit | tee $$TEMP_REZ | subunit2pyunit ; \
-		cat $$TEMP_REZ | subunit-filter -s --no-passthrough | subunit-stats ; \
-		rm -f $$TEMP_REZ ; \
-		testr-python$$PYMAJOR slowest ; \
-	done
+	pkgos-dh_auto_test
 endif
 
 override_dh_sphinxdoc:

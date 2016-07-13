@@ -1,9 +1,13 @@
-python-novaclient (2:4.1.0-1) UNRELEASED; urgency=medium
+python-novaclient (2:4.1.0-1) experimental; urgency=medium
 
+  [ Corey Bryant ]
   * New upstream release.
   * d/control: Align (Build-)Depends with upstream.
 
- -- Corey Bryant <corey.bryant@canonical.com>  Fri, 08 Jul 2016 09:03:32 -0400
+  [ Thomas Goirand ]
+  * Using pkgos-dh_auto_{install,test} from openstack-pkg-tools >= 52~.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 13 Jul 2016 08:27:37 +0000
 
 python-novaclient (2:4.0.0-1) experimental; urgency=medium
 
