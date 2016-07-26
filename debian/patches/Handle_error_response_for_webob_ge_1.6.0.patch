@@ -1,0 +1,106 @@
+Description: Handle error response for webob>=1.6.0
+ WebOb change https://github.com/Pylons/webob/pull/230 changed
+ the way in which the error response body is formatted such that
+ it's no longer a nested dict. So we have to handle both the
+ old convention of an error message key to the response body error
+ dict and the new way with just the error body dict.
+ .
+ This was reported upstream:
+ .
+  https://github.com/Pylons/webob/issues/235
+ .
+ But given this was apparently implemented as a long-overdue change
+ in WebOb the behavior is not likely to change.
+Author: Matt Riedemann <mriedem@us.ibm.com>
+Date: Fri, 18 Mar 2016 23:17:47 +0000 (-0400)
+X-Git-Tag: 3.4.0^2
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fpython-novaclient.git;a=commitdiff_plain;h=fa377e7fca44e81247639efebd7cae5cb377e57e
+Change-Id: If653a247d842786d2824b4b3a5c0cde1383ed7ab
+Closes-Bug: #1559072
+Bug-Debian: https://bugs.debian.org/830304
+Origin: upstream, https://review.openstack.org/294850
+Last-Update: 2016-07-26
+
+diff --git a/novaclient/exceptions.py b/novaclient/exceptions.py
+index c502e96..31dd487 100644
+--- a/novaclient/exceptions.py
++++ b/novaclient/exceptions.py
+@@ -294,9 +294,21 @@ def from_response(response, body, url, method=None):
+         details = "n/a"
+ 
+         if hasattr(body, 'keys'):
+-            error = body[list(body)[0]]
+-            message = error.get('message')
+-            details = error.get('details')
++            # NOTE(mriedem): WebOb<1.6.0 will return a nested dict structure
++            # where the error keys to the message/details/code. WebOb>=1.6.0
++            # returns just a response body as a single dict, not nested,
++            # so we have to handle both cases (since we can't trust what we're
++            # given with content_type: application/json either way.
++            if 'message' in body:
++                # WebOb 1.6.0 case
++                message = body.get('message')
++                details = body.get('details')
++            else:
++                # WebOb<1.6.0 where we assume there is a single error message
++                # key to the body that has the message and details.
++                error = body[list(body)[0]]
++                message = error.get('message')
++                details = error.get('details')
+ 
+         kwargs['message'] = message
+         kwargs['details'] = details
+diff --git a/novaclient/tests/unit/test_exceptions.py b/novaclient/tests/unit/test_exceptions.py
+new file mode 100644
+index 0000000..34ce11d
+--- /dev/null
++++ b/novaclient/tests/unit/test_exceptions.py
+@@ -0,0 +1,48 @@
++# Copyright 2016 IBM Corp.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from novaclient import exceptions
++from novaclient.tests.unit import utils as test_utils
++
++
++class ExceptionsTestCase(test_utils.TestCase):
++
++    def _test_from_response(self, body, expected_message):
++        data = {
++            'status_code': 404,
++            'headers': {
++                'content-type': 'application/json',
++                'x-openstack-request-id': (
++                    'req-d9df03b0-4150-4b53-8157-7560ccf39f75'),
++            }
++        }
++        response = test_utils.TestResponse(data)
++        fake_url = 'http://localhost:8774/v2.1/fake/flavors/test'
++        error = exceptions.from_response(response, body, fake_url, 'GET')
++        self.assertIsInstance(error, exceptions.NotFound)
++        self.assertEqual(expected_message, error.message)
++
++    def test_from_response_webob_pre_1_6_0(self):
++        # Tests error responses before webob 1.6.0 where the error details
++        # are nested in the response body.
++        message = "Flavor test could not be found."
++        self._test_from_response(
++            {"itemNotFound": {"message": message, "code": 404}},
++            message)
++
++    def test_from_response_webob_post_1_6_0(self):
++        # Tests error responses from webob 1.6.0 where the error details
++        # are in the response body.
++        message = "Flavor test could not be found."
++        self._test_from_response({"message": message, "code": 404}, message)

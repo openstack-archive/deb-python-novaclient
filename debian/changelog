@@ -1,9 +1,13 @@
-python-novaclient (2:3.3.1-3) UNRELEASED; urgency=medium
+python-novaclient (2:3.3.1-4) unstable; urgency=medium
 
+  [ Ondřej Nový ]
   * Standards-Version is 3.9.8 now (no change)
   * d/copyright: Changed source URL to https protocol
 
- -- Ondřej Nový <novy@ondrej.org>  Sat, 09 Apr 2016 19:28:25 +0200
+  [ Thomas Goirand ]
+  * Added Handle_error_response_for_webob_ge_1.6.0.patch (Closes: #830304).
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 26 Jul 2016 16:35:34 +0200
 
 python-novaclient (2:3.3.1-2) unstable; urgency=medium
 
