@@ -1,0 +1,9 @@
+Code-Review+2: Thierry Carrez <thierry@openstack.org>
+Code-Review+2: Vish Ishaya <vishvananda@gmail.com>
+Workflow+1: Vish Ishaya <vishvananda@gmail.com>
+Verified+1: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 26 Mar 2012 18:54:11 +0000
+Reviewed-on: https://review.openstack.org/5778
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/milestone-proposed
