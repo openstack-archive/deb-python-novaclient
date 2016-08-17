@@ -1,0 +1,12 @@
+Code-Review+2: Andrey Kurilin <akurilin@mirantis.com>
+Code-Review+1: Artom Lifshitz <notartom@gmail.com>
+Code-Review+1: Takashi NATSUME <natsume.takashi@lab.ntt.co.jp>
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Workflow+1: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+1: jichenjc <jichenjc@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 10 Aug 2016 20:37:48 +0000
+Reviewed-on: https://review.openstack.org/353044
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master

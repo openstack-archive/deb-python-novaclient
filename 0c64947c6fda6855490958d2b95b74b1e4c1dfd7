@@ -1,0 +1,9 @@
+Code-Review+2: Andrey Kurilin <akurilin@mirantis.com>
+Code-Review+2: Sean Dague <sean@dague.net>
+Workflow+1: Sean Dague <sean@dague.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 24 Jun 2016 15:48:25 +0000
+Reviewed-on: https://review.openstack.org/333795
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master

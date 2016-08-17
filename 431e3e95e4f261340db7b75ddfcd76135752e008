@@ -1,0 +1,10 @@
+Code-Review+1: Roman Podoliaka <rpodolyaka@mirantis.com>
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+2: Matt Riedemann <mriedem@us.ibm.com>
+Workflow+1: Matt Riedemann <mriedem@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 30 Jun 2016 18:20:37 +0000
+Reviewed-on: https://review.openstack.org/336079
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master

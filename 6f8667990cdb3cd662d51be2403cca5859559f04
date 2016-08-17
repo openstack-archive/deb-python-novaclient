@@ -1,0 +1,9 @@
+Code-Review+2: Andrey Kurilin <akurilin@mirantis.com>
+Code-Review+2: John Garbutt <john@johngarbutt.com>
+Workflow+1: John Garbutt <john@johngarbutt.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 05 Jul 2016 09:33:43 +0000
+Reviewed-on: https://review.openstack.org/317795
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
