@@ -1,4 +1,5 @@
 [gerrit]
 host=review.openstack.org
 port=29418
-project=openstack/python-novaclient.git
+project=openstack/deb-python-novaclient.git
+defaultbranch=debian/newton
