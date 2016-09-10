@@ -1,0 +1,9 @@
+Code-Review+2: Matt Riedemann <mriedem@us.ibm.com>
+Code-Review+2: John Garbutt <john@johngarbutt.com>
+Workflow+1: John Garbutt <john@johngarbutt.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 04 Dec 2015 14:12:39 +0000
+Reviewed-on: https://review.openstack.org/250989
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/stable/liberty

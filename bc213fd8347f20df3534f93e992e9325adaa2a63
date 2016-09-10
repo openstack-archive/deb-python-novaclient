@@ -1,0 +1,12 @@
+Code-Review+2: Matt Riedemann <mriedem@us.ibm.com>
+Code-Review+1: Guangyu Suo <yugsuo@gmail.com>
+Code-Review+1: tobe <chendihao@unitedstack.com>
+Code-Review+1: zwei <leidong@unitedstack.com>
+Code-Review+2: Tony Breeds <tony@bakeyournoodle.com>
+Workflow+1: Tony Breeds <tony@bakeyournoodle.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 23 Mar 2016 05:35:12 +0000
+Reviewed-on: https://review.openstack.org/294202
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/stable/liberty
