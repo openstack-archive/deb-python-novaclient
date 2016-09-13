@@ -24,6 +24,7 @@ from oslo_utils import encodeutils
 import pkg_resources
 import prettytable
 import six
+from six.moves.urllib import parse
 
 from novaclient import exceptions
 from novaclient.i18n import _
@@ -209,7 +210,7 @@ def _flatten(data, prefix=None):
     if isinstance(data, dict):
         for key, value in six.iteritems(data):
             new_key = '%s_%s' % (prefix, key) if prefix else key
-            if isinstance(value, (dict, list)):
+            if isinstance(value, (dict, list)) and value:
                 for item in _flatten(value, new_key):
                     yield item
             else:
@@ -467,11 +468,7 @@ def record_time(times, enabled, *args):
         times.append((' '.join(args), start, end))
 
 
-def get_function_name(func):
-    if six.PY2:
-        if hasattr(func, "im_class"):
-            return "%s.%s" % (func.im_class, func.__name__)
-        else:
-            return "%s.%s" % (func.__module__, func.__name__)
-    else:
-        return "%s.%s" % (func.__module__, func.__qualname__)
+def prepare_query_string(params):
+    """Convert dict params to query string"""
+    params = sorted(params.items(), key=lambda x: x[0])
+    return '?%s' % parse.urlencode(params) if params else ''

@@ -16,9 +16,12 @@ import uuid
 
 from cinderclient.v2 import client as cinderclient
 import fixtures
-from keystoneauth1 import loading
+from glanceclient import client as glanceclient
+from keystoneauth1.exceptions import discovery as discovery_exc
+from keystoneauth1 import identity
 from keystoneauth1 import session as ksession
 from keystoneclient import client as keystoneclient
+from keystoneclient import discover as keystone_discover
 import os_client_config
 import six
 import tempest.lib.cli.base
@@ -33,23 +36,43 @@ BOOT_IS_COMPLETE = ("login as 'cirros' user. default password: "
                     "'cubswin:)'. use 'sudo' for root.")
 
 
+def is_keystone_version_available(session, version):
+    """Given a (major, minor) pair, check if the API version is enabled."""
+
+    d = keystone_discover.Discover(session)
+    try:
+        d.create_client(version)
+    except (discovery_exc.DiscoveryFailure, discovery_exc.VersionNotAvailable):
+        return False
+    else:
+        return True
+
+
 # The following are simple filter functions that filter our available
 # image / flavor list so that they can be used in standard testing.
 def pick_flavor(flavors):
     """Given a flavor list pick a reasonable one."""
-    for flavor in flavors:
-        if flavor.name == 'm1.tiny':
-            return flavor
-    for flavor in flavors:
-        if flavor.name == 'm1.small':
-            return flavor
+    for flavor_priority in ('m1.nano', 'm1.micro', 'm1.tiny', 'm1.small'):
+        for flavor in flavors:
+            if flavor.name == flavor_priority:
+                return flavor
     raise NoFlavorException()
 
 
 def pick_image(images):
+    firstImage = None
     for image in images:
-        if image.name.startswith('cirros') and image.name.endswith('-uec'):
+        firstImage = firstImage or image
+        if image.name.startswith('cirros') and (
+                image.name.endswith('-uec') or
+                image.name.endswith('-disk.img')):
             return image
+
+    # We didn't find the specific cirros image we'd like to use, so just use
+    # the first available.
+    if firstImage:
+        return firstImage
+
     raise NoImageException()
 
 
@@ -81,6 +104,9 @@ class NoNetworkException(Exception):
 class NoCloudConfigException(Exception):
     """We couldn't find a cloud configuration."""
     pass
+
+
+CACHE = {}
 
 
 class ClientTestBase(testtools.TestCase):
@@ -170,30 +196,45 @@ class ClientTestBase(testtools.TestCase):
         passwd = auth_info['password']
         tenant = auth_info['project_name']
         auth_url = auth_info['auth_url']
+        user_domain_id = auth_info['user_domain_id']
         self.project_domain_id = auth_info['project_domain_id']
+
         if 'insecure' in cloud_config.config:
             self.insecure = cloud_config.config['insecure']
         else:
             self.insecure = False
 
-        if self.COMPUTE_API_VERSION == "2.latest":
-            version = novaclient.API_MAX_VERSION.get_string()
-        else:
-            version = self.COMPUTE_API_VERSION or "2"
-
-        loader = loading.get_plugin_loader("password")
-        auth = loader.load_from_options(username=user,
-                                        password=passwd,
-                                        project_name=tenant,
-                                        auth_url=auth_url)
+        auth = identity.Password(username=user,
+                                 password=passwd,
+                                 project_name=tenant,
+                                 auth_url=auth_url,
+                                 project_domain_id=self.project_domain_id,
+                                 user_domain_id=user_domain_id)
         session = ksession.Session(auth=auth, verify=(not self.insecure))
 
-        self.client = novaclient.client.Client(version, session=session)
+        self.client = self._get_novaclient(session)
+
+        self.glance = glanceclient.Client('2', session=session)
 
         # pick some reasonable flavor / image combo
-        self.flavor = pick_flavor(self.client.flavors.list())
-        self.image = pick_image(self.client.images.list())
-        self.network = pick_network(self.client.networks.list())
+        if "flavor" not in CACHE:
+            CACHE["flavor"] = pick_flavor(self.client.flavors.list())
+        if "image" not in CACHE:
+            CACHE["image"] = pick_image(self.glance.images.list())
+        self.flavor = CACHE["flavor"]
+        self.image = CACHE["image"]
+
+        if "network" not in CACHE:
+            tested_api_version = self.client.api_version
+            proxy_api_version = novaclient.api_versions.APIVersion('2.35')
+            if tested_api_version > proxy_api_version:
+                self.client.api_version = proxy_api_version
+            try:
+                # TODO(mriedem): Get the networks from neutron if using neutron
+                CACHE["network"] = pick_network(self.client.networks.list())
+            finally:
+                self.client.api_version = tested_api_version
+        self.network = CACHE["network"]
 
         # create a CLI client in case we'd like to do CLI
         # testing. tempest.lib does this really weird thing where it
@@ -216,6 +257,56 @@ class ClientTestBase(testtools.TestCase):
                                               username=user,
                                               password=passwd)
         self.cinder = cinderclient.Client(auth=auth, session=session)
+
+        if "use_neutron" not in CACHE:
+            # check to see if we're running with neutron or not
+            for service in self.keystone.services.list():
+                if service.type == 'network':
+                    CACHE["use_neutron"] = True
+                    break
+            else:
+                CACHE["use_neutron"] = False
+
+    def _get_novaclient(self, session):
+        nc = novaclient.client.Client("2", session=session)
+
+        if self.COMPUTE_API_VERSION:
+            if "min_api_version" not in CACHE:
+                # Obtain supported versions by API side
+                v = nc.versions.get_current()
+                if not hasattr(v, 'version') or not v.version:
+                    # API doesn't support microversions
+                    CACHE["min_api_version"] = (
+                        novaclient.api_versions.APIVersion("2.0"))
+                    CACHE["max_api_version"] = (
+                        novaclient.api_versions.APIVersion("2.0"))
+                else:
+                    CACHE["min_api_version"] = (
+                        novaclient.api_versions.APIVersion(v.min_version))
+                    CACHE["max_api_version"] = (
+                        novaclient.api_versions.APIVersion(v.version))
+
+            if self.COMPUTE_API_VERSION == "2.latest":
+                requested_version = min(novaclient.API_MAX_VERSION,
+                                        CACHE["max_api_version"])
+            else:
+                requested_version = novaclient.api_versions.APIVersion(
+                    self.COMPUTE_API_VERSION)
+
+            if not requested_version.matches(CACHE["min_api_version"],
+                                             CACHE["max_api_version"]):
+                msg = ("%s is not supported by Nova-API. Supported version" %
+                       self.COMPUTE_API_VERSION)
+                if CACHE["min_api_version"] == CACHE["max_api_version"]:
+                    msg += ": %s" % CACHE["min_api_version"].get_string()
+                else:
+                    msg += "s: %s - %s" % (
+                        CACHE["min_api_version"].get_string(),
+                        CACHE["max_api_version"].get_string())
+                self.skipTest(msg)
+
+            nc.api_version = requested_version
+        return nc
 
     def nova(self, action, flags='', params='', fail_ok=False,
              endpoint_type='publicURL', merge_stderr=False):
@@ -243,7 +334,7 @@ class ClientTestBase(testtools.TestCase):
             self.fail("Volume %s did not reach status %s after %d s"
                       % (volume.id, status, timeout))
 
-    def wait_for_server_os_boot(self, server_id, timeout=60,
+    def wait_for_server_os_boot(self, server_id, timeout=300,
                                 poll_interval=1):
         """Wait until instance's operating system  is completely booted.
 
@@ -252,13 +343,15 @@ class ClientTestBase(testtools.TestCase):
         :param poll_interval: poll interval in seconds
         """
         start_time = time.time()
+        console = None
         while time.time() - start_time < timeout:
-            if BOOT_IS_COMPLETE in self.nova('console-log %s ' % server_id):
+            console = self.nova('console-log %s ' % server_id)
+            if BOOT_IS_COMPLETE in console:
                 break
             time.sleep(poll_interval)
         else:
-            self.fail("Server %s did not boot after %d s"
-                      % (server_id, timeout))
+            self.fail("Server %s did not boot after %d s.\nConsole:\n%s"
+                      % (server_id, timeout, console))
 
     def wait_for_resource_delete(self, resource, manager,
                                  timeout=60, poll_interval=1):
@@ -399,6 +492,10 @@ class ClientTestBase(testtools.TestCase):
         else:
             project = self.keystone.tenants.find(name=name)
         return project.id
+
+    def skip_if_neutron(self):
+        if CACHE["use_neutron"]:
+            self.skipTest('nova-network is not available')
 
 
 class TenantTestBase(ClientTestBase):

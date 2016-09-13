@@ -1,3 +1,14 @@
+python-novaclient (2:6.0.0-1) experimental; urgency=medium
+
+  [ Corey Bryant ]
+  * New upstream release.
+  * d/control: Align (Build-)Depends with upstream.
+
+  [ Thomas Goirand ]
+  * Using OpenStack's Gerrit as VCS URLs.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 13 Sep 2016 18:53:22 +0200
+
 python-novaclient (2:4.1.0-1) experimental; urgency=medium
 
   [ Corey Bryant ]

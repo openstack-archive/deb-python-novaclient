@@ -15,9 +15,11 @@
 
 import logging
 
-from novaclient import api_versions
+from keystoneauth1.exceptions import catalog as key_ex
+
 from novaclient import client
-from novaclient.i18n import _LW
+from novaclient import exceptions
+from novaclient.i18n import _LE
 from novaclient.v2 import agents
 from novaclient.v2 import aggregates
 from novaclient.v2 import availability_zones
@@ -101,18 +103,18 @@ class Client(object):
         :param str session: Session
         :param str auth: Auth
         :param api_version: Compute API version
-        :param direct_use: Direct use
+        :param direct_use: Inner variable of novaclient. Do not use it outside
+            novaclient. It's restricted.
         :param logger: Logger
         :type api_version: novaclient.api_versions.APIVersion
         """
         if direct_use:
-            import warnings
-
-            warnings.warn(
-                _LW("'novaclient.v2.client.Client' is not designed to be "
-                    "initialized directly. It is inner class of novaclient. "
-                    "Please, use 'novaclient.client.Client' instead. "
-                    "Related lp bug-report: 1493576"))
+            raise exceptions.Forbidden(
+                403, _LE("'novaclient.v2.client.Client' is not designed to be "
+                         "initialized directly. It is inner class of "
+                         "novaclient. You should use "
+                         "'novaclient.client.Client' instead. Related lp "
+                         "bug-report: 1493576"))
 
         # FIXME(comstud): Rename the api_key argument above when we
         # know it's not being used as keyword argument
@@ -123,17 +125,17 @@ class Client(object):
         # tenant name) and tenant_id is a UUID (what the Nova API
         # often refers to as a project_id or tenant_id).
 
-        password = api_key
+        password = kwargs.pop('password', api_key)
         self.projectid = project_id
         self.tenant_id = tenant_id
         self.user_id = user_id
         self.flavors = flavors.FlavorManager(self)
         self.flavor_access = flavor_access.FlavorAccessManager(self)
         self.images = images.ImageManager(self)
+        self.glance = images.GlanceManager(self)
         self.limits = limits.LimitsManager(self)
         self.servers = servers.ServerManager(self)
         self.versions = versions.VersionManager(self)
-        self.api_version = api_version or api_versions.APIVersion("2.1")
 
         # extensions
         self.agents = agents.AgentsManager(self)
@@ -147,6 +149,7 @@ class Client(object):
         self.volumes = volumes.VolumeManager(self)
         self.keypairs = keypairs.KeypairManager(self)
         self.networks = networks.NetworkManager(self)
+        self.neutron = networks.NeutronManager(self)
         self.quota_classes = quota_classes.QuotaClassSetManager(self)
         self.quotas = quotas.QuotaSetManager(self)
         self.security_groups = security_groups.SecurityGroupManager(self)
@@ -212,6 +215,14 @@ class Client(object):
             logger=logger,
             **kwargs)
 
+    @property
+    def api_version(self):
+        return self.client.api_version
+
+    @api_version.setter
+    def api_version(self, value):
+        self.client.api_version = value
+
     @client._original_only
     def __enter__(self):
         self.client.open_session()
@@ -230,6 +241,23 @@ class Client(object):
 
     def reset_timings(self):
         self.client.reset_timings()
+
+    def has_neutron(self):
+        """Check the service catalog to figure out if we have neutron.
+
+        This is an intermediary solution for the window of time where
+        we still have nova-network support in the client, but we
+        expect most people have neutron. This ensures that if they
+        have neutron we understand, we talk to it, if they don't, we
+        fail back to nova proxies.
+        """
+        try:
+            endpoint = self.client.get_endpoint(service_type='network')
+            if endpoint:
+                return True
+            return False
+        except key_ex.EndpointNotFound:
+            return False
 
     @client._original_only
     def authenticate(self):

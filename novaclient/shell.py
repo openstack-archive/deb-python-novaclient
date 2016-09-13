@@ -395,8 +395,8 @@ class OpenStackComputeShell(object):
         loading.register_auth_argparse_arguments(
             parser, argv, default=default_auth_plugin)
 
-        parser.set_defaults(insecure=utils.env('NOVACLIENT_INSECURE',
-                            default=False))
+        parser.set_defaults(insecure=strutils.bool_from_string(
+            utils.env('NOVACLIENT_INSECURE', default=False)))
         parser.set_defaults(os_auth_url=utils.env('OS_AUTH_URL', 'NOVA_URL'))
 
         parser.set_defaults(os_username=utils.env('OS_USERNAME',
@@ -450,90 +450,35 @@ class OpenStackComputeShell(object):
             help=_("Print call timing info."))
 
         parser.add_argument(
-            '--os_username',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-username',
-            help=argparse.SUPPRESS)
-
-        parser.add_argument(
-            '--os_password',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-password',
-            help=argparse.SUPPRESS)
-
-        parser.add_argument(
-            '--os_tenant_name',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-tenant-name',
-            help=argparse.SUPPRESS)
-
-        parser.add_argument(
-            '--os_auth_url',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-auth-url',
-            help=argparse.SUPPRESS)
-
-        parser.add_argument(
             '--os-region-name',
             metavar='<region-name>',
             default=utils.env('OS_REGION_NAME', 'NOVA_REGION_NAME'),
             help=_('Defaults to env[OS_REGION_NAME].'))
-        parser.add_argument(
-            '--os_region_name',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-region-name',
-            help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--os-auth-system',
             metavar='<auth-system>',
             default=utils.env('OS_AUTH_SYSTEM'),
             help=argparse.SUPPRESS)
-        parser.add_argument(
-            '--os_auth_system',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-auth-system',
-            help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--service-type',
             metavar='<service-type>',
             help=_('Defaults to compute for most actions.'))
-        parser.add_argument(
-            '--service_type',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--service-type',
-            help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--service-name',
             metavar='<service-name>',
             default=utils.env('NOVA_SERVICE_NAME'),
             help=_('Defaults to env[NOVA_SERVICE_NAME].'))
-        parser.add_argument(
-            '--service_name',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--service-name',
-            help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--volume-service-name',
+            action=DeprecatedAction,
             metavar='<volume-service-name>',
             default=utils.env('NOVA_VOLUME_SERVICE_NAME'),
-            help=_('Defaults to env[NOVA_VOLUME_SERVICE_NAME].'))
-        parser.add_argument(
-            '--volume_service_name',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--volume-service-name',
+            use=_('This option will be removed after Nova 15.0.0 is '
+                  'released.'),
             help=argparse.SUPPRESS)
 
         parser.add_argument(
@@ -549,31 +494,12 @@ class OpenStackComputeShell(object):
                  DEFAULT_NOVA_ENDPOINT_TYPE + '.')
 
         parser.add_argument(
-            '--endpoint-type',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-endpoint-type',
-            help=argparse.SUPPRESS)
-        # NOTE(dtroyer): We can't add --endpoint_type here due to argparse
-        #                thinking usage-list --end is ambiguous; but it
-        #                works fine with only --endpoint-type present
-        #                Go figure.  I'm leaving this here for doc purposes.
-        # parser.add_argument('--endpoint_type',
-        #     help=argparse.SUPPRESS)
-
-        parser.add_argument(
             '--os-compute-api-version',
             metavar='<compute-api-ver>',
             default=utils.env('OS_COMPUTE_API_VERSION',
                               default=DEFAULT_OS_COMPUTE_API_VERSION),
             help=_('Accepts X, X.Y (where X is major and Y is minor part) or '
                    '"X.latest", defaults to env[OS_COMPUTE_API_VERSION].'))
-        parser.add_argument(
-            '--os_compute_api_version',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--os-compute-api-version',
-            help=argparse.SUPPRESS)
 
         parser.add_argument(
             '--bypass-url',
@@ -582,12 +508,6 @@ class OpenStackComputeShell(object):
             default=utils.env('NOVACLIENT_BYPASS_URL'),
             help=_("Use this API endpoint instead of the Service Catalog. "
                    "Defaults to env[NOVACLIENT_BYPASS_URL]."))
-        parser.add_argument(
-            '--bypass_url',
-            action=DeprecatedAction,
-            use=_('use "%s"; this option will be removed '
-                  'in novaclient 3.3.0.') % '--bypass-url',
-            help=argparse.SUPPRESS)
 
         # The auth-system-plugins might require some extra options
         novaclient.auth_plugin.load_auth_system_opts(parser)
@@ -633,8 +553,7 @@ class OpenStackComputeShell(object):
             desc = callback.__doc__ or ''
             if hasattr(callback, "versioned"):
                 additional_msg = ""
-                subs = api_versions.get_substitutions(
-                    utils.get_function_name(callback))
+                subs = api_versions.get_substitutions(callback)
                 if do_help:
                     additional_msg = msg % {
                         'start': subs[0].start_version.get_string(),
@@ -709,27 +628,6 @@ class OpenStackComputeShell(object):
     def main(self, argv):
         # Parse args once to find version and debug settings
         parser = self.get_base_parser(argv)
-
-        # NOTE(dtroyer): Hackery to handle --endpoint_type due to argparse
-        #                thinking usage-list --end is ambiguous; but it
-        #                works fine with only --endpoint-type present
-        #                Go figure.
-        if '--endpoint_type' in argv:
-            spot = argv.index('--endpoint_type')
-            argv[spot] = '--endpoint-type'
-            # NOTE(Vek): Not emitting a warning here, as that will
-            #            occur when "--endpoint-type" is processed
-
-        # For backwards compat with old os-auth-token parameter
-        if '--os-auth-token' in argv:
-            spot = argv.index('--os-auth-token')
-            argv[spot] = '--os-token'
-            print(_('WARNING: Option "%(option)s" is deprecated; %(use)s') % {
-                'option': '--os-auth-token',
-                'use': _('use "%s"; this option will be removed in '
-                         'novaclient 3.3.0.') % '--os-token',
-            }, file=sys.stderr)
-
         (args, args_list) = parser.parse_known_args(argv)
 
         self.setup_debugging(args.debug)

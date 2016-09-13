@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from novaclient import api_versions
 from novaclient import base
 from novaclient.i18n import _
 from novaclient import utils
+from novaclient.v2 import shell
 
 
 class TenantNetwork(base.Resource):
     def delete(self):
         """
-        Delete this project network.
+        DEPRECATED: Delete this project network.
 
         :returns: An instance of novaclient.base.TupleWithMeta
         """
@@ -28,25 +30,33 @@ class TenantNetwork(base.Resource):
 
 
 class TenantNetworkManager(base.ManagerWithFind):
+    """DEPRECATED"""
     resource_class = base.Resource
 
+    @api_versions.deprecated_after('2.35')
     def list(self):
+        """DEPRECATED"""
         return self._list('/os-tenant-networks', 'networks')
 
+    @api_versions.deprecated_after('2.35')
     def get(self, network):
+        """DEPRECATED"""
         return self._get('/os-tenant-networks/%s' % base.getid(network),
                          'network')
 
+    @api_versions.deprecated_after('2.35')
     def delete(self, network):
         """
-        Delete a specified project network.
+        DEPRECATED: Delete a specified project network.
 
         :param network: a project network to delete
         :returns: An instance of novaclient.base.TupleWithMeta
         """
         return self._delete('/os-tenant-networks/%s' % base.getid(network))
 
+    @api_versions.deprecated_after('2.35')
     def create(self, label, cidr):
+        """DEPRECATED"""
         body = {'network': {'label': label, 'cidr': cidr}}
         return self._create('/os-tenant-networks', body, 'network')
 
@@ -60,6 +70,7 @@ def do_net(cs, args):
 
 
 @utils.arg('network_id', metavar='<network_id>', help='ID of network')
+@shell.deprecated_network
 def do_tenant_network_show(cs, args):
     """
     Show a tenant network.
@@ -75,6 +86,7 @@ def do_net_list(cs, args):
     do_tenant_network_list(cs, args)
 
 
+@shell.deprecated_network
 def do_tenant_network_list(cs, args):
     """
     List tenant networks.
@@ -106,6 +118,7 @@ def do_net_create(cs, args):
     'cidr',
     metavar='<cidr>',
     help=_('IP block to allocate from (ex. 172.16.0.0/24 or 2001:DB8::/64)'))
+@shell.deprecated_network
 def do_tenant_network_create(cs, args):
     """
     Create a tenant network.
@@ -123,6 +136,7 @@ def do_net_delete(cs, args):
 
 
 @utils.arg('network_id', metavar='<network_id>', help='ID of network')
+@shell.deprecated_network
 def do_tenant_network_delete(cs, args):
     """
     Delete a tenant network.

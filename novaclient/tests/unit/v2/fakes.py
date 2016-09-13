@@ -45,6 +45,8 @@ CALLBACK_RE = re.compile(r"^get_http:__nova_api:8774_v\d(_\d)?$")
 # fake image uuids
 FAKE_IMAGE_UUID_1 = 'c99d7632-bd66-4be9-aed5-3dd14b223a76'
 FAKE_IMAGE_UUID_2 = 'f27f479a-ddda-419a-9bbc-d6b56b210161'
+FAKE_IMAGE_UUID_SNAPSHOT = '555cae93-fb41-4145-9c52-f5b923538a26'
+FAKE_IMAGE_UUID_SNAP_DEL = '55bb23af-97a4-4068-bdf8-f10c62880ddf'
 
 # fake request id
 FAKE_REQUEST_ID = fakes.FAKE_REQUEST_ID
@@ -54,13 +56,12 @@ FAKE_RESPONSE_HEADERS = {'x-openstack-request-id': FAKE_REQUEST_ID}
 
 class FakeClient(fakes.FakeClient, client.Client):
 
-    def __init__(self, api_version=None, *args, **kwargs):
+    def __init__(self, api_version, *args, **kwargs):
         client.Client.__init__(self, 'username', 'password',
                                'project_id', 'auth_url',
                                extensions=kwargs.get('extensions'),
                                direct_use=False)
-        self.api_version = api_version or api_versions.APIVersion("2.1")
-        kwargs["api_version"] = self.api_version
+        kwargs["api_version"] = api_version
         self.client = FakeHTTPClient(**kwargs)
 
 
@@ -128,6 +129,12 @@ class FakeHTTPClient(base_client.HTTPClient):
             # more like we'd expect when making REST calls.
             raise exceptions.NotFound('404')
 
+        # Handle fake glance v2 requests
+        v2_image = False
+        if callback.startswith('get_v2_images'):
+            v2_image = True
+            callback = callback.replace('get_v2_', 'get_')
+
         if not hasattr(self, callback):
             raise AssertionError('Called unknown API method: %s %s, '
                                  'expected fakes method name: %s' %
@@ -137,6 +144,12 @@ class FakeHTTPClient(base_client.HTTPClient):
         self.callstack.append((method, url, kwargs.get('body')))
 
         status, headers, body = getattr(self, callback)(**kwargs)
+
+        # If we're dealing with a glance v2 image response, the response
+        # isn't wrapped like the compute images API proxy is, so handle that.
+        if body and v2_image and 'image' in body:
+            body = body['image']
+
         r = utils.TestResponse({
             "status_code": status,
             "text": body,
@@ -144,7 +157,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         })
         return r, body
 
-    def get_endpoint(self):
+    def get_endpoint(self, **kwargs):
         # check if endpoint matches expected format (eg, v2.1)
         if (hasattr(self, 'endpoint_type') and
                 ENDPOINT_TYPE_RE.search(self.endpoint_type)):
@@ -417,7 +430,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "id": 5678,
                 "name": "sample-server2",
                 "image": {
-                    "id": 2,
+                    "id": FAKE_IMAGE_UUID_1,
                     "name": "sample image",
                 },
                 "flavor": {
@@ -715,13 +728,14 @@ class FakeHTTPClient(base_client.HTTPClient):
             # raise AssertionError if we didn't find 'action' at all.
             pass
         elif action == 'os-migrateLive':
+            expected = set(['host', 'block_migration'])
+            if self.api_version >= api_versions.APIVersion("2.30"):
+                if 'force' in body[action].keys():
+                    # force can be optional
+                    expected.add('force')
             if self.api_version < api_versions.APIVersion("2.25"):
-                assert set(body[action].keys()) == set(['host',
-                                                        'block_migration',
-                                                        'disk_over_commit'])
-            else:
-                assert set(body[action].keys()) == set(['host',
-                                                        'block_migration'])
+                expected.add('disk_over_commit')
+            assert set(body[action].keys()) == expected
         elif action == 'rebuild':
             body = body[action]
             adminPass = body.get('adminPass', 'randompassword')
@@ -741,9 +755,11 @@ class FakeHTTPClient(base_client.HTTPClient):
             _body = {'adminPass': 'RescuePassword'}
         elif action == 'createImage':
             assert set(body[action].keys()) == set(['name', 'metadata'])
-            _headers = dict(location="http://blah/images/456")
+            _headers = dict(location="http://blah/images/%s" %
+                            FAKE_IMAGE_UUID_SNAPSHOT)
             if body[action]['name'] == 'mysnapshot_deleted':
-                _headers = dict(location="http://blah/images/457")
+                _headers = dict(location="http://blah/images/%s" %
+                                FAKE_IMAGE_UUID_SNAP_DEL)
         elif action == 'os-getConsoleOutput':
             assert list(body[action]) == ['length']
             return (202, {}, {'output': 'foo'})
@@ -753,7 +769,11 @@ class FakeHTTPClient(base_client.HTTPClient):
                 keys.remove('adminPass')
             if 'host' in keys:
                 keys.remove('host')
-            assert set(keys) == set(['onSharedStorage'])
+            if 'onSharedStorage' in keys:
+                keys.remove('onSharedStorage')
+            if 'force' in keys:
+                keys.remove('force')
+            assert set(keys) == set()
         else:
             raise AssertionError("Unexpected server action: %s" % action)
         _headers.update(FAKE_RESPONSE_HEADERS)
@@ -1074,8 +1094,6 @@ class FakeHTTPClient(base_client.HTTPClient):
     #
     def get_images(self, **kw):
         return (200, {}, {'images': [
-            {'id': 1, 'name': 'CentOS 5.2'},
-            {'id': 2, 'name': 'My Server Backup'},
             {'id': FAKE_IMAGE_UUID_1, 'name': 'CentOS 5.2'},
             {'id': FAKE_IMAGE_UUID_2, 'name': 'My Server Backup'}
         ]})
@@ -1083,18 +1101,7 @@ class FakeHTTPClient(base_client.HTTPClient):
     def get_images_detail(self, **kw):
         return (200, {}, {'images': [
             {
-                'id': 1,
-                'name': 'CentOS 5.2',
-                "updated": "2010-10-10T12:00:00Z",
-                "created": "2010-08-10T12:00:00Z",
-                "status": "ACTIVE",
-                "metadata": {
-                    "test_key": "test_value",
-                },
-                "links": {},
-            },
-            {
-                "id": 2,
+                "id": FAKE_IMAGE_UUID_SNAPSHOT,
                 "name": "My Server Backup",
                 "serverId": 1234,
                 "updated": "2010-10-10T12:00:00Z",
@@ -1104,7 +1111,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "links": {},
             },
             {
-                "id": 3,
+                "id": FAKE_IMAGE_UUID_SNAP_DEL,
                 "name": "My Server Backup Deleted",
                 "serverId": 1234,
                 "updated": "2010-10-10T12:00:00Z",
@@ -1136,38 +1143,31 @@ class FakeHTTPClient(base_client.HTTPClient):
             }
         ]})
 
-    def get_images_1(self, **kw):
+    def get_images_555cae93_fb41_4145_9c52_f5b923538a26(self, **kw):
         return (200, {}, {'image': self.get_images_detail()[2]['images'][0]})
 
-    def get_images_2(self, **kw):
+    def get_images_55bb23af_97a4_4068_bdf8_f10c62880ddf(self, **kw):
         return (200, {}, {'image': self.get_images_detail()[2]['images'][1]})
-
-    def get_images_456(self, **kw):
-        return (200, {}, {'image': self.get_images_detail()[2]['images'][1]})
-
-    def get_images_457(self, **kw):
-        return (200, {}, {'image': self.get_images_detail()[2]['images'][2]})
 
     def get_images_c99d7632_bd66_4be9_aed5_3dd14b223a76(self, **kw):
-        return (200, {}, {'image': self.get_images_detail()[2]['images'][3]})
+        return (200, {}, {'image': self.get_images_detail()[2]['images'][2]})
 
     def get_images_f27f479a_ddda_419a_9bbc_d6b56b210161(self, **kw):
-        return (200, {}, {'image': self.get_images_detail()[2]['images'][4]})
+        return (200, {}, {'image': self.get_images_detail()[2]['images'][3]})
 
     def get_images_3e861307_73a6_4d1f_8d68_f68b03223032(self):
         raise exceptions.NotFound('404')
 
-    def post_images_1_metadata(self, body, **kw):
+    def post_images_c99d7632_bd66_4be9_aed5_3dd14b223a76_metadata(
+            self, body, **kw):
         assert list(body) == ['metadata']
         fakes.assert_has_keys(body['metadata'],
                               required=['test_key'])
+        get_image = self.get_images_c99d7632_bd66_4be9_aed5_3dd14b223a76
         return (
             200,
             {},
-            {'metadata': self.get_images_1()[2]['image']['metadata']})
-
-    def delete_images_1(self, **kw):
-        return (204, {}, None)
+            {'metadata': get_image()[2]['image']['metadata']})
 
     def delete_images_c99d7632_bd66_4be9_aed5_3dd14b223a76(self, **kw):
         return (204, {}, None)
@@ -1175,7 +1175,8 @@ class FakeHTTPClient(base_client.HTTPClient):
     def delete_images_f27f479a_ddda_419a_9bbc_d6b56b210161(self, **kw):
         return (204, {}, None)
 
-    def delete_images_1_metadata_test_key(self, **kw):
+    def delete_images_c99d7632_bd66_4be9_aed5_3dd14b223a76_metadata_test_key(
+            self, **kw):
         return (204, {}, None)
 
     #
@@ -1185,7 +1186,7 @@ class FakeHTTPClient(base_client.HTTPClient):
         return (200, {}, {'keypair':
                           self.get_os_keypairs()[2]['keypairs'][0]['keypair']})
 
-    def get_os_keypairs(self, *kw):
+    def get_os_keypairs(self, user_id=None, limit=None, marker=None, *kw):
         return (200, {}, {
             "keypairs": [{"keypair": {
                 "public_key": "FAKE_SSH_RSA",
@@ -1253,6 +1254,82 @@ class FakeHTTPClient(base_client.HTTPClient):
                 'keypairs': 1,
                 'security_groups': 1,
                 'security_group_rules': 1}})
+
+    def get_os_quota_sets_97f4c221bff44578b0300df4ef119353_detail(self, **kw):
+        return (200, {}, {
+            'quota_set': {
+                'tenant_id': '97f4c221bff44578b0300df4ef119353',
+                'cores': {
+                    'in_use': 0,
+                    'limit': 20,
+                    'reserved': 0
+                },
+                'fixed_ips': {
+                    'in_use': 0,
+                    'limit': -1,
+                    'reserved': 0
+                },
+                'floating_ips': {
+                    'in_use': 0,
+                    'limit': 10,
+                    'reserved': 0
+                },
+                'injected_file_content_bytes': {
+                    'in_use': 0,
+                    'limit': 10240,
+                    'reserved': 0
+                },
+                'injected_file_path_bytes': {
+                    'in_use': 0,
+                    'limit': 255,
+                    'reserved': 0
+                },
+                'injected_files': {
+                    'in_use': 0,
+                    'limit': 5,
+                    'reserved': 0
+                },
+                'instances': {
+                    'in_use': 0,
+                    'limit': 10,
+                    'reserved': 0
+                },
+                'key_pairs': {
+                    'in_use': 0,
+                    'limit': 100,
+                    'reserved': 0
+                },
+                'metadata_items': {
+                    'in_use': 0,
+                    'limit': 128,
+                    'reserved': 0
+                },
+                'ram': {
+                    'in_use': 0,
+                    'limit': 51200,
+                    'reserved': 0
+                },
+                'security_group_rules': {
+                    'in_use': 0,
+                    'limit': 20,
+                    'reserved': 0
+                },
+                'security_groups': {
+                    'in_use': 0,
+                    'limit': 10,
+                    'reserved': 0
+                },
+                'server_group_members': {
+                    'in_use': 0,
+                    'limit': 10,
+                    'reserved': 0
+                },
+                'server_groups': {
+                    'in_use': 0,
+                    'limit': 10,
+                    'reserved': 0
+                }
+            }})
 
     def get_os_quota_sets_97f4c221bff44578b0300df4ef119353_defaults(self):
         return (200, {}, {
@@ -1831,6 +1908,50 @@ class FakeHTTPClient(base_client.HTTPClient):
                            'hypervisor_hostname': "hyper1",
                            'uptime': "fake uptime"}})
 
+    def get_v2_0_networks(self, **kw):
+        """Return neutron proxied networks.
+
+        We establish a few different possible networks that we can get
+        by name, which we can then call in tests. The only usage of
+        this API should be for name -> id translation, however a full
+        valid neutron block is provided for the private network to see
+        the kinds of things that will be in that payload.
+        """
+
+        name = kw.get('name', "blank")
+
+        networks_by_name = {
+            'private': [
+                {"status": "ACTIVE",
+                 "router:external": False,
+                 "availability_zone_hints": [],
+                 "availability_zones": ["nova"],
+                 "description": "",
+                 "name": "private",
+                 "subnets": ["64706c26-336c-4048-ab3c-23e3283bca2c",
+                             "18512740-c760-4d5f-921f-668105c9ee44"],
+                 "shared": False,
+                 "tenant_id": "abd42f270bca43ea80fe4a166bc3536c",
+                 "created_at": "2016-08-15T17:34:49",
+                 "tags": [],
+                 "ipv6_address_scope": None,
+                 "updated_at": "2016-08-15T17:34:49",
+                 "admin_state_up": True,
+                 "ipv4_address_scope": None,
+                 "port_security_enabled": True,
+                 "mtu": 1450,
+                 "id": "e43a56c7-11d4-45c9-8681-ddc8171b5850",
+                 "revision": 2}],
+            'duplicate': [
+                {"status": "ACTIVE",
+                 "id": "e43a56c7-11d4-45c9-8681-ddc8171b5850"},
+                {"status": "ACTIVE",
+                 "id": "f43a56c7-11d4-45c9-8681-ddc8171b5850"}],
+            'blank': []
+        }
+
+        return (200, {}, {"networks": networks_by_name[name]})
+
     def get_os_networks(self, **kw):
         return (200, {}, {'networks': [{"label": "1", "cidr": "10.0.0.0/24",
                                         'project_id':
@@ -2246,8 +2367,8 @@ class FakeSessionClient(fakes.FakeClient, client.Client):
         client.Client.__init__(self, 'username', 'password',
                                'project_id', 'auth_url',
                                extensions=kwargs.get('extensions'),
-                               api_version=api_version, direct_use=False)
-        kwargs['api_version'] = api_version
+                               direct_use=False)
+        kwargs["api_version"] = api_version
         self.client = FakeSessionMockClient(**kwargs)
 
 

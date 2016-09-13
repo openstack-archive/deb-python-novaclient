@@ -26,6 +26,7 @@ import mock
 from oslo_utils import timeutils
 import six
 from six.moves import builtins
+import testtools
 
 import novaclient
 from novaclient import api_versions
@@ -131,13 +132,14 @@ class ShellTest(utils.TestCase):
                                "md5hash": "add6bb58e139be103324d04d82d8f546"}})
 
     def test_boot(self):
-        self.run_command('boot --flavor 1 --image 1 some-server')
+        self.run_command('boot --flavor 1 --image %s '
+                         'some-server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
             }},
@@ -151,20 +153,21 @@ class ShellTest(utils.TestCase):
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
             }},
         )
 
     def test_boot_key(self):
-        self.run_command('boot --flavor 1 --image 1 --key_name 1 some-server')
+        self.run_command('boot --flavor 1 --image %s --key-name 1 some-server'
+                         % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'key_name': '1',
                 'min_count': 1,
                 'max_count': 1,
@@ -177,13 +180,14 @@ class ShellTest(utils.TestCase):
             data = testfile_fd.read().encode('utf-8')
         expected_file_data = base64.b64encode(data).decode('utf-8')
         self.run_command(
-            'boot --flavor 1 --image 1 --user_data %s some-server' % testfile)
+            'boot --flavor 1 --image %s --user-data %s some-server' %
+            (FAKE_UUID_1, testfile))
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
                 'user_data': expected_file_data
@@ -192,14 +196,14 @@ class ShellTest(utils.TestCase):
 
     def test_boot_avzone(self):
         self.run_command(
-            'boot --flavor 1 --image 1 --availability-zone avzone  '
-            'some-server')
+            'boot --flavor 1 --image %s --availability-zone avzone  '
+            'some-server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'availability_zone': 'avzone',
                 'min_count': 1,
                 'max_count': 1
@@ -208,8 +212,8 @@ class ShellTest(utils.TestCase):
 
     def test_boot_secgroup(self):
         self.run_command(
-            'boot --flavor 1 --image 1 --security-groups secgroup1,'
-            'secgroup2  some-server')
+            'boot --flavor 1 --image %s --security-groups secgroup1,'
+            'secgroup2  some-server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
@@ -217,7 +221,7 @@ class ShellTest(utils.TestCase):
                                     {'name': 'secgroup2'}],
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
             }},
@@ -225,13 +229,14 @@ class ShellTest(utils.TestCase):
 
     def test_boot_config_drive(self):
         self.run_command(
-            'boot --flavor 1 --image 1 --config-drive 1 some-server')
+            'boot --flavor 1 --image %s --config-drive 1 some-server' %
+            FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
                 'config_drive': True
@@ -240,14 +245,14 @@ class ShellTest(utils.TestCase):
 
     def test_boot_access_ip(self):
         self.run_command(
-            'boot --flavor 1 --image 1 --access-ip-v4 10.10.10.10 '
-            '--access-ip-v6 ::1 some-server')
+            'boot --flavor 1 --image %s --access-ip-v4 10.10.10.10 '
+            '--access-ip-v6 ::1 some-server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'accessIPv4': '10.10.10.10',
                 'accessIPv6': '::1',
                 'max_count': 1,
@@ -257,13 +262,14 @@ class ShellTest(utils.TestCase):
 
     def test_boot_config_drive_custom(self):
         self.run_command(
-            'boot --flavor 1 --image 1 --config-drive /dev/hda some-server')
+            'boot --flavor 1 --image %s --config-drive /dev/hda some-server' %
+            FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
                 'config_drive': '/dev/hda'
@@ -273,8 +279,8 @@ class ShellTest(utils.TestCase):
     def test_boot_invalid_user_data(self):
         invalid_file = os.path.join(os.path.dirname(__file__),
                                     'no_such_file')
-        cmd = ('boot some-server --flavor 1 --image 1'
-               ' --user_data %s' % invalid_file)
+        cmd = ('boot some-server --flavor 1 --image %s'
+               ' --user-data %s' % (FAKE_UUID_1, invalid_file))
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_no_image_no_bdms(self):
@@ -282,12 +288,12 @@ class ShellTest(utils.TestCase):
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_no_flavor(self):
-        cmd = 'boot --image 1 some-server'
+        cmd = 'boot --image %s some-server' % FAKE_UUID_1
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_no_image_bdms(self):
         self.run_command(
-            'boot --flavor 1 --block_device_mapping vda=blah:::0 some-server'
+            'boot --flavor 1 --block-device-mapping vda=blah:::0 some-server'
         )
         self.assert_called_anytime(
             'POST', '/os-volumes_boot',
@@ -309,9 +315,9 @@ class ShellTest(utils.TestCase):
 
     def test_boot_image_bdms_v2(self):
         self.run_command(
-            'boot --flavor 1 --image 1 --block-device id=fake-id,'
+            'boot --flavor 1 --image %s --block-device id=fake-id,'
             'source=volume,dest=volume,device=vda,size=1,format=ext4,'
-            'type=disk,shutdown=preserve some-server'
+            'type=disk,shutdown=preserve some-server' % FAKE_UUID_1
         )
         self.assert_called_anytime(
             'POST', '/os-volumes_boot',
@@ -320,7 +326,7 @@ class ShellTest(utils.TestCase):
                 'name': 'some-server',
                 'block_device_mapping_v2': [
                     {
-                        'uuid': 1,
+                        'uuid': FAKE_UUID_1,
                         'source_type': 'image',
                         'destination_type': 'local',
                         'boot_index': 0,
@@ -337,7 +343,45 @@ class ShellTest(utils.TestCase):
                         'delete_on_termination': False,
                     },
                 ],
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
+                'min_count': 1,
+                'max_count': 1,
+            }},
+        )
+
+    def test_boot_image_bdms_v2_with_tag(self):
+        self.run_command(
+            'boot --flavor 1 --image %s --block-device id=fake-id,'
+            'source=volume,dest=volume,device=vda,size=1,format=ext4,'
+            'type=disk,shutdown=preserve,tag=foo some-server' % FAKE_UUID_1,
+            api_version='2.32'
+        )
+        self.assert_called_anytime(
+            'POST', '/os-volumes_boot',
+            {'server': {
+                'flavorRef': '1',
+                'name': 'some-server',
+                'block_device_mapping_v2': [
+                    {
+                        'uuid': FAKE_UUID_1,
+                        'source_type': 'image',
+                        'destination_type': 'local',
+                        'boot_index': 0,
+                        'delete_on_termination': True,
+                    },
+                    {
+                        'uuid': 'fake-id',
+                        'source_type': 'volume',
+                        'destination_type': 'volume',
+                        'device_name': 'vda',
+                        'volume_size': '1',
+                        'guest_format': 'ext4',
+                        'device_type': 'disk',
+                        'delete_on_termination': False,
+                        'tag': 'foo',
+                    },
+                ],
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
             }},
@@ -466,20 +510,20 @@ class ShellTest(utils.TestCase):
 
     def test_boot_bdms_v2_invalid_shutdown_value(self):
         self.assertRaises(exceptions.CommandError, self.run_command,
-                          ('boot --flavor 1 --image 1 --block-device '
+                          ('boot --flavor 1 --image %s --block-device '
                            'id=fake-id,source=volume,dest=volume,device=vda,'
                            'size=1,format=ext4,type=disk,shutdown=foobar '
-                           'some-server'))
+                           'some-server' % FAKE_UUID_1))
 
     def test_boot_metadata(self):
-        self.run_command('boot --image 1 --flavor 1 --meta foo=bar=pants'
-                         ' --meta spam=eggs some-server ')
+        self.run_command('boot --image %s --flavor 1 --meta foo=bar=pants'
+                         ' --meta spam=eggs some-server ' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'metadata': {'foo': 'bar=pants', 'spam': 'eggs'},
                 'min_count': 1,
                 'max_count': 1,
@@ -487,15 +531,16 @@ class ShellTest(utils.TestCase):
         )
 
     def test_boot_hints(self):
-        self.run_command('boot --image 1 --flavor 1 '
-                         '--hint a=b0=c0 --hint a=b1=c1 some-server ')
+        self.run_command('boot --image %s --flavor 1 '
+                         '--hint a=b0=c0 --hint a=b1=c1 some-server ' %
+                         FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {
                 'server': {
                     'flavorRef': '1',
                     'name': 'some-server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 1,
                     'max_count': 1,
                 },
@@ -504,8 +549,9 @@ class ShellTest(utils.TestCase):
         )
 
     def test_boot_nics(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id=a=c,v4-fixed-ip=10.0.0.1 some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=a=c,v4-fixed-ip=10.0.0.1 some-server' %
+               FAKE_UUID_1)
         self.run_command(cmd)
         self.assert_called_anytime(
             'POST', '/servers',
@@ -513,7 +559,7 @@ class ShellTest(utils.TestCase):
                 'server': {
                     'flavorRef': '1',
                     'name': 'some-server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 1,
                     'max_count': 1,
                     'networks': [
@@ -523,9 +569,105 @@ class ShellTest(utils.TestCase):
             },
         )
 
+    def test_boot_nics_with_tag(self):
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=a=c,v4-fixed-ip=10.0.0.1,tag=foo some-server' %
+               FAKE_UUID_1)
+        self.run_command(cmd, api_version='2.32')
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': FAKE_UUID_1,
+                    'min_count': 1,
+                    'max_count': 1,
+                    'networks': [
+                        {'uuid': 'a=c', 'fixed_ip': '10.0.0.1', 'tag': 'foo'},
+                    ],
+                },
+            },
+        )
+
+    def test_boot_invalid_nics_pre_v2_32(self):
+        # This is a negative test to make sure we fail with the correct message
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=1,port-id=2 some-server' % FAKE_UUID_1)
+        ex = self.assertRaises(exceptions.CommandError, self.run_command,
+                               cmd, api_version='2.1')
+        self.assertNotIn('tag=tag', six.text_type(ex))
+
+    def test_boot_invalid_nics_v2_32(self):
+        # This is a negative test to make sure we fail with the correct message
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=1,port-id=2 some-server' % FAKE_UUID_1)
+        ex = self.assertRaises(exceptions.CommandError, self.run_command,
+                               cmd, api_version='2.32')
+        self.assertIn('tag=tag', six.text_type(ex))
+
+    def test_boot_invalid_nics_v2_36_auto(self):
+        """This is a negative test to make sure we fail with the correct
+        message. --nic auto isn't allowed before 2.37.
+        """
+        cmd = ('boot --image %s --flavor 1 --nic auto test' % FAKE_UUID_1)
+        ex = self.assertRaises(exceptions.CommandError, self.run_command,
+                               cmd, api_version='2.36')
+        self.assertNotIn('auto,none', six.text_type(ex))
+
+    def test_boot_invalid_nics_v2_37(self):
+        """This is a negative test to make sure we fail with the correct
+        message.
+        """
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=1 --nic auto some-server' % FAKE_UUID_1)
+        ex = self.assertRaises(exceptions.CommandError, self.run_command,
+                               cmd, api_version='2.37')
+        self.assertIn('auto,none', six.text_type(ex))
+
+    def test_boot_nics_auto_allocate_default(self):
+        """Tests that if microversion>=2.37 is specified and no --nics are
+        specified that a single --nic with net-id=auto is used.
+        """
+        cmd = 'boot --image %s --flavor 1 some-server' % FAKE_UUID_1
+        self.run_command(cmd, api_version='2.37')
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': FAKE_UUID_1,
+                    'min_count': 1,
+                    'max_count': 1,
+                    'networks': 'auto',
+                },
+            },
+        )
+
+    def test_boot_nics_auto_allocate_none(self):
+        """Tests specifying '--nic none' with microversion 2.37
+        """
+        cmd = 'boot --image %s --flavor 1 --nic none some-server' % FAKE_UUID_1
+        self.run_command(cmd, api_version='2.37')
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': FAKE_UUID_1,
+                    'min_count': 1,
+                    'max_count': 1,
+                    'networks': 'none',
+                },
+            },
+        )
+
     def test_boot_nics_ipv6(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id=a=c,v6-fixed-ip=2001:db9:0:1::10 some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=a=c,v6-fixed-ip=2001:db9:0:1::10 some-server' %
+               FAKE_UUID_1)
         self.run_command(cmd)
         self.assert_called_anytime(
             'POST', '/servers',
@@ -533,7 +675,7 @@ class ShellTest(utils.TestCase):
                 'server': {
                     'flavorRef': '1',
                     'name': 'some-server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 1,
                     'max_count': 1,
                     'networks': [
@@ -544,54 +686,54 @@ class ShellTest(utils.TestCase):
         )
 
     def test_boot_nics_both_ipv4_and_ipv6(self):
-        cmd = ('boot --image 1 --flavor 1 '
+        cmd = ('boot --image %s --flavor 1 '
                '--nic net-id=a=c,v4-fixed-ip=10.0.0.1,'
-               'v6-fixed-ip=2001:db9:0:1::10 some-server')
+               'v6-fixed-ip=2001:db9:0:1::10 some-server' % FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_no_value(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id some-server' % FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_random_key(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id=a=c,v4-fixed-ip=10.0.0.1,foo=bar some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=a=c,v4-fixed-ip=10.0.0.1,foo=bar some-server' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_no_netid_or_portid(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic v4-fixed-ip=10.0.0.1 some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic v4-fixed-ip=10.0.0.1 some-server' % FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_netid_and_portid(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic port-id=some=port,net-id=some=net some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic port-id=some=port,net-id=some=net some-server' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_invalid_ipv4(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id=a=c,v4-fixed-ip=2001:db9:0:1::10 some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=a=c,v4-fixed-ip=2001:db9:0:1::10 some-server' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_invalid_ipv6(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id=a=c,v6-fixed-ip=10.0.0.1 some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=a=c,v6-fixed-ip=10.0.0.1 some-server' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_nics_net_id_twice(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-id=net-id1,net-id=net-id2 some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-id=net-id1,net-id=net-id2 some-server' % FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
-    @mock.patch(
-        'novaclient.tests.unit.v2.fakes.FakeHTTPClient.get_os_networks')
-    def test_boot_nics_net_name(self, mock_networks_list):
-        mock_networks_list.return_value = (200, {}, {
-            'networks': [{"label": "some-net", 'id': '1'}]})
-
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-name=some-net some-server')
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=False)
+    def test_boot_nics_net_name(self, has_neutron):
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=1 some-server' % FAKE_UUID_1)
         self.run_command(cmd)
         self.assert_called_anytime(
             'POST', '/servers',
@@ -599,7 +741,7 @@ class ShellTest(utils.TestCase):
                 'server': {
                     'flavorRef': '1',
                     'name': 'some-server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 1,
                     'max_count': 1,
                     'networks': [
@@ -609,32 +751,113 @@ class ShellTest(utils.TestCase):
             },
         )
 
-    def test_boot_nics_net_name_not_found(self):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-name=some-net some-server')
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=False)
+    def test_boot_nics_net_name_nova_net_2_36(self, has_neutron):
+        orig_find_network = novaclient.v2.shell._find_network_id_novanet
+
+        def stubbed_find_network(cs, net_name):
+            # assert that we dropped back to 2.35
+            self.assertEqual(api_versions.APIVersion('2.35'),
+                             cs.client.api_version)
+            return orig_find_network(cs, net_name)
+
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=1 some-server' % FAKE_UUID_1)
+        with mock.patch.object(novaclient.v2.shell, '_find_network_id_novanet',
+                               side_effect=stubbed_find_network) as find_net:
+            self.run_command(cmd, api_version='2.36')
+        find_net.assert_called_once_with(self.shell.cs, '1')
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': FAKE_UUID_1,
+                    'min_count': 1,
+                    'max_count': 1,
+                    'networks': [
+                        {'uuid': '1'},
+                    ],
+                },
+            },
+        )
+
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=True)
+    def test_boot_nics_net_name_neutron(self, has_neutron):
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=private some-server' % FAKE_UUID_1)
+        self.run_command(cmd)
+        self.assert_called_anytime(
+            'POST', '/servers',
+            {
+                'server': {
+                    'flavorRef': '1',
+                    'name': 'some-server',
+                    'imageRef': FAKE_UUID_1,
+                    'min_count': 1,
+                    'max_count': 1,
+                    'networks': [
+                        {'uuid': 'e43a56c7-11d4-45c9-8681-ddc8171b5850'},
+                    ],
+                },
+            },
+        )
+
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=True)
+    def test_boot_nics_net_name_neutron_dup(self, has_neutron):
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=duplicate some-server' % FAKE_UUID_1)
+        # this should raise a multiple matches error
+        msg = ("Multiple network matches found for 'duplicate', "
+               "use an ID to be more specific.")
+        with testtools.ExpectedException(exceptions.CommandError, msg):
+            self.run_command(cmd)
+
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=True)
+    def test_boot_nics_net_name_neutron_blank(self, has_neutron):
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=blank some-server' % FAKE_UUID_1)
+        # this should raise a multiple matches error
+        msg = 'No Network matching blank\..*'
+        with testtools.ExpectedException(exceptions.CommandError, msg):
+            self.run_command(cmd)
+
+    # TODO(sdague): the following tests should really avoid mocking
+    # out other tests, and they should check the string in the
+    # CommandError, because it's not really enough to distinguish
+    # between various errors.
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=False)
+    def test_boot_nics_net_name_not_found(self, has_neutron):
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=some-net some-server' % FAKE_UUID_1)
         self.assertRaises(exceptions.ResourceNotFound, self.run_command, cmd)
 
+    @mock.patch('novaclient.v2.client.Client.has_neutron', return_value=False)
     @mock.patch(
         'novaclient.tests.unit.v2.fakes.FakeHTTPClient.get_os_networks')
-    def test_boot_nics_net_name_multiple_matches(self, mock_networks_list):
+    def test_boot_nics_net_name_multiple_matches(self, mock_networks_list,
+                                                 has_neutron):
         mock_networks_list.return_value = (200, {}, {
             'networks': [{"label": "some-net", 'id': '1'},
                          {"label": "some-net", 'id': '2'}]})
 
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-name=some-net some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=some-net some-server' % FAKE_UUID_1)
         self.assertRaises(exceptions.NoUniqueMatch, self.run_command, cmd)
 
     @mock.patch('novaclient.v2.shell._find_network_id', return_value='net-id')
     def test_boot_nics_net_name_and_net_id(self, mock_find_network_id):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-name=some-net,net-id=some-id some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=some-net,net-id=some-id some-server' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     @mock.patch('novaclient.v2.shell._find_network_id', return_value='net-id')
     def test_boot_nics_net_name_and_port_id(self, mock_find_network_id):
-        cmd = ('boot --image 1 --flavor 1 '
-               '--nic net-name=some-net,port-id=some-id some-server')
+        cmd = ('boot --image %s --flavor 1 '
+               '--nic net-name=some-net,port-id=some-id some-server' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_files(self):
@@ -643,16 +866,16 @@ class ShellTest(utils.TestCase):
             data = testfile_fd.read()
         expected = base64.b64encode(data.encode('utf-8')).decode('utf-8')
 
-        cmd = ('boot some-server --flavor 1 --image 1'
+        cmd = ('boot some-server --flavor 1 --image %s'
                ' --file /tmp/foo=%s --file /tmp/bar=%s')
-        self.run_command(cmd % (testfile, testfile))
+        self.run_command(cmd % (FAKE_UUID_1, testfile, testfile))
 
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
                 'personality': [
@@ -665,97 +888,96 @@ class ShellTest(utils.TestCase):
     def test_boot_invalid_files(self):
         invalid_file = os.path.join(os.path.dirname(__file__),
                                     'asdfasdfasdfasdf')
-        cmd = ('boot some-server --flavor 1 --image 1'
-               ' --file /foo=%s' % invalid_file)
+        cmd = ('boot some-server --flavor 1 --image %s'
+               ' --file /foo=%s' % (FAKE_UUID_1, invalid_file))
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
-    def test_boot_num_instances(self):
-        self.run_command('boot --image 1 --flavor 1 --num-instances 3 server')
+    def test_boot_max_min_count(self):
+        self.run_command('boot --image %s --flavor 1 --min-count 1'
+                         ' --max-count 3 server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {
                 'server': {
                     'flavorRef': '1',
                     'name': 'server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 1,
                     'max_count': 3,
                 }
             })
 
-    def test_boot_invalid_num_instances(self):
-        cmd = 'boot --image 1 --flavor 1 --num-instances 0  server'
-        self.assertRaises(exceptions.CommandError, self.run_command, cmd)
-
-    def test_boot_num_instances_and_count(self):
-        cmd = 'boot --image 1 --flavor 1 --num-instances 3 --min-count 3 serv'
-        self.assertRaises(exceptions.CommandError, self.run_command, cmd)
-        cmd = 'boot --image 1 --flavor 1 --num-instances 3 --max-count 3 serv'
+    def test_boot_invalid_min_count(self):
+        cmd = 'boot --image %s --flavor 1 --min-count 0  server' % FAKE_UUID_1
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     def test_boot_min_max_count(self):
-        self.run_command('boot --image 1 --flavor 1 --max-count 3 server')
+        self.run_command('boot --image %s --flavor 1 --max-count 3 server' %
+                         FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {
                 'server': {
                     'flavorRef': '1',
                     'name': 'server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 1,
                     'max_count': 3,
                 }
             })
-        self.run_command('boot --image 1 --flavor 1 --min-count 3 server')
+        self.run_command('boot --image %s --flavor 1 --min-count 3 server' %
+                         FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {
                 'server': {
                     'flavorRef': '1',
                     'name': 'server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 3,
                     'max_count': 3,
                 }
             })
-        self.run_command('boot --image 1 --flavor 1 '
-                         '--min-count 3 --max-count 3 server')
+        self.run_command('boot --image %s --flavor 1 '
+                         '--min-count 3 --max-count 3 server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {
                 'server': {
                     'flavorRef': '1',
                     'name': 'server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 3,
                     'max_count': 3,
                 }
             })
-        self.run_command('boot --image 1 --flavor 1 '
-                         '--min-count 3 --max-count 5 server')
+        self.run_command('boot --image %s --flavor 1 '
+                         '--min-count 3 --max-count 5 server' % FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {
                 'server': {
                     'flavorRef': '1',
                     'name': 'server',
-                    'imageRef': '1',
+                    'imageRef': FAKE_UUID_1,
                     'min_count': 3,
                     'max_count': 5,
                 }
             })
-        cmd = 'boot --image 1 --flavor 1 --min-count 3 --max-count 1 serv'
+        cmd = ('boot --image %s --flavor 1 --min-count 3 --max-count 1 serv' %
+               FAKE_UUID_1)
         self.assertRaises(exceptions.CommandError, self.run_command, cmd)
 
     @mock.patch('novaclient.v2.shell._poll_for_status')
     def test_boot_with_poll(self, poll_method):
-        self.run_command('boot --flavor 1 --image 1 some-server --poll')
+        self.run_command('boot --flavor 1 --image %s some-server --poll' %
+                         FAKE_UUID_1)
         self.assert_called_anytime(
             'POST', '/servers',
             {'server': {
                 'flavorRef': '1',
                 'name': 'some-server',
-                'imageRef': '1',
+                'imageRef': FAKE_UUID_1,
                 'min_count': 1,
                 'max_count': 1,
             }},
@@ -767,13 +989,14 @@ class ShellTest(utils.TestCase):
 
     def test_boot_with_poll_to_check_VM_state_error(self):
         self.assertRaises(exceptions.ResourceInErrorState, self.run_command,
-                          'boot --flavor 1 --image 1 some-bad-server --poll')
+                          'boot --flavor 1 --image %s some-bad-server --poll' %
+                          FAKE_UUID_1)
 
     def test_boot_named_flavor(self):
         self.run_command(["boot", "--image", FAKE_UUID_1,
                           "--flavor", "512 MB Server",
                           "--max-count", "3", "server"])
-        self.assert_called('GET', '/images/' + FAKE_UUID_1, pos=0)
+        self.assert_called('GET', '/v2/images/' + FAKE_UUID_1, pos=0)
         self.assert_called('GET', '/flavors/512 MB Server', pos=1)
         self.assert_called('GET', '/flavors?is_public=None', pos=2)
         self.assert_called('GET', '/flavors/2', pos=3)
@@ -790,7 +1013,8 @@ class ShellTest(utils.TestCase):
             }, pos=4)
 
     def test_boot_invalid_ephemeral_data_format(self):
-        cmd = 'boot --flavor 1 --image 1 --ephemeral 1 some-server'
+        cmd = ('boot --flavor 1 --image %s --ephemeral 1 some-server' %
+               FAKE_UUID_1)
         self.assertRaises(argparse.ArgumentTypeError, self.run_command, cmd)
 
     def test_flavor_list(self):
@@ -880,19 +1104,22 @@ class ShellTest(utils.TestCase):
                            {'removeTenantAccess': {'tenant': 'proj2'}})
 
     def test_image_show(self):
-        _, err = self.run_command('image-show 1')
+        _, err = self.run_command('image-show %s' % FAKE_UUID_1)
         self.assertIn('Command image-show is deprecated', err)
-        self.assert_called('GET', '/images/1')
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_1)
 
     def test_image_meta_set(self):
-        _, err = self.run_command('image-meta 1 set test_key=test_value')
+        _, err = self.run_command('image-meta %s set test_key=test_value' %
+                                  FAKE_UUID_1)
         self.assertIn('Command image-meta is deprecated', err)
-        self.assert_called('POST', '/images/1/metadata',
+        self.assert_called('POST', '/images/%s/metadata' % FAKE_UUID_1,
                            {'metadata': {'test_key': 'test_value'}})
 
     def test_image_meta_del(self):
-        self.run_command('image-meta 1 delete test_key=test_value')
-        self.assert_called('DELETE', '/images/1/metadata/test_key')
+        self.run_command('image-meta %s delete test_key=test_value' %
+                         FAKE_UUID_1)
+        self.assert_called('DELETE', '/images/%s/metadata/test_key' %
+                           FAKE_UUID_1)
 
     @mock.patch('sys.stdout', six.StringIO())
     @mock.patch('sys.stderr', six.StringIO())
@@ -940,7 +1167,8 @@ class ShellTest(utils.TestCase):
         )
         self.assertEqual(1, poll_method.call_count)
         poll_method.assert_has_calls(
-            [mock.call(self.shell.cs.images.get, '456', 'snapshotting',
+            [mock.call(self.shell.cs.glance.find_image,
+                       fakes.FAKE_IMAGE_UUID_SNAPSHOT, 'snapshotting',
                        ['active'])])
 
     def test_create_image_with_poll_to_check_image_state_deleted(self):
@@ -949,15 +1177,15 @@ class ShellTest(utils.TestCase):
             'image-create sample-server mysnapshot_deleted --poll')
 
     def test_image_delete(self):
-        _, err = self.run_command('image-delete 1')
+        _, err = self.run_command('image-delete %s' % FAKE_UUID_1)
         self.assertIn('Command image-delete is deprecated', err)
-        self.assert_called('DELETE', '/images/1')
+        self.assert_called('DELETE', '/images/%s' % FAKE_UUID_1)
 
     def test_image_delete_multiple(self):
         self.run_command('image-delete %s %s' % (FAKE_UUID_1, FAKE_UUID_2))
-        self.assert_called('GET', '/images/' + FAKE_UUID_1, pos=0)
+        self.assert_called('GET', '/v2/images/' + FAKE_UUID_1, pos=0)
         self.assert_called('DELETE', '/images/' + FAKE_UUID_1, pos=1)
-        self.assert_called('GET', '/images/' + FAKE_UUID_2, pos=2)
+        self.assert_called('GET', '/v2/images/' + FAKE_UUID_2, pos=2)
         self.assert_called('DELETE', '/images/' + FAKE_UUID_2, pos=3)
 
     def test_list(self):
@@ -973,8 +1201,8 @@ class ShellTest(utils.TestCase):
         self.assert_called('GET', '/servers/detail?deleted=True')
 
     def test_list_with_images(self):
-        self.run_command('list --image 1')
-        self.assert_called('GET', '/servers/detail?image=1')
+        self.run_command('list --image %s' % FAKE_UUID_1)
+        self.assert_called('GET', '/servers/detail?image=%s' % FAKE_UUID_1)
 
     def test_list_with_flavors(self):
         self.run_command('list --flavor 1')
@@ -1111,11 +1339,11 @@ class ShellTest(utils.TestCase):
         output, _ = self.run_command('rebuild sample-server %s' % FAKE_UUID_1)
         self.assert_called('GET', '/servers?name=sample-server', pos=0)
         self.assert_called('GET', '/servers/1234', pos=1)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_1, pos=2)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_1, pos=2)
         self.assert_called('POST', '/servers/1234/action',
                            {'rebuild': {'imageRef': FAKE_UUID_1}}, pos=3)
         self.assert_called('GET', '/flavors/1', pos=4)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_2, pos=5)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_2, pos=5)
         self.assertIn('adminPass', output)
 
     def test_rebuild_password(self):
@@ -1124,12 +1352,12 @@ class ShellTest(utils.TestCase):
                                      % FAKE_UUID_1)
         self.assert_called('GET', '/servers?name=sample-server', pos=0)
         self.assert_called('GET', '/servers/1234', pos=1)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_1, pos=2)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_1, pos=2)
         self.assert_called('POST', '/servers/1234/action',
                            {'rebuild': {'imageRef': FAKE_UUID_1,
                             'adminPass': 'asdf'}}, pos=3)
         self.assert_called('GET', '/flavors/1', pos=4)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_2, pos=5)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_2, pos=5)
         self.assertIn('adminPass', output)
 
     def test_rebuild_preserve_ephemeral(self):
@@ -1137,25 +1365,25 @@ class ShellTest(utils.TestCase):
                          % FAKE_UUID_1)
         self.assert_called('GET', '/servers?name=sample-server', pos=0)
         self.assert_called('GET', '/servers/1234', pos=1)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_1, pos=2)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_1, pos=2)
         self.assert_called('POST', '/servers/1234/action',
                            {'rebuild': {'imageRef': FAKE_UUID_1,
                                         'preserve_ephemeral': True}}, pos=3)
         self.assert_called('GET', '/flavors/1', pos=4)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_2, pos=5)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_2, pos=5)
 
     def test_rebuild_name_meta(self):
         self.run_command('rebuild sample-server %s --name asdf --meta '
                          'foo=bar' % FAKE_UUID_1)
         self.assert_called('GET', '/servers?name=sample-server', pos=0)
         self.assert_called('GET', '/servers/1234', pos=1)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_1, pos=2)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_1, pos=2)
         self.assert_called('POST', '/servers/1234/action',
                            {'rebuild': {'imageRef': FAKE_UUID_1,
                                         'name': 'asdf',
                                         'metadata': {'foo': 'bar'}}}, pos=3)
         self.assert_called('GET', '/flavors/1', pos=4)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_2, pos=5)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_2, pos=5)
 
     def test_start(self):
         self.run_command('start sample-server')
@@ -1213,9 +1441,9 @@ class ShellTest(utils.TestCase):
                            {'rescue': {'adminPass': 'asdf'}})
 
     def test_rescue_image(self):
-        self.run_command('rescue sample-server --image 1')
+        self.run_command('rescue sample-server --image %s' % FAKE_UUID_1)
         self.assert_called('POST', '/servers/1234/action',
-                           {'rescue': {'rescue_image_ref': 1}})
+                           {'rescue': {'rescue_image_ref': FAKE_UUID_1}})
 
     def test_unrescue(self):
         self.run_command('unrescue sample-server')
@@ -1287,7 +1515,7 @@ class ShellTest(utils.TestCase):
         self.assert_called('GET', '/servers?name=1234', pos=1)
         self.assert_called('GET', '/servers/1234', pos=2)
         self.assert_called('GET', '/flavors/1', pos=3)
-        self.assert_called('GET', '/images/%s' % FAKE_UUID_2, pos=4)
+        self.assert_called('GET', '/v2/images/%s' % FAKE_UUID_2, pos=4)
 
     def test_show_no_image(self):
         self.run_command('show 9012')
@@ -1300,13 +1528,13 @@ class ShellTest(utils.TestCase):
 
     def test_show_unavailable_image_and_flavor(self):
         output, _ = self.run_command('show 9013')
-        self.assert_called('GET', '/servers/9013', pos=-8)
+        self.assert_called('GET', '/servers/9013', pos=-6)
         self.assert_called('GET',
                            '/flavors/80645cf4-6ad3-410a-bbc8-6f3e1e291f51',
-                           pos=-7)
+                           pos=-5)
         self.assert_called('GET',
-                           '/images/3e861307-73a6-4d1f-8d68-f68b03223032',
-                           pos=-3)
+                           '/v2/images/3e861307-73a6-4d1f-8d68-f68b03223032',
+                           pos=-1)
         self.assertIn('Image not found', output)
         self.assertIn('Flavor not found', output)
 
@@ -1758,6 +1986,19 @@ class ShellTest(utils.TestCase):
                            {'os-migrateLive': {'host': None,
                                                'block_migration': 'auto'}})
 
+    def test_live_migration_v2_30(self):
+        self.run_command('live-migration sample-server hostname',
+                         api_version='2.30')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                               'block_migration': 'auto'}})
+        self.run_command('live-migration --force sample-server hostname',
+                         api_version='2.30')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                               'block_migration': 'auto',
+                                               'force': True}})
+
     def test_live_migration_force_complete(self):
         self.run_command('live-migration-force-complete sample-server 1',
                          api_version='2.22')
@@ -1806,6 +2047,19 @@ class ShellTest(utils.TestCase):
         body = {'os-migrateLive': {'host': 'hostname',
                                    'block_migration': False,
                                    'disk_over_commit': False}}
+        self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+        self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
+
+    def test_host_evacuate_live_2_30(self):
+        self.run_command('host-evacuate-live --force hyper '
+                         '--target-host hostname',
+                         api_version='2.30')
+        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
+        body = {'os-migrateLive': {'host': 'hostname',
+                                   'block_migration': 'auto',
+                                   'force': True}}
         self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
         self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
         self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
@@ -2009,6 +2263,23 @@ class ShellTest(utils.TestCase):
                            {'evacuate': {'host': 'target_hyper',
                                          'onSharedStorage': False}}, pos=4)
 
+    def test_host_evacuate_v2_29(self):
+        self.run_command('host-evacuate hyper --target target_hyper --force',
+                         api_version='2.29')
+        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
+        self.assert_called('POST', '/servers/uuid1/action',
+                           {'evacuate': {'host': 'target_hyper', 'force': True}
+                            }, pos=1)
+        self.assert_called('POST', '/servers/uuid2/action',
+                           {'evacuate': {'host': 'target_hyper', 'force': True}
+                            }, pos=2)
+        self.assert_called('POST', '/servers/uuid3/action',
+                           {'evacuate': {'host': 'target_hyper', 'force': True}
+                            }, pos=3)
+        self.assert_called('POST', '/servers/uuid4/action',
+                           {'evacuate': {'host': 'target_hyper', 'force': True}
+                            }, pos=4)
+
     def test_host_evacuate_with_shared_storage(self):
         self.run_command(
             'host-evacuate --on-shared-storage hyper --target target_hyper')
@@ -2058,6 +2329,11 @@ class ShellTest(utils.TestCase):
         self.run_command('hypervisor-list --matching hyper')
         self.assert_called('GET', '/os-hypervisors/hyper/search')
 
+    def test_hypervisor_list_limit_marker(self):
+        self.run_command('hypervisor-list --limit 10 --marker hyper1',
+                         api_version='2.33')
+        self.assert_called('GET', '/os-hypervisors?limit=10&marker=hyper1')
+
     def test_hypervisor_servers(self):
         self.run_command('hypervisor-servers hyper')
         self.assert_called('GET', '/os-hypervisors/hyper/servers')
@@ -2098,6 +2374,14 @@ class ShellTest(utils.TestCase):
             'GET',
             '/os-quota-sets/97f4c221bff44578b0300df4ef119353')
 
+    def test_quota_show_detail(self):
+        self.run_command(
+            'quota-show --tenant '
+            '97f4c221bff44578b0300df4ef119353 --detail')
+        self.assert_called(
+            'GET',
+            '/os-quota-sets/97f4c221bff44578b0300df4ef119353/detail')
+
     def test_user_quota_show(self):
         self.run_command(
             'quota-show --tenant '
@@ -2105,6 +2389,15 @@ class ShellTest(utils.TestCase):
         self.assert_called(
             'GET',
             '/os-quota-sets/97f4c221bff44578b0300df4ef119353?user_id=u1')
+
+    def test_user_quota_show_detail(self):
+        self.run_command(
+            'quota-show --tenant '
+            '97f4c221bff44578b0300df4ef119353 --user u1 --detail')
+        self.assert_called(
+            'GET',
+            '/os-quota-sets/97f4c221bff44578b0300df4ef119353/detail'
+            '?user_id=u1')
 
     def test_quota_show_no_tenant(self):
         self.run_command('quota-show')
@@ -2409,6 +2702,21 @@ class ShellTest(utils.TestCase):
         self.assert_called('POST', '/servers/1234/action',
                            {'evacuate': {'host': 'new_host',
                                          'onSharedStorage': True}})
+
+    def test_evacuate_v2_29(self):
+        self.run_command('evacuate sample-server new_host', api_version="2.29")
+        self.assert_called('POST', '/servers/1234/action',
+                           {'evacuate': {'host': 'new_host'}})
+        self.run_command('evacuate sample-server new_host '
+                         '--password NewAdminPass', api_version="2.29")
+        self.assert_called('POST', '/servers/1234/action',
+                           {'evacuate': {'host': 'new_host',
+                                         'adminPass': 'NewAdminPass'}})
+        self.run_command('evacuate --force sample-server new_host',
+                         api_version="2.29")
+        self.assert_called('POST', '/servers/1234/action',
+                           {'evacuate': {'host': 'new_host',
+                                         'force': True}})
 
     def test_evacuate_with_no_target_host(self):
         self.run_command('evacuate sample-server')
@@ -2740,6 +3048,21 @@ class ShellTest(utils.TestCase):
         self.run_command('keypair-list')
         self.assert_called('GET', '/os-keypairs')
 
+    def test_keypair_list_with_user_id(self):
+        self.run_command('keypair-list --user test_user', api_version='2.10')
+        self.assert_called('GET', '/os-keypairs?user_id=test_user')
+
+    def test_keypair_list_with_limit_and_marker(self):
+        self.run_command('keypair-list --marker test_kp --limit 3',
+                         api_version='2.35')
+        self.assert_called('GET', '/os-keypairs?limit=3&marker=test_kp')
+
+    def test_keypair_list_with_user_id_limit_and_marker(self):
+        self.run_command('keypair-list --user test_user --marker test_kp '
+                         '--limit 3', api_version='2.35')
+        self.assert_called(
+            'GET', '/os-keypairs?limit=3&marker=test_kp&user_id=test_user')
+
     def test_keypair_show(self):
         self.run_command('keypair-show test')
         self.assert_called('GET', '/os-keypairs/test')
@@ -2793,6 +3116,11 @@ class ShellTest(utils.TestCase):
                  #   headers, and is tested in test_api_versions, but is
                  #   not explicitly tested via wraps and _SUBSTITUTIONS.
             28,  # doesn't require any changes in novaclient
+            31,  # doesn't require any changes in novaclient
+            32,  # doesn't require separate version-wrapped methods in
+                 # novaclient
+            34,  # doesn't require any changes in novaclient
+            37,  # There are no versioned wrapped shell method changes for this
         ])
         versions_supported = set(range(0,
                                  novaclient.API_MAX_VERSION.ver_minor + 1))
@@ -3034,3 +3362,39 @@ class PollForStatusTestCase(utils.TestCase):
                           action=action,
                           show_progress=True,
                           silent=False)
+
+
+class ShellUtilTest(utils.TestCase):
+    def test_deprecated_network_newer(self):
+        @novaclient.v2.shell.deprecated_network
+        def tester(cs):
+            'foo'
+            self.assertEqual(api_versions.APIVersion('2.35'),
+                             cs.api_version)
+
+        cs = mock.MagicMock()
+        cs.api_version = api_versions.APIVersion('2.9999')
+        tester(cs)
+        self.assertEqual('DEPRECATED: foo', tester.__doc__)
+
+    def test_deprecated_network_older(self):
+        @novaclient.v2.shell.deprecated_network
+        def tester(cs):
+            'foo'
+            # since we didn't need to adjust the api_version the mock won't
+            # have cs.client.api_version set on it
+            self.assertFalse(hasattr(cs, 'client'))
+            # we have to set the attribute back on cs so the decorator can
+            # set the value on it when we return from this wrapped function
+            setattr(cs, 'client', mock.MagicMock())
+
+        cs = mock.MagicMock()
+        cs.api_version = api_versions.APIVersion('2.1')
+        # we have to delete the cs.client attribute so hasattr won't return a
+        # false positive in the wrapped function
+        del cs.client
+        tester(cs)
+        self.assertEqual('DEPRECATED: foo', tester.__doc__)
+        # the deprecated_network decorator will set cs.client.api_version
+        # after calling the wrapped function
+        self.assertEqual(cs.api_version, cs.api_version)

@@ -23,10 +23,10 @@ import abc
 import contextlib
 import copy
 import hashlib
-import inspect
 import os
 import threading
 
+from oslo_utils import reflection
 from oslo_utils import strutils
 from requests import Response
 import six
@@ -148,6 +148,10 @@ class Resource(RequestIdMixin):
         return "<%s %s>" % (self.__class__.__name__, info)
 
     @property
+    def api_version(self):
+        return self.manager.api_version
+
+    @property
     def human_id(self):
         """Human-readable ID which can be used for bash completion.
         """
@@ -205,6 +209,9 @@ class Resource(RequestIdMixin):
             return self.id == other.id
         return self._info == other._info
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
     def is_loaded(self):
         return self._loaded
 
@@ -258,6 +265,18 @@ class Manager(HookableMixin):
                 items = [obj_class(self, res, loaded=True)
                          for res in data if res]
                 return ListWithMeta(items, resp)
+
+    @contextlib.contextmanager
+    def alternate_service_type(self, default, allowed_types=()):
+        original_service_type = self.api.client.service_type
+        if original_service_type in allowed_types:
+            yield
+        else:
+            self.api.client.service_type = default
+            try:
+                yield
+            finally:
+                self.api.client.service_type = original_service_type
 
     @contextlib.contextmanager
     def completion_cache(self, cache_type, obj_class, mode):
@@ -325,7 +344,11 @@ class Manager(HookableMixin):
 
     def _get(self, url, response_key):
         resp, body = self.api.client.get(url)
-        return self.resource_class(self, body[response_key], loaded=True,
+        if response_key is not None:
+            content = body[response_key]
+        else:
+            content = body
+        return self.resource_class(self, content, loaded=True,
                                    resp=resp)
 
     def _create(self, url, body, response_key, return_raw=False, **kwargs):
@@ -400,14 +423,14 @@ class ManagerWithFind(Manager):
         detailed = True
         list_kwargs = {}
 
-        list_argspec = inspect.getargspec(self.list)
-        if 'detailed' in list_argspec.args:
+        list_argspec = reflection.get_callable_args(self.list)
+        if 'detailed' in list_argspec:
             detailed = ("human_id" not in kwargs and
                         "name" not in kwargs and
                         "display_name" not in kwargs)
             list_kwargs['detailed'] = detailed
 
-        if 'is_public' in list_argspec.args and 'is_public' in kwargs:
+        if 'is_public' in list_argspec and 'is_public' in kwargs:
             is_public = kwargs['is_public']
             list_kwargs['is_public'] = is_public
             if is_public is None:
@@ -415,7 +438,7 @@ class ManagerWithFind(Manager):
                 del tmp_kwargs['is_public']
                 searches = tmp_kwargs.items()
 
-        if 'search_opts' in list_argspec.args:
+        if 'search_opts' in list_argspec:
             # pass search_opts in to do server side based filtering.
             # TODO(jogo) not all search_opts support regex, find way to
             # identify when to use regex and when to use string matching.

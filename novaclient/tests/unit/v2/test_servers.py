@@ -34,10 +34,18 @@ class ServersTest(utils.FixturedTestCase):
 
     client_fixture_class = client.V1
     data_fixture_class = data.V1
+    api_version = None
 
     def setUp(self):
         super(ServersTest, self).setUp()
         self.useFixture(floatingips.FloatingFixture(self.requests))
+        if self.api_version:
+            self.cs.api_version = api_versions.APIVersion(self.api_version)
+
+    def _get_server_create_default_nics(self):
+        """Callback for default nics kwarg when creating a server.
+        """
+        return None
 
     def test_list_servers(self):
         sl = self.cs.servers.list()
@@ -129,7 +137,8 @@ class ServersTest(utils.FixturedTestCase):
             files={
                 '/etc/passwd': 'some data',                 # a file
                 '/tmp/foo.txt': six.StringIO('data'),   # a stream
-            }
+            },
+            nics=self._get_server_create_default_nics()
         )
         self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers')
@@ -188,7 +197,8 @@ class ServersTest(utils.FixturedTestCase):
                 meta={'foo': 'bar'},
                 userdata="hello moto",
                 key_name="fakekey",
-                block_device_mapping_v2=bdm
+                block_device_mapping_v2=bdm,
+                nics=self._get_server_create_default_nics()
             )
             self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
             self.assert_called('POST', '/os-volumes_boot')
@@ -236,7 +246,8 @@ class ServersTest(utils.FixturedTestCase):
                 userdata="hello moto",
                 key_name="fakekey",
                 access_ip_v6=access_ip_v6,
-                access_ip_v4=access_ip_v4
+                access_ip_v4=access_ip_v4,
+                nics=self._get_server_create_default_nics()
             )
             self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
             self.assert_called('POST', '/servers')
@@ -253,6 +264,7 @@ class ServersTest(utils.FixturedTestCase):
                 '/etc/passwd': 'some data',                 # a file
                 '/tmp/foo.txt': six.StringIO('data'),   # a stream
             },
+            nics=self._get_server_create_default_nics(),
         )
         self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers')
@@ -270,6 +282,7 @@ class ServersTest(utils.FixturedTestCase):
                 '/etc/passwd': 'some data',                 # a file
                 '/tmp/foo.txt': six.StringIO('data'),   # a stream
             },
+            nics=self._get_server_create_default_nics(),
         )
         self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers')
@@ -287,6 +300,7 @@ class ServersTest(utils.FixturedTestCase):
                 '/etc/passwd': 'some data',                 # a file
                 '/tmp/foo.txt': six.StringIO('data'),   # a stream
             },
+            nics=self._get_server_create_default_nics(),
         )
         self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers')
@@ -300,7 +314,8 @@ class ServersTest(utils.FixturedTestCase):
             image=1,
             flavor=1,
             admin_pass=test_password,
-            key_name=test_key
+            key_name=test_key,
+            nics=self._get_server_create_default_nics()
         )
         self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers')
@@ -325,6 +340,7 @@ class ServersTest(utils.FixturedTestCase):
                     '/etc/passwd': 'some data',                 # a file
                     '/tmp/foo.txt': six.StringIO('data'),   # a stream
                 },
+                nics=self._get_server_create_default_nics(),
             )
             self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
             self.assert_called('POST', '/servers')
@@ -340,7 +356,8 @@ class ServersTest(utils.FixturedTestCase):
             name="My server",
             image=1,
             flavor=1,
-            disk_config=disk_config
+            disk_config=disk_config,
+            nics=self._get_server_create_default_nics(),
         )
         self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers')
@@ -973,11 +990,20 @@ class ServersTest(utils.FixturedTestCase):
                           key_name="fakekey"
                           )
 
+    def test_create_server_with_nics_auto(self):
+        """Negative test for specifying nics='auto' before 2.37
+        """
+        self.assertRaises(ValueError,
+                          self.cs.servers.create,
+                          name='test',
+                          image='d9d8d53c-4b4a-4144-a5e5-b30d9f1fe46a',
+                          flavor='1',
+                          nics='auto')
+
 
 class ServersV26Test(ServersTest):
-    def setUp(self):
-        super(ServersV26Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.6")
+
+    api_version = "2.6"
 
     def test_get_vnc_console(self):
         s = self.cs.servers.get(1234)
@@ -1021,9 +1047,8 @@ class ServersV26Test(ServersTest):
 
 
 class ServersV28Test(ServersV26Test):
-    def setUp(self):
-        super(ServersV28Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.8")
+
+    api_version = "2.8"
 
     def test_get_mks_console(self):
         s = self.cs.servers.get(1234)
@@ -1037,9 +1062,8 @@ class ServersV28Test(ServersV26Test):
 
 
 class ServersV214Test(ServersV28Test):
-    def setUp(self):
-        super(ServersV214Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.14")
+
+    api_version = "2.14"
 
     def test_evacuate(self):
         s = self.cs.servers.get(1234)
@@ -1051,9 +1075,8 @@ class ServersV214Test(ServersV28Test):
 
 
 class ServersV217Test(ServersV214Test):
-    def setUp(self):
-        super(ServersV217Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.17")
+
+    api_version = "2.17"
 
     def test_trigger_crash_dump(self):
         s = self.cs.servers.get(1234)
@@ -1064,9 +1087,8 @@ class ServersV217Test(ServersV214Test):
 
 
 class ServersV219Test(ServersV217Test):
-    def setUp(self):
-        super(ServersV219Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.19")
+
+    api_version = "2.19"
 
     def test_create_server_with_description(self):
         self.cs.servers.create(
@@ -1076,7 +1098,8 @@ class ServersV219Test(ServersV217Test):
             flavor=1,
             meta={'foo': 'bar'},
             userdata="hello moto",
-            key_name="fakekey"
+            key_name="fakekey",
+            nics=self._get_server_create_default_nics()
         )
         self.assert_called('POST', '/servers')
 
@@ -1096,9 +1119,8 @@ class ServersV219Test(ServersV217Test):
 
 
 class ServersV225Test(ServersV219Test):
-    def setUp(self):
-        super(ServersV219Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.25")
+
+    api_version = "2.25"
 
     def test_live_migrate_server(self):
         s = self.cs.servers.get(1234)
@@ -1144,16 +1166,10 @@ class ServersV225Test(ServersV219Test):
                            {'os-migrateLive': {'host': 'hostname',
                                                'block_migration': 'auto'}})
 
-    def test_live_migrate_server_with_disk_over_commit(self):
-        s = self.cs.servers.get(1234)
-        self.assertRaises(ValueError, s.live_migrate, 'hostname',
-                          'auto', 'True')
-
 
 class ServersV226Test(ServersV225Test):
-    def setUp(self):
-        super(ServersV219Test, self).setUp()
-        self.cs.api_version = api_versions.APIVersion("2.26")
+
+    api_version = "2.26"
 
     def test_tag_list(self):
         s = self.cs.servers.get(1234)
@@ -1184,3 +1200,124 @@ class ServersV226Test(ServersV225Test):
         ret = s.set_tags(['tag1', 'tag2'])
         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('PUT', '/servers/1234/tags')
+
+
+class ServersV229Test(ServersV226Test):
+
+    api_version = "2.29"
+
+    def test_evacuate(self):
+        s = self.cs.servers.get(1234)
+        s.evacuate('fake_target_host')
+        self.assert_called('POST', '/servers/1234/action',
+                           {'evacuate': {'host': 'fake_target_host'}})
+        self.cs.servers.evacuate(s, 'fake_target_host', force=True)
+        self.assert_called('POST', '/servers/1234/action',
+                           {'evacuate': {'host': 'fake_target_host',
+                                         'force': True}})
+
+
+class ServersV230Test(ServersV229Test):
+
+    api_version = "2.30"
+
+    def test_live_migrate_server(self):
+        s = self.cs.servers.get(1234)
+        ret = s.live_migrate(host='hostname', block_migration='auto')
+        self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                               'block_migration': 'auto'}})
+        ret = self.cs.servers.live_migrate(s, host='hostname',
+                                           block_migration='auto',
+                                           force=True)
+        self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+        self.assert_called('POST', '/servers/1234/action',
+                           {'os-migrateLive': {'host': 'hostname',
+                                               'block_migration': 'auto',
+                                               'force': True}})
+
+
+class ServersV232Test(ServersV226Test):
+
+    api_version = "2.32"
+
+    def test_create_server_boot_with_tagged_nics(self):
+        nics = [{'net-id': '11111111-1111-1111-1111-111111111111',
+                 'tag': 'one'},
+                {'net-id': '22222222-2222-2222-2222-222222222222',
+                 'tag': 'two'}]
+        self.cs.servers.create(name="Server with tagged nics",
+                               image=1,
+                               flavor=1,
+                               nics=nics)
+        self.assert_called('POST', '/servers')
+
+    def test_create_server_boot_with_tagged_nics_pre232(self):
+        self.cs.api_version = api_versions.APIVersion("2.31")
+        nics = [{'net-id': '11111111-1111-1111-1111-111111111111',
+                 'tag': 'one'},
+                {'net-id': '22222222-2222-2222-2222-222222222222',
+                 'tag': 'two'}]
+        self.assertRaises(ValueError, self.cs.servers.create,
+                          name="Server with tagged nics", image=1, flavor=1,
+                          nics=nics)
+
+    def test_create_server_boot_from_volume_tagged_bdm_v2(self):
+        bdm = [{"volume_size": "1",
+                "volume_id": "11111111-1111-1111-1111-111111111111",
+                "delete_on_termination": "0",
+                "device_name": "vda", "tag": "foo"}]
+        s = self.cs.servers.create(name="My server", image=1, flavor=1,
+                                   meta={'foo': 'bar'}, userdata="hello moto",
+                                   key_name="fakekey",
+                                   block_device_mapping_v2=bdm)
+        self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
+        self.assert_called('POST', '/os-volumes_boot')
+
+    def test_create_server_boot_from_volume_tagged_bdm_v2_pre232(self):
+        self.cs.api_version = api_versions.APIVersion("2.31")
+        bdm = [{"volume_size": "1",
+                "volume_id": "11111111-1111-1111-1111-111111111111",
+                "delete_on_termination": "0",
+                "device_name": "vda", "tag": "foo"}]
+        self.assertRaises(ValueError, self.cs.servers.create, name="My server",
+                          image=1, flavor=1, meta={'foo': 'bar'},
+                          userdata="hello moto", key_name="fakekey",
+                          block_device_mapping_v2=bdm)
+
+
+class ServersV2_37Test(ServersV226Test):
+
+    api_version = "2.37"
+
+    def _get_server_create_default_nics(self):
+        return 'auto'
+
+    def test_create_server_no_nics(self):
+        """Tests that nics are required in microversion 2.37+
+        """
+        self.assertRaises(ValueError, self.cs.servers.create,
+                          name='test',
+                          image='d9d8d53c-4b4a-4144-a5e5-b30d9f1fe46a',
+                          flavor='1')
+
+    def test_create_server_with_nics_auto(self):
+        s = self.cs.servers.create(
+            name='test', image='d9d8d53c-4b4a-4144-a5e5-b30d9f1fe46a',
+            flavor='1', nics=self._get_server_create_default_nics())
+        self.assert_request_id(s, fakes.FAKE_REQUEST_ID_LIST)
+        self.assert_called('POST', '/servers')
+        self.assertIsInstance(s, servers.Server)
+
+    def test_add_floating_ip(self):
+        # self.cs.floating_ips.list() is not available after 2.35
+        pass
+
+    def test_add_floating_ip_to_fixed(self):
+        # self.cs.floating_ips.list() is not available after 2.35
+        pass
+
+    def test_remove_floating_ip(self):
+        # self.cs.floating_ips.list() is not available after 2.35
+        pass

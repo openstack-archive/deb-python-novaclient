@@ -50,18 +50,25 @@ class Server(base.Resource):
         """
         return self.manager.delete(self)
 
+    @api_versions.wraps("2.0", "2.18")
+    def update(self, name=None):
+        """
+        Update the name and the description for this server.
+
+        :param name: Update the server's name.
+        :returns: :class:`Server`
+        """
+        return self.manager.update(self, name=name)
+
+    @api_versions.wraps("2.19")
     def update(self, name=None, description=None):
         """
         Update the name and the description for this server.
 
         :param name: Update the server's name.
-        :param description: Update the server's description(
-                            allowed for 2.19-latest).
+        :param description: Update the server's description.
         :returns: :class:`Server`
         """
-        if (description is not None and
-                self.manager.api_version < api_versions.APIVersion("2.19")):
-            raise exceptions.UnsupportedAttribute("description", "2.19")
         update_kwargs = {"name": name}
         if description is not None:
             update_kwargs["description"] = description
@@ -403,43 +410,56 @@ class Server(base.Resource):
         except Exception:
             return {}
 
+    @api_versions.wraps("2.0", "2.24")
     def live_migrate(self, host=None,
-                     block_migration=None,
+                     block_migration=False,
                      disk_over_commit=None):
         """
         Migrates a running instance to a new machine.
 
         :param host: destination host name.
         :param block_migration: if True, do block_migration, the default
-                                value None will be mapped to False for 2.0 -
-                                2.24, 'auto' for higher than 2.25
+                                value is False and None will be mapped to False
         :param disk_over_commit: if True, allow disk over commit, the default
-                                 value None will be mapped to False. It will
-                                 not be supported since 2.25
+                                 value is None which is mapped to False
         :returns: An instance of novaclient.base.TupleWithMeta
         """
+        if block_migration is None:
+            block_migration = False
+        if disk_over_commit is None:
+            disk_over_commit = False
+        return self.manager.live_migrate(self, host,
+                                         block_migration,
+                                         disk_over_commit)
 
-        if (self.manager.api_version < api_versions.APIVersion("2.25")):
-            # NOTE(eliqiao): We do this to keep old version api has same
-            # default value if user don't pass these parameters when using
-            # SDK
-            if block_migration is None:
-                block_migration = False
-            if disk_over_commit is None:
-                disk_over_commit = False
+    @api_versions.wraps("2.25", "2.29")
+    def live_migrate(self, host=None, block_migration=None):
+        """
+        Migrates a running instance to a new machine.
 
-            return self.manager.live_migrate(self, host,
-                                             block_migration,
-                                             disk_over_commit)
-        else:
-            if block_migration is None:
-                block_migration = 'auto'
-            if disk_over_commit is not None:
-                raise ValueError("Setting 'disk_over_commit' argument is "
-                                 "prohibited after microversion 2.25.")
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration, the default
+                                value is None which is mapped to 'auto'.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        if block_migration is None:
+            block_migration = "auto"
+        return self.manager.live_migrate(self, host, block_migration)
 
-            return self.manager.live_migrate(self, host,
-                                             block_migration)
+    @api_versions.wraps("2.30")
+    def live_migrate(self, host=None, block_migration=None, force=None):
+        """
+        Migrates a running instance to a new machine.
+
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration, the default
+                                value is None which is mapped to 'auto'.
+        :param force: force to bypass the scheduler if host is provided.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        if block_migration is None:
+            block_migration = "auto"
+        return self.manager.live_migrate(self, host, block_migration, force)
 
     def reset_state(self, state='error'):
         """
@@ -480,29 +500,44 @@ class Server(base.Resource):
         """
         return self.manager.list_security_group(self)
 
-    def evacuate(self, host=None, on_shared_storage=None, password=None):
+    @api_versions.wraps("2.0", "2.13")
+    def evacuate(self, host=None, on_shared_storage=True, password=None):
         """
         Evacuate an instance from failed host to specified host.
 
         :param host: Name of the target host
         :param on_shared_storage: Specifies whether instance files located
-                        on shared storage. After microversion 2.14, this
-                        parameter must have its default value of None.
+                        on shared storage.
         :param password: string to set as admin password on the evacuated
                          server.
         :returns: An instance of novaclient.base.TupleWithMeta
         """
-        if api_versions.APIVersion("2.14") <= self.manager.api_version:
-            if on_shared_storage is not None:
-                raise ValueError("Setting 'on_shared_storage' argument is "
-                                 "prohibited after microversion 2.14.")
-            return self.manager.evacuate(self, host, password)
-        else:
-            # microversions 2.0 - 2.13
-            if on_shared_storage is None:
-                on_shared_storage = True
-            return self.manager.evacuate(self, host, on_shared_storage,
-                                         password)
+        return self.manager.evacuate(self, host, on_shared_storage, password)
+
+    @api_versions.wraps("2.14", "2.28")
+    def evacuate(self, host=None, password=None):
+        """
+        Evacuate an instance from failed host to specified host.
+
+        :param host: Name of the target host
+        :param password: string to set as admin password on the evacuated
+                         server.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        return self.manager.evacuate(self, host, password)
+
+    @api_versions.wraps("2.29")
+    def evacuate(self, host=None, password=None, force=None):
+        """
+        Evacuate an instance from failed host to specified host.
+
+        :param host: Name of the target host
+        :param password: string to set as admin password on the evacuated
+                         server.
+        :param force: forces to bypass the scheduler if host is provided.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        return self.manager.evacuate(self, host, password, force)
 
     def interface_list(self):
         """
@@ -526,30 +561,35 @@ class Server(base.Resource):
         """Trigger crash dump in an instance"""
         return self.manager.trigger_crash_dump(self)
 
+    @api_versions.wraps('2.26')
     def tag_list(self):
         """
         Get list of tags from an instance.
         """
         return self.manager.tag_list(self)
 
+    @api_versions.wraps('2.26')
     def delete_tag(self, tag):
         """
         Remove single tag from an instance.
         """
         return self.manager.delete_tag(self, tag)
 
+    @api_versions.wraps('2.26')
     def delete_all_tags(self):
         """
         Remove all tags from an instance.
         """
         return self.manager.delete_all_tags(self)
 
+    @api_versions.wraps('2.26')
     def set_tags(self, tags):
         """
         Set list of tags to an instance.
         """
         return self.manager.set_tags(self, tags)
 
+    @api_versions.wraps('2.26')
     def add_tag(self, tag):
         """
         Add single tag to an instance.
@@ -669,25 +709,32 @@ class ServerManager(base.BootingManagerWithFind):
             body['server']['block_device_mapping_v2'] = block_device_mapping_v2
 
         if nics is not None:
-            # NOTE(tr3buchet): nics can be an empty list
-            all_net_data = []
-            for nic_info in nics:
-                net_data = {}
-                # if value is empty string, do not send value in body
-                if nic_info.get('net-id'):
-                    net_data['uuid'] = nic_info['net-id']
-                if (nic_info.get('v4-fixed-ip') and
-                        nic_info.get('v6-fixed-ip')):
-                    raise base.exceptions.CommandError(_(
-                        "Only one of 'v4-fixed-ip' and 'v6-fixed-ip' may be"
-                        " provided."))
-                elif nic_info.get('v4-fixed-ip'):
-                    net_data['fixed_ip'] = nic_info['v4-fixed-ip']
-                elif nic_info.get('v6-fixed-ip'):
-                    net_data['fixed_ip'] = nic_info['v6-fixed-ip']
-                if nic_info.get('port-id'):
-                    net_data['port'] = nic_info['port-id']
-                all_net_data.append(net_data)
+            # With microversion 2.37+ nics can be an enum of 'auto' or 'none'
+            # or a list of dicts.
+            if isinstance(nics, six.string_types):
+                all_net_data = nics
+            else:
+                # NOTE(tr3buchet): nics can be an empty list
+                all_net_data = []
+                for nic_info in nics:
+                    net_data = {}
+                    # if value is empty string, do not send value in body
+                    if nic_info.get('net-id'):
+                        net_data['uuid'] = nic_info['net-id']
+                    if (nic_info.get('v4-fixed-ip') and
+                            nic_info.get('v6-fixed-ip')):
+                        raise base.exceptions.CommandError(_(
+                            "Only one of 'v4-fixed-ip' and 'v6-fixed-ip' "
+                            "may be provided."))
+                    elif nic_info.get('v4-fixed-ip'):
+                        net_data['fixed_ip'] = nic_info['v4-fixed-ip']
+                    elif nic_info.get('v6-fixed-ip'):
+                        net_data['fixed_ip'] = nic_info['v6-fixed-ip']
+                    if nic_info.get('port-id'):
+                        net_data['port'] = nic_info['port-id']
+                    if nic_info.get('tag'):
+                        net_data['tag'] = nic_info['tag']
+                    all_net_data.append(net_data)
             body['server']['networks'] = all_net_data
 
         if disk_config is not None:
@@ -1177,6 +1224,14 @@ class ServerManager(base.BootingManagerWithFind):
                                          base.getid(server))
         return base.TupleWithMeta((resp, body), resp)
 
+    def _validate_create_nics(self, nics):
+        # nics are required with microversion 2.37+ and can be a string or list
+        if self.api_version > api_versions.APIVersion('2.36'):
+            if not nics:
+                raise ValueError('nics are required after microversion 2.36')
+        elif nics and not isinstance(nics, list):
+            raise ValueError('nics must be a list')
+
     def create(self, name, image, flavor, meta=None, files=None,
                reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
@@ -1217,9 +1272,17 @@ class ServerManager(base.BootingManagerWithFind):
                       device mappings for this server.
         :param block_device_mapping_v2: (optional extension) A dict of block
                       device mappings for this server.
-        :param nics:  (optional extension) an ordered list of nics to be
-                      added to this server, with information about
-                      connected networks, fixed IPs, port etc.
+        :param nics:  An ordered list of nics (dicts) to be added to this
+                      server, with information about connected networks,
+                      fixed IPs, port etc.
+                      Beginning in microversion 2.37 this field is required and
+                      also supports a single string value of 'auto' or 'none'.
+                      The 'auto' value means the Compute service will
+                      automatically allocate a network for the project if one
+                      is not available. This is the same behavior as not
+                      passing anything for nics before microversion 2.37. The
+                      'none' value tells the Compute service to not allocate
+                      any networking for the server.
         :param scheduler_hints: (optional extension) arbitrary key-value pairs
                             specified by the client to help boot an instance
         :param config_drive: (optional extension) value for config drive
@@ -1246,6 +1309,24 @@ class ServerManager(base.BootingManagerWithFind):
         descr_microversion = api_versions.APIVersion("2.19")
         if "description" in kwargs and self.api_version < descr_microversion:
             raise exceptions.UnsupportedAttribute("description", "2.19")
+
+        self._validate_create_nics(nics)
+
+        tags_microversion = api_versions.APIVersion("2.32")
+        if self.api_version < tags_microversion:
+            if nics:
+                for nic_info in nics:
+                    if nic_info.get("tag"):
+                        raise ValueError("Setting interface tags is "
+                                         "unsupported before microversion "
+                                         "2.32")
+
+            if block_device_mapping_v2:
+                for bdm in block_device_mapping_v2:
+                    if bdm.get("tag"):
+                        raise ValueError("Setting block device tags is "
+                                         "unsupported before microversion "
+                                         "2.32")
 
         boot_kwargs = dict(
             meta=meta, files=files, userdata=userdata,
@@ -1553,7 +1634,7 @@ class ServerManager(base.BootingManagerWithFind):
                              'block_migration': block_migration,
                              'disk_over_commit': disk_over_commit})
 
-    @api_versions.wraps('2.25')
+    @api_versions.wraps('2.25', '2.29')
     def live_migrate(self, server, host, block_migration):
         """
         Migrates a running instance to a new machine.
@@ -1567,6 +1648,23 @@ class ServerManager(base.BootingManagerWithFind):
         return self._action('os-migrateLive', server,
                             {'host': host,
                              'block_migration': block_migration})
+
+    @api_versions.wraps('2.30')
+    def live_migrate(self, server, host, block_migration, force=None):
+        """
+        Migrates a running instance to a new machine.
+
+        :param server: instance id which comes from nova list.
+        :param host: destination host name.
+        :param block_migration: if True, do block_migration, can be set as
+                                'auto'
+        :param force: forces to bypass the scheduler if host is provided.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+        body = {'host': host, 'block_migration': block_migration}
+        if force:
+            body['force'] = force
+        return self._action('os-migrateLive', server, body)
 
     def reset_state(self, server, state='error'):
         """
@@ -1646,7 +1744,7 @@ class ServerManager(base.BootingManagerWithFind):
                                                        body)
         return base.TupleWithMeta((resp, body), resp)
 
-    @api_versions.wraps("2.14")
+    @api_versions.wraps("2.14", "2.28")
     def evacuate(self, server, host=None, password=None):
         """
         Evacuate a server instance.
@@ -1663,6 +1761,32 @@ class ServerManager(base.BootingManagerWithFind):
 
         if password is not None:
             body['adminPass'] = password
+
+        resp, body = self._action_return_resp_and_body('evacuate', server,
+                                                       body)
+        return base.TupleWithMeta((resp, body), resp)
+
+    @api_versions.wraps("2.29")
+    def evacuate(self, server, host=None, password=None, force=None):
+        """
+        Evacuate a server instance.
+
+        :param server: The :class:`Server` (or its ID) to share onto.
+        :param host: Name of the target host.
+        :param password: string to set as password on the evacuated server.
+        :param force: forces to bypass the scheduler if host is provided.
+        :returns: An instance of novaclient.base.TupleWithMeta
+        """
+
+        body = {}
+        if host is not None:
+            body['host'] = host
+
+        if password is not None:
+            body['adminPass'] = password
+
+        if force:
+            body['force'] = force
 
         resp, body = self._action_return_resp_and_body('evacuate', server,
                                                        body)

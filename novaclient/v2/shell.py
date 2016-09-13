@@ -21,6 +21,7 @@ from __future__ import print_function
 import argparse
 import copy
 import datetime
+import functools
 import getpass
 import locale
 import logging
@@ -42,6 +43,7 @@ from novaclient import base
 from novaclient import client
 from novaclient import exceptions
 from novaclient.i18n import _
+from novaclient.i18n import _LE
 from novaclient import shell
 from novaclient import utils
 from novaclient.v2 import availability_zones
@@ -63,6 +65,7 @@ CLIENT_BDM2_KEYS = {
     'bootindex': 'boot_index',
     'type': 'device_type',
     'shutdown': 'delete_on_termination',
+    'tag': 'tag',
 }
 
 
@@ -74,12 +77,34 @@ def emit_image_deprecation_warning(command_name):
           'instead.' % command_name, file=sys.stderr)
 
 
+def deprecated_network(fn):
+    @functools.wraps(fn)
+    def wrapped(cs, *args, **kwargs):
+        command_name = '-'.join(fn.__name__.split('_')[1:])
+        print('WARNING: Command %s is deprecated and will be removed '
+              'after Nova 15.0.0 is released. Use python-neutronclient '
+              'or python-openstackclient instead.' % command_name,
+              file=sys.stderr)
+        # The network proxy API methods were deprecated in 2.36 and will return
+        # a 404 so we fallback to 2.35 to maintain a transition for CLI users.
+        want_version = api_versions.APIVersion('2.35')
+        cur_version = cs.api_version
+        if cs.api_version > want_version:
+            cs.api_version = want_version
+        try:
+            return fn(cs, *args, **kwargs)
+        finally:
+            cs.api_version = cur_version
+    wrapped.__doc__ = 'DEPRECATED: ' + fn.__doc__
+    return wrapped
+
+
 def _key_value_pairing(text):
     try:
         (k, v) = text.split('=', 1)
         return (k, v)
     except ValueError:
-        msg = "%r is not in the format of key=value" % text
+        msg = _LE("'%s' is not in the format of 'key=value'") % text
         raise argparse.ArgumentTypeError(msg)
 
 
@@ -162,6 +187,91 @@ def _parse_block_device_mapping_v2(args, image):
     return bdm
 
 
+def _parse_nics(cs, args):
+    supports_auto_alloc = cs.api_version >= api_versions.APIVersion('2.37')
+    if supports_auto_alloc:
+        err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                     "the form --nic <auto,none,net-id=net-uuid,"
+                     "net-name=network-name,v4-fixed-ip=ip-addr,"
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>, "
+                     "with only one of net-id, net-name or port-id "
+                     "specified. Specifying a --nic of auto or none cannot "
+                     "be used with any other --nic value."))
+    elif cs.api_version >= api_versions.APIVersion('2.32'):
+        err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                     "the form --nic <net-id=net-uuid,"
+                     "net-name=network-name,v4-fixed-ip=ip-addr,"
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>, "
+                     "with only one of net-id, net-name or port-id "
+                     "specified."))
+    else:
+        err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                     "the form --nic <net-id=net-uuid,"
+                     "net-name=network-name,v4-fixed-ip=ip-addr,"
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid>, "
+                     "with only one of net-id, net-name or port-id "
+                     "specified."))
+    auto_or_none = False
+    nics = []
+    for nic_str in args.nics:
+        nic_info = {"net-id": "", "v4-fixed-ip": "", "v6-fixed-ip": "",
+                    "port-id": "", "net-name": "", "tag": ""}
+
+        for kv_str in nic_str.split(","):
+            try:
+                # handle the special auto/none cases
+                if kv_str in ('auto', 'none'):
+                    if not supports_auto_alloc:
+                        raise exceptions.CommandError(err_msg % nic_str)
+                    nics.append(kv_str)
+                    auto_or_none = True
+                    continue
+                k, v = kv_str.split("=", 1)
+            except ValueError:
+                raise exceptions.CommandError(err_msg % nic_str)
+
+            if k in nic_info:
+                # if user has given a net-name resolve it to network ID
+                if k == 'net-name':
+                    k = 'net-id'
+                    v = _find_network_id(cs, v)
+                # if some argument was given multiple times
+                if nic_info[k]:
+                    raise exceptions.CommandError(err_msg % nic_str)
+                nic_info[k] = v
+            else:
+                raise exceptions.CommandError(err_msg % nic_str)
+
+        if auto_or_none:
+            continue
+
+        if nic_info['v4-fixed-ip'] and not netutils.is_valid_ipv4(
+                nic_info['v4-fixed-ip']):
+            raise exceptions.CommandError(_("Invalid ipv4 address."))
+
+        if nic_info['v6-fixed-ip'] and not netutils.is_valid_ipv6(
+                nic_info['v6-fixed-ip']):
+            raise exceptions.CommandError(_("Invalid ipv6 address."))
+
+        if bool(nic_info['net-id']) == bool(nic_info['port-id']):
+            raise exceptions.CommandError(err_msg % nic_str)
+
+        nics.append(nic_info)
+
+    if nics:
+        if auto_or_none:
+            if len(nics) > 1:
+                raise exceptions.CommandError(err_msg % nic_str)
+            # change the single list entry to a string
+            nics = nics[0]
+    else:
+        # Default to 'auto' if API version >= 2.37 and nothing was specified
+        if supports_auto_alloc:
+            nics = 'auto'
+
+    return nics
+
+
 def _boot(cs, args):
     """Boot a new server."""
     if not args.flavor:
@@ -181,17 +291,6 @@ def _boot(cs, args):
 
     min_count = 1
     max_count = 1
-    # Don't let user mix num_instances and max_count/min_count.
-    if (args.num_instances is not None and
-            args.min_count is None and
-            args.max_count is None):
-        if args.num_instances < 1:
-            raise exceptions.CommandError(_("num_instances should be >= 1"))
-        max_count = args.num_instances
-    elif (args.num_instances is not None and
-          (args.min_count is not None or args.max_count is not None)):
-        raise exceptions.CommandError(_("Don't mix num-instances and "
-                                        "max/min-count"))
     if args.min_count is not None:
         if args.min_count < 1:
             raise exceptions.CommandError(_("min_count should be >= 1"))
@@ -275,46 +374,7 @@ def _boot(cs, args):
               "with the new ones (--block-device, --boot-volume, --snapshot, "
               "--ephemeral, --swap)"))
 
-    nics = []
-    for nic_str in args.nics:
-        err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
-                     "the form --nic <net-id=net-uuid,net-name=network-name,"
-                     "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,"
-                     "port-id=port-uuid>, with only one of net-id, net-name "
-                     "or port-id specified.") % nic_str)
-        nic_info = {"net-id": "", "v4-fixed-ip": "", "v6-fixed-ip": "",
-                    "port-id": "", "net-name": ""}
-
-        for kv_str in nic_str.split(","):
-            try:
-                k, v = kv_str.split("=", 1)
-            except ValueError:
-                raise exceptions.CommandError(err_msg)
-
-            if k in nic_info:
-                # if user has given a net-name resolve it to network ID
-                if k == 'net-name':
-                    k = 'net-id'
-                    v = _find_network_id(cs, v)
-                # if some argument was given multiple times
-                if nic_info[k]:
-                    raise exceptions.CommandError(err_msg)
-                nic_info[k] = v
-            else:
-                raise exceptions.CommandError(err_msg)
-
-        if nic_info['v4-fixed-ip'] and not netutils.is_valid_ipv4(
-                nic_info['v4-fixed-ip']):
-            raise exceptions.CommandError(_("Invalid ipv4 address."))
-
-        if nic_info['v6-fixed-ip'] and not netutils.is_valid_ipv6(
-                nic_info['v6-fixed-ip']):
-            raise exceptions.CommandError(_("Invalid ipv6 address."))
-
-        if bool(nic_info['net-id']) == bool(nic_info['port-id']):
-            raise exceptions.CommandError(err_msg)
-
-        nics.append(nic_info)
+    nics = _parse_nics(cs, args)
 
     hints = {}
     if args.scheduler_hints:
@@ -389,15 +449,6 @@ def _boot(cs, args):
     metavar="<snapshot_id>",
     help=_("Snapshot ID to boot from (will create a volume)."))
 @utils.arg(
-    '--num-instances',
-    default=None,
-    type=int,
-    metavar='<number>',
-    action=shell.DeprecatedAction,
-    use=_('use "--min-count" and "--max-count"; this option will be removed '
-          'in novaclient 3.3.0.'),
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--min-count',
     default=None,
     type=int,
@@ -430,12 +481,6 @@ def _boot(cs, args):
     metavar='<key-name>',
     help=_("Key name of keypair that should be created earlier with \
            the command keypair-add."))
-@utils.arg(
-    '--key_name',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--key-name',
-    help=argparse.SUPPRESS)
 @utils.arg('name', metavar='<name>', help=_('Name for the new server.'))
 @utils.arg(
     '--user-data',
@@ -443,33 +488,15 @@ def _boot(cs, args):
     metavar='<user-data>',
     help=_("user data file to pass to be exposed by the metadata server."))
 @utils.arg(
-    '--user_data',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--user-data',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--availability-zone',
     default=None,
     metavar='<availability-zone>',
     help=_("The availability zone for server placement."))
 @utils.arg(
-    '--availability_zone',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--availability-zone',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--security-groups',
     default=None,
     metavar='<security-groups>',
     help=_("Comma separated list of security group names."))
-@utils.arg(
-    '--security_groups',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--security-groups',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--block-device-mapping',
     metavar="<dev-name=mapping>",
@@ -478,17 +505,12 @@ def _boot(cs, args):
     help=_("Block device mapping in the format "
            "<dev-name>=<id>:<type>:<size(GB)>:<delete-on-terminate>."))
 @utils.arg(
-    '--block_device_mapping',
-    real_action='append',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--block-device-mapping',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--block-device',
     metavar="key1=value1[,key2=value2...]",
     action='append',
     default=[],
+    start_version='2.0',
+    end_version='2.31',
     help=_("Block device mapping with the keys: "
            "id=UUID (image_id, snapshot_id or volume_id only if using source "
            "image, snapshot or volume) "
@@ -499,6 +521,35 @@ def _boot(cs, args):
            "honoured only if device type is supplied) "
            "type=device type (e.g. disk, cdrom, ...; defaults to 'disk') "
            "device=name of the device (e.g. vda, xda, ...; "
+           "if omitted, hypervisor driver chooses suitable device "
+           "depending on selected bus; note the libvirt driver always "
+           "uses default device names), "
+           "size=size of the block device in MB(for swap) and in "
+           "GB(for other formats) "
+           "(if omitted, hypervisor driver calculates size), "
+           "format=device will be formatted (e.g. swap, ntfs, ...; optional), "
+           "bootindex=integer used for ordering the boot disks "
+           "(for image backed instances it is equal to 0, "
+           "for others need to be specified) and "
+           "shutdown=shutdown behaviour (either preserve or remove, "
+           "for local destination set to remove)."))
+@utils.arg(
+    '--block-device',
+    metavar="key1=value1[,key2=value2...]",
+    action='append',
+    default=[],
+    start_version='2.32',
+    help=_("Block device mapping with the keys: "
+           "id=UUID (image_id, snapshot_id or volume_id only if using source "
+           "image, snapshot or volume) "
+           "source=source type (image, snapshot, volume or blank), "
+           "dest=destination type of the block device (volume or local), "
+           "bus=device's bus (e.g. uml, lxc, virtio, ...; if omitted, "
+           "hypervisor driver chooses a suitable default, "
+           "honoured only if device type is supplied) "
+           "type=device type (e.g. disk, cdrom, ...; defaults to 'disk') "
+           "device=name of the device (e.g. vda, xda, ...; "
+           "tag=device metadata tag (optional) "
            "if omitted, hypervisor driver chooses suitable device "
            "depending on selected bus; note the libvirt driver always "
            "uses default device names), "
@@ -538,6 +589,8 @@ def _boot(cs, args):
     action='append',
     dest='nics',
     default=[],
+    start_version='2.0',
+    end_version='2.31',
     help=_("Create a NIC on the server. "
            "Specify option multiple times to create multiple NICs. "
            "net-id: attach NIC to network with this UUID "
@@ -546,6 +599,50 @@ def _boot(cs, args):
            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
            "port-id: attach NIC to port with this UUID "
+           "(either port-id or net-id must be provided)."))
+@utils.arg(
+    '--nic',
+    metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
+            "v6-fixed-ip=ip-addr,port-id=port-uuid>",
+    action='append',
+    dest='nics',
+    default=[],
+    start_version='2.32',
+    end_version='2.36',
+    help=_("Create a NIC on the server. "
+           "Specify option multiple times to create multiple nics. "
+           "net-id: attach NIC to network with this UUID "
+           "net-name: attach NIC to network with this name "
+           "(either port-id or net-id or net-name must be provided), "
+           "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+           "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+           "port-id: attach NIC to port with this UUID "
+           "tag: interface metadata tag (optional) "
+           "(either port-id or net-id must be provided)."))
+@utils.arg(
+    '--nic',
+    metavar="<auto,none,"
+            "net-id=net-uuid,net-name=network-name,port-id=port-uuid,"
+            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,tag=tag>",
+    action='append',
+    dest='nics',
+    default=[],
+    start_version='2.37',
+    help=_("Create a NIC on the server. "
+           "Specify option multiple times to create multiple nics unless "
+           "using the special 'auto' or 'none' values. "
+           "auto: automatically allocate network resources if none are "
+           "available. This cannot be specified with any other nic value and "
+           "cannot be specified multiple times. "
+           "none: do not attach a NIC at all. This cannot be specified "
+           "with any other nic value and cannot be specified multiple times. "
+           "net-id: attach NIC to network with a specific UUID. "
+           "net-name: attach NIC to network with this name "
+           "(either port-id or net-id or net-name must be provided), "
+           "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+           "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+           "port-id: attach NIC to port with this UUID "
+           "tag: interface metadata tag (optional) "
            "(either port-id or net-id must be provided)."))
 @utils.arg(
     '--config-drive',
@@ -937,6 +1034,7 @@ def do_flavor_access_remove(cs, args):
 @utils.arg(
     'project_id', metavar='<project_id>',
     help=_('The ID of the project.'))
+@deprecated_network
 def do_scrub(cs, args):
     """Delete networks and security groups associated with a project."""
     networks_list = cs.networks.list()
@@ -958,6 +1056,7 @@ def do_scrub(cs, args):
     metavar='<fields>',
     help=_('Comma-separated list of fields to display. '
            'Use the show command to see which fields are available.'))
+@deprecated_network
 def do_network_list(cs, args):
     """Print a list of available networks."""
     network_list = cs.networks.list()
@@ -972,6 +1071,7 @@ def do_network_list(cs, args):
     'network',
     metavar='<network>',
     help=_("UUID or label of network."))
+@deprecated_network
 def do_network_show(cs, args):
     """Show details about the given network."""
     network = utils.find_resource(cs.networks, args.network)
@@ -982,6 +1082,7 @@ def do_network_show(cs, args):
     'network',
     metavar='<network>',
     help=_("UUID or label of network."))
+@deprecated_network
 def do_network_delete(cs, args):
     """Delete network by label or id."""
     network = utils.find_resource(cs.networks, args.network)
@@ -1008,6 +1109,7 @@ def do_network_delete(cs, args):
     'network',
     metavar='<network>',
     help=_("UUID of network."))
+@deprecated_network
 def do_network_disassociate(cs, args):
     """Disassociate host and/or project from the given network."""
     if args.host_only:
@@ -1026,6 +1128,7 @@ def do_network_disassociate(cs, args):
     'host',
     metavar='<host>',
     help=_("Name of host"))
+@deprecated_network
 def do_network_associate_host(cs, args):
     """Associate host with network."""
     cs.networks.associate_host(args.network, args.host)
@@ -1035,6 +1138,7 @@ def do_network_associate_host(cs, args):
     'network',
     metavar='<network>',
     help=_("UUID of network."))
+@deprecated_network
 def do_network_associate_project(cs, args):
     """Associate project with network."""
     cs.networks.associate_project(args.network)
@@ -1165,6 +1269,7 @@ def _filter_network_create_options(args):
     '--allowed-end',
     dest="allowed_end",
     help=_('End of allowed addresses for instances.'))
+@deprecated_network
 def do_network_create(cs, args):
     """Create a network."""
 
@@ -1257,7 +1362,7 @@ def _print_image(image):
     info = image._info.copy()
 
     # ignore links, we don't need to present those
-    info.pop('links')
+    info.pop('links', None)
 
     # try to replace a server entity to just an id
     server = info.pop('server', None)
@@ -1305,7 +1410,10 @@ def do_image_delete(cs, args):
     emit_image_deprecation_warning('image-delete')
     for image in args.image:
         try:
-            _find_image(cs, image).delete()
+            # _find_image is using the GlanceManager which doesn't implement
+            # the delete() method so use the ImagesManager for that.
+            image = _find_image(cs, image)
+            cs.images.delete(image)
         except Exception as e:
             print(_("Delete for image %(image)s failed: %(e)s") %
                   {'image': image, 'e': e})
@@ -1317,12 +1425,6 @@ def do_image_delete(cs, args):
     metavar='<reservation-id>',
     default=None,
     help=_('Only return servers that match reservation-id.'))
-@utils.arg(
-    '--reservation_id',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--reservation-id',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--ip',
     dest='ip',
@@ -1347,12 +1449,6 @@ def do_image_delete(cs, args):
     metavar='<name-regexp>',
     default=None,
     help=_('Search with regular expression match by server name.'))
-@utils.arg(
-    '--instance_name',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--instance-name',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--status',
     dest='status',
@@ -1388,15 +1484,6 @@ def do_image_delete(cs, args):
     default=int(strutils.bool_from_string(
         os.environ.get("ALL_TENANTS", 'false'), True)),
     help=_('Display information from all tenants (Admin only).'))
-@utils.arg(
-    '--all_tenants',
-    nargs='?',
-    type=int,
-    const=1,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--all-tenants',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--tenant',
     # nova db searches by project_id
@@ -1717,12 +1804,6 @@ def do_reboot(cs, args):
     metavar='<rebuild-password>',
     default=False,
     help=_("Set the provided admin password on the rebuilt server."))
-@utils.arg(
-    '--rebuild_password',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--rebuild-password',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--poll',
     dest='poll',
@@ -2090,7 +2171,7 @@ def do_image_create(cs, args):
     image_uuid = cs.servers.create_image(server, args.name, meta)
 
     if args.poll:
-        _poll_for_status(cs.images.get, image_uuid, 'snapshotting',
+        _poll_for_status(cs.glance.find_image, image_uuid, 'snapshotting',
                          ['active'])
 
         # NOTE(sirp):  A race-condition exists between when the image finishes
@@ -2109,7 +2190,7 @@ def do_image_create(cs, args):
                              show_progress=False, silent=True)
 
     if args.show:
-        _print_image(cs.images.get(image_uuid))
+        _print_image(_find_image(cs, image_uuid))
 
 
 @utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2263,7 +2344,10 @@ def _find_server(cs, server, raise_if_notfound=True, **find_args):
 
 def _find_image(cs, image):
     """Get an image by name or ID."""
-    return utils.find_resource(cs.images, image)
+    try:
+        return cs.glance.find_image(image)
+    except (exceptions.NotFound, exceptions.NoUniqueMatch) as e:
+        raise exceptions.CommandError(six.text_type(e))
 
 
 def _find_flavor(cs, flavor):
@@ -2274,7 +2358,40 @@ def _find_flavor(cs, flavor):
         return cs.flavors.find(ram=flavor)
 
 
+def _find_network_id_neutron(cs, net_name):
+    """Get unique network ID from network name from neutron"""
+    try:
+        return cs.neutron.find_network(net_name).id
+    except (exceptions.NotFound, exceptions.NoUniqueMatch) as e:
+        raise exceptions.CommandError(six.text_type(e))
+
+
 def _find_network_id(cs, net_name):
+    """Find the network id for a network name.
+
+    If we have access to neutron in the service catalog, use neutron
+    for this lookup, otherwise use nova. This ensures that we do the
+    right thing in the future.
+
+    Once nova network support is deleted, we can delete this check and
+    the has_neutron function.
+    """
+    if cs.has_neutron():
+        return _find_network_id_neutron(cs, net_name)
+    else:
+        # The network proxy API methods were deprecated in 2.36 and will return
+        # a 404 so we fallback to 2.35 to maintain a transition for CLI users.
+        want_version = api_versions.APIVersion('2.35')
+        cur_version = cs.api_version
+        if cs.api_version > want_version:
+            cs.api_version = want_version
+        try:
+            return _find_network_id_novanet(cs, net_name)
+        finally:
+            cs.api_version = cur_version
+
+
+def _find_network_id_novanet(cs, net_name):
     """Get unique network ID from network name."""
     network_id = None
     for net_info in cs.networks.list():
@@ -2486,13 +2603,6 @@ def do_get_rdp_console(cs, args):
     '--console-type',
     default='serial',
     help=_('Type of serial console, default="serial".'))
-@utils.arg(
-    '--console_type',
-    default='serial',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--console-type',
-    help=argparse.SUPPRESS)
 def do_get_serial_console(cs, args):
     """Get a serial console to a server."""
     if args.console_type not in ('serial',):
@@ -2509,7 +2619,7 @@ def do_get_serial_console(cs, args):
 @api_versions.wraps('2.8')
 @utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
 def do_get_mks_console(cs, args):
-    """Get a serial console to a server."""
+    """Get an MKS console to a server."""
     server = _find_server(cs, args.server)
     data = server.get_mks_console()
 
@@ -2650,12 +2760,14 @@ def do_list_secgroup(cs, args):
     help=_('Name of Floating IP Pool. (Optional)'),
     nargs='?',
     default=None)
+@deprecated_network
 def do_floating_ip_create(cs, args):
     """Allocate a floating IP for the current tenant."""
     _print_floating_ip_list([cs.floating_ips.create(pool=args.pool)])
 
 
 @utils.arg('address', metavar='<address>', help=_('IP of Floating IP.'))
+@deprecated_network
 def do_floating_ip_delete(cs, args):
     """De-allocate a floating IP."""
     floating_ips = cs.floating_ips.list()
@@ -2666,11 +2778,13 @@ def do_floating_ip_delete(cs, args):
                                   args.address)
 
 
+@deprecated_network
 def do_floating_ip_list(cs, _args):
     """List floating IPs."""
     _print_floating_ip_list(cs.floating_ips.list())
 
 
+@deprecated_network
 def do_floating_ip_pool_list(cs, _args):
     """List all floating IP pools."""
     utils.print_list(cs.floating_ip_pools.list(), ['name'])
@@ -2679,6 +2793,7 @@ def do_floating_ip_pool_list(cs, _args):
 @utils.arg(
     '--host', dest='host', metavar='<host>', default=None,
     help=_('Filter by host.'))
+@deprecated_network
 def do_floating_ip_bulk_list(cs, args):
     """List all floating IPs (nova-network only)."""
     utils.print_list(cs.floating_ips_bulk.list(args.host), ['project_id',
@@ -2696,6 +2811,7 @@ def do_floating_ip_bulk_list(cs, args):
 @utils.arg(
     '--interface', metavar='<interface>', default=None,
     help=_('Interface for new Floating IPs.'))
+@deprecated_network
 def do_floating_ip_bulk_create(cs, args):
     """Bulk create floating IPs by range (nova-network only)."""
     cs.floating_ips_bulk.create(args.ip_range, args.pool, args.interface)
@@ -2703,6 +2819,7 @@ def do_floating_ip_bulk_create(cs, args):
 
 @utils.arg('ip_range', metavar='<range>',
            help=_('Address range to delete.'))
+@deprecated_network
 def do_floating_ip_bulk_delete(cs, args):
     """Bulk delete floating IPs by range (nova-network only)."""
     cs.floating_ips_bulk.delete(args.ip_range)
@@ -2717,6 +2834,7 @@ def _print_domain_list(domain_entries):
                                       'project', 'availability_zone'])
 
 
+@deprecated_network
 def do_dns_domains(cs, args):
     """Print a list of available dns domains."""
     domains = cs.dns_domains.domains()
@@ -2726,6 +2844,7 @@ def do_dns_domains(cs, args):
 @utils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
 @utils.arg('--ip', metavar='<ip>', help=_('IP address.'), default=None)
 @utils.arg('--name', metavar='<name>', help=_('DNS name.'), default=None)
+@deprecated_network
 def do_dns_list(cs, args):
     """List current DNS entries for domain and IP or domain and name."""
     if not (args.ip or args.name):
@@ -2748,6 +2867,7 @@ def do_dns_list(cs, args):
     metavar='<type>',
     help=_('DNS type (e.g. "A")'),
     default='A')
+@deprecated_network
 def do_dns_create(cs, args):
     """Create a DNS entry for domain, name, and IP."""
     cs.dns_entries.create(args.domain, args.name, args.ip, args.type)
@@ -2755,12 +2875,14 @@ def do_dns_create(cs, args):
 
 @utils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
 @utils.arg('name', metavar='<name>', help=_('DNS name.'))
+@deprecated_network
 def do_dns_delete(cs, args):
     """Delete the specified DNS entry."""
     cs.dns_entries.delete(args.domain, args.name)
 
 
 @utils.arg('domain', metavar='<domain>', help=_('DNS domain.'))
+@deprecated_network
 def do_dns_delete_domain(cs, args):
     """Delete the specified DNS domain."""
     cs.dns_domains.delete(args.domain)
@@ -2773,12 +2895,7 @@ def do_dns_delete_domain(cs, args):
     default=None,
     help=_('Limit access to this domain to servers '
            'in the specified availability zone.'))
-@utils.arg(
-    '--availability_zone',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--availability-zone',
-    help=argparse.SUPPRESS)
+@deprecated_network
 def do_dns_create_private_domain(cs, args):
     """Create the specified DNS domain."""
     cs.dns_domains.create_private(args.domain,
@@ -2791,6 +2908,7 @@ def do_dns_create_private_domain(cs, args):
     help=_('Limit access to this domain to users '
            'of the specified project.'),
     default=None)
+@deprecated_network
 def do_dns_create_public_domain(cs, args):
     """Create the specified DNS domain."""
     cs.dns_domains.create_public(args.domain,
@@ -2868,6 +2986,7 @@ def _get_secgroup(cs, secgroup):
     metavar='<to-port>',
     help=_('Port at end of range.'))
 @utils.arg('cidr', metavar='<cidr>', help=_('CIDR for address range.'))
+@deprecated_network
 def do_secgroup_add_rule(cs, args):
     """Add a rule to a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
@@ -2896,6 +3015,7 @@ def do_secgroup_add_rule(cs, args):
     metavar='<to-port>',
     help=_('Port at end of range.'))
 @utils.arg('cidr', metavar='<cidr>', help=_('CIDR for address range.'))
+@deprecated_network
 def do_secgroup_delete_rule(cs, args):
     """Delete a rule from a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
@@ -2915,6 +3035,7 @@ def do_secgroup_delete_rule(cs, args):
 @utils.arg(
     'description', metavar='<description>',
     help=_('Description of security group.'))
+@deprecated_network
 def do_secgroup_create(cs, args):
     """Create a security group."""
     secgroup = cs.security_groups.create(args.name, args.description)
@@ -2929,6 +3050,7 @@ def do_secgroup_create(cs, args):
 @utils.arg(
     'description', metavar='<description>',
     help=_('Description of security group.'))
+@deprecated_network
 def do_secgroup_update(cs, args):
     """Update a security group."""
     sg = _get_secgroup(cs, args.secgroup)
@@ -2940,6 +3062,7 @@ def do_secgroup_update(cs, args):
     'secgroup',
     metavar='<secgroup>',
     help=_('ID or name of security group.'))
+@deprecated_network
 def do_secgroup_delete(cs, args):
     """Delete a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
@@ -2957,15 +3080,7 @@ def do_secgroup_delete(cs, args):
     default=int(strutils.bool_from_string(
         os.environ.get("ALL_TENANTS", 'false'), True)),
     help=_('Display information from all tenants (Admin only).'))
-@utils.arg(
-    '--all_tenants',
-    nargs='?',
-    type=int,
-    const=1,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--all-tenants',
-    help=argparse.SUPPRESS)
+@deprecated_network
 def do_secgroup_list(cs, args):
     """List security groups for the current tenant."""
     search_opts = {'all_tenants': args.all_tenants}
@@ -2980,6 +3095,7 @@ def do_secgroup_list(cs, args):
     'secgroup',
     metavar='<secgroup>',
     help=_('ID or name of security group.'))
+@deprecated_network
 def do_secgroup_list_rules(cs, args):
     """List rules for a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
@@ -3006,6 +3122,7 @@ def do_secgroup_list_rules(cs, args):
     'to_port',
     metavar='<to-port>',
     help=_('Port at end of range.'))
+@deprecated_network
 def do_secgroup_add_group_rule(cs, args):
     """Add a source group rule to a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
@@ -3044,6 +3161,7 @@ def do_secgroup_add_group_rule(cs, args):
     'to_port',
     metavar='<to-port>',
     help=_('Port at end of range.'))
+@deprecated_network
 def do_secgroup_delete_group_rule(cs, args):
     """Delete a source group rule from a security group."""
     secgroup = _get_secgroup(cs, args.secgroup)
@@ -3092,12 +3210,6 @@ def _keypair_create(cs, args, name, pub_key):
     metavar='<pub-key>',
     default=None,
     help=_('Path to a public ssh key.'))
-@utils.arg(
-    '--pub_key',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--pub-key',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--key-type',
     metavar='<key-type>',
@@ -3148,8 +3260,7 @@ def do_keypair_delete(cs, args):
     '--user',
     metavar='<user-id>',
     default=None,
-    help=_('ID of key-pair owner (Admin only).'),
-    start_version="2.10")
+    help=_('ID of key-pair owner (Admin only).'))
 def do_keypair_delete(cs, args):
     """Delete keypair given by its name."""
     cs.keypairs.delete(args.name, args.user)
@@ -3173,16 +3284,45 @@ def do_keypair_list(cs, args):
     utils.print_list(keypairs, columns)
 
 
-@api_versions.wraps("2.10")
+@api_versions.wraps("2.10", "2.34")
 @utils.arg(
     '--user',
     metavar='<user-id>',
     default=None,
-    help=_('List key-pairs of specified user ID (Admin only).'),
-    start_version="2.10")
+    help=_('List key-pairs of specified user ID (Admin only).'))
 def do_keypair_list(cs, args):
     """Print a list of keypairs for a user"""
     keypairs = cs.keypairs.list(args.user)
+    columns = _get_keypairs_list_columns(cs, args)
+    utils.print_list(keypairs, columns)
+
+
+@api_versions.wraps("2.35")
+@utils.arg(
+    '--user',
+    metavar='<user-id>',
+    default=None,
+    help=_('List key-pairs of specified user ID (Admin only).'))
+@utils.arg(
+    '--marker',
+    dest='marker',
+    metavar='<marker>',
+    default=None,
+    help=_('The last keypair of the previous page; displays list of keypairs '
+           'after "marker".'))
+@utils.arg(
+    '--limit',
+    dest='limit',
+    metavar='<limit>',
+    type=int,
+    default=None,
+    help=_("Maximum number of keypairs to display. If limit == -1, all "
+           "keypairs will be displayed. If limit is bigger than "
+           "'osapi_max_limit' option of Nova API, limit 'osapi_max_limit' "
+           "will be used instead."))
+def do_keypair_list(cs, args):
+    """Print a list of keypairs for a user"""
+    keypairs = cs.keypairs.list(args.user, args.marker, args.limit)
     columns = _get_keypairs_list_columns(cs, args)
     utils.print_list(keypairs, columns)
 
@@ -3214,8 +3354,7 @@ def do_keypair_show(cs, args):
     '--user',
     metavar='<user-id>',
     default=None,
-    help=_('ID of key-pair owner (Admin only).'),
-    start_version="2.10")
+    help=_('ID of key-pair owner (Admin only).'))
 def do_keypair_show(cs, args):
     """Show details about the given keypair."""
     keypair = cs.keypairs.get(args.keypair, args.user)
@@ -3747,13 +3886,6 @@ def _print_aggregate_details(aggregate):
     help=_('True in case of block_migration. (Default=auto:live_migration)'),
     start_version="2.25")
 @utils.arg(
-    '--block_migrate',
-    real_action='store_true',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--block-migrate',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--disk-over-commit',
     action='store_true',
     dest='disk_over_commit',
@@ -3761,23 +3893,23 @@ def _print_aggregate_details(aggregate):
     help=_('Allow overcommit. (Default=False)'),
     start_version="2.0", end_version="2.24")
 @utils.arg(
-    '--disk_over_commit',
-    real_action='store_true',
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--disk-over-commit',
-    help=argparse.SUPPRESS,
-    start_version="2.0", end_version="2.24")
+    '--force',
+    dest='force',
+    action='store_true',
+    default=False,
+    help=_('Force to not verify the scheduler if a host is provided.'),
+    start_version='2.30')
 def do_live_migration(cs, args):
     """Migrate running server to a new machine."""
 
+    update_kwargs = {}
     if 'disk_over_commit' in args:
-        _find_server(cs, args.server).live_migrate(args.host,
-                                                   args.block_migrate,
-                                                   args.disk_over_commit)
-    else:
-        _find_server(cs, args.server).live_migrate(args.host,
-                                                   args.block_migrate)
+        update_kwargs['disk_over_commit'] = args.disk_over_commit
+    if 'force' in args and args.force:
+        update_kwargs['force'] = args.force
+
+    _find_server(cs, args.server).live_migrate(args.host, args.block_migrate,
+                                               **update_kwargs)
 
 
 @api_versions.wraps("2.22")
@@ -3961,6 +4093,7 @@ def _print_fixed_ip(cs, fixed_ip):
 
 
 @utils.arg('fixed_ip', metavar='<fixed_ip>', help=_('Fixed IP Address.'))
+@deprecated_network
 def do_fixed_ip_get(cs, args):
     """Retrieve info on a fixed IP."""
     result = cs.fixed_ips.get(args.fixed_ip)
@@ -3968,12 +4101,14 @@ def do_fixed_ip_get(cs, args):
 
 
 @utils.arg('fixed_ip', metavar='<fixed_ip>', help=_('Fixed IP Address.'))
+@deprecated_network
 def do_fixed_ip_reserve(cs, args):
     """Reserve a fixed IP."""
     cs.fixed_ips.reserve(args.fixed_ip)
 
 
 @utils.arg('fixed_ip', metavar='<fixed_ip>', help=_('Fixed IP Address.'))
+@deprecated_network
 def do_fixed_ip_unreserve(cs, args):
     """Unreserve a fixed IP."""
     cs.fixed_ips.unreserve(args.fixed_ip)
@@ -4040,6 +4175,22 @@ def _find_hypervisor(cs, hypervisor):
     return utils.find_resource(cs.hypervisors, hypervisor)
 
 
+def _do_hypervisor_list(cs, matching=None, limit=None, marker=None):
+    columns = ['ID', 'Hypervisor hostname', 'State', 'Status']
+    if matching:
+        utils.print_list(cs.hypervisors.search(matching), columns)
+    else:
+        params = {}
+        if limit is not None:
+            params['limit'] = limit
+        if marker is not None:
+            params['marker'] = marker
+        # Since we're not outputting detail data, choose
+        # detailed=False for server-side efficiency
+        utils.print_list(cs.hypervisors.list(False, **params), columns)
+
+
+@api_versions.wraps("2.0", "2.32")
 @utils.arg(
     '--matching',
     metavar='<hostname>',
@@ -4047,13 +4198,37 @@ def _find_hypervisor(cs, hypervisor):
     help=_('List hypervisors matching the given <hostname>.'))
 def do_hypervisor_list(cs, args):
     """List hypervisors."""
-    columns = ['ID', 'Hypervisor hostname', 'State', 'Status']
-    if args.matching:
-        utils.print_list(cs.hypervisors.search(args.matching), columns)
-    else:
-        # Since we're not outputting detail data, choose
-        # detailed=False for server-side efficiency
-        utils.print_list(cs.hypervisors.list(False), columns)
+    _do_hypervisor_list(cs, matching=args.matching)
+
+
+@api_versions.wraps("2.33")
+@utils.arg(
+    '--matching',
+    metavar='<hostname>',
+    default=None,
+    help=_('List hypervisors matching the given <hostname>. '
+           'If matching is used limit and marker options will be ignored.'))
+@utils.arg(
+    '--marker',
+    dest='marker',
+    metavar='<marker>',
+    default=None,
+    help=_('The last hypervisor of the previous page; displays list of '
+           'hypervisors after "marker".'))
+@utils.arg(
+    '--limit',
+    dest='limit',
+    metavar='<limit>',
+    type=int,
+    default=None,
+    help=_("Maximum number of hypervisors to display. If limit == -1, all "
+           "hypervisors will be displayed. If limit is bigger than "
+           "'osapi_max_limit' option of Nova API, limit 'osapi_max_limit' "
+           "will be used instead."))
+def do_hypervisor_list(cs, args):
+    """List hypervisors."""
+    _do_hypervisor_list(
+        cs, matching=args.matching, limit=args.limit, marker=args.marker)
 
 
 @utils.arg(
@@ -4359,6 +4534,11 @@ def _quota_update(manager, identifier, args):
     metavar='<user-id>',
     default=None,
     help=_('ID of user to list the quotas for.'))
+@utils.arg(
+    '--detail',
+    action='store_true',
+    default=False,
+    help=_('Show detailed info (limit, reserved, in-use).'))
 def do_quota_show(cs, args):
     """List the quotas for a tenant/user."""
 
@@ -4370,7 +4550,8 @@ def do_quota_show(cs, args):
     else:
         project_id = cs.client.tenant_id
 
-    _quota_show(cs.quotas.get(project_id, user_id=args.user))
+    _quota_show(cs.quotas.get(project_id, user_id=args.user,
+                              detail=args.detail))
 
 
 @utils.arg(
@@ -4392,6 +4573,7 @@ def do_quota_defaults(cs, args):
     _quota_show(cs.quotas.defaults(project_id))
 
 
+@api_versions.wraps("2.0", "2.35")
 @utils.arg(
     'tenant',
     metavar='<tenant-id>',
@@ -4421,19 +4603,14 @@ def do_quota_defaults(cs, args):
     metavar='<floating-ips>',
     type=int,
     default=None,
-    help=_('New value for the "floating-ips" quota.'))
-@utils.arg(
-    '--floating_ips',
-    type=int,
     action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--floating-ips',
-    help=argparse.SUPPRESS)
+    help=_('New value for the "floating-ips" quota.'))
 @utils.arg(
     '--fixed-ips',
     metavar='<fixed-ips>',
     type=int,
     default=None,
+    action=shell.DeprecatedAction,
     help=_('New value for the "fixed-ips" quota.'))
 @utils.arg(
     '--metadata-items',
@@ -4442,38 +4619,17 @@ def do_quota_defaults(cs, args):
     default=None,
     help=_('New value for the "metadata-items" quota.'))
 @utils.arg(
-    '--metadata_items',
-    type=int,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--metadata-items',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--injected-files',
     metavar='<injected-files>',
     type=int,
     default=None,
     help=_('New value for the "injected-files" quota.'))
 @utils.arg(
-    '--injected_files',
-    type=int,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--injected-files',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--injected-file-content-bytes',
     metavar='<injected-file-content-bytes>',
     type=int,
     default=None,
     help=_('New value for the "injected-file-content-bytes" quota.'))
-@utils.arg(
-    '--injected_file_content_bytes',
-    type=int,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--injected-file-content-bytes',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--injected-file-path-bytes',
     metavar='<injected-file-path-bytes>',
@@ -4491,13 +4647,97 @@ def do_quota_defaults(cs, args):
     metavar='<security-groups>',
     type=int,
     default=None,
+    action=shell.DeprecatedAction,
     help=_('New value for the "security-groups" quota.'))
 @utils.arg(
     '--security-group-rules',
     metavar='<security-group-rules>',
     type=int,
     default=None,
+    action=shell.DeprecatedAction,
     help=_('New value for the "security-group-rules" quota.'))
+@utils.arg(
+    '--server-groups',
+    metavar='<server-groups>',
+    type=int,
+    default=None,
+    help=_('New value for the "server-groups" quota.'))
+@utils.arg(
+    '--server-group-members',
+    metavar='<server-group-members>',
+    type=int,
+    default=None,
+    help=_('New value for the "server-group-members" quota.'))
+@utils.arg(
+    '--force',
+    dest='force',
+    action="store_true",
+    default=None,
+    help=_('Whether force update the quota even if the already used and '
+           'reserved exceeds the new quota.'))
+def do_quota_update(cs, args):
+    """Update the quotas for a tenant/user."""
+
+    _quota_update(cs.quotas, args.tenant, args)
+
+
+# 2.36 does not support updating quota for floating IPs, fixed IPs, security
+# groups or security group rules.
+@api_versions.wraps("2.36")
+@utils.arg(
+    'tenant',
+    metavar='<tenant-id>',
+    help=_('ID of tenant to set the quotas for.'))
+@utils.arg(
+    '--user',
+    metavar='<user-id>',
+    default=None,
+    help=_('ID of user to set the quotas for.'))
+@utils.arg(
+    '--instances',
+    metavar='<instances>',
+    type=int, default=None,
+    help=_('New value for the "instances" quota.'))
+@utils.arg(
+    '--cores',
+    metavar='<cores>',
+    type=int, default=None,
+    help=_('New value for the "cores" quota.'))
+@utils.arg(
+    '--ram',
+    metavar='<ram>',
+    type=int, default=None,
+    help=_('New value for the "ram" quota.'))
+@utils.arg(
+    '--metadata-items',
+    metavar='<metadata-items>',
+    type=int,
+    default=None,
+    help=_('New value for the "metadata-items" quota.'))
+@utils.arg(
+    '--injected-files',
+    metavar='<injected-files>',
+    type=int,
+    default=None,
+    help=_('New value for the "injected-files" quota.'))
+@utils.arg(
+    '--injected-file-content-bytes',
+    metavar='<injected-file-content-bytes>',
+    type=int,
+    default=None,
+    help=_('New value for the "injected-file-content-bytes" quota.'))
+@utils.arg(
+    '--injected-file-path-bytes',
+    metavar='<injected-file-path-bytes>',
+    type=int,
+    default=None,
+    help=_('New value for the "injected-file-path-bytes" quota.'))
+@utils.arg(
+    '--key-pairs',
+    metavar='<key-pairs>',
+    type=int,
+    default=None,
+    help=_('New value for the "key-pairs" quota.'))
 @utils.arg(
     '--server-groups',
     metavar='<server-groups>',
@@ -4550,6 +4790,7 @@ def do_quota_class_show(cs, args):
     _quota_show(cs.quota_classes.get(args.class_name))
 
 
+@api_versions.wraps("2.0", "2.35")
 @utils.arg(
     'class_name',
     metavar='<class>',
@@ -4574,19 +4815,14 @@ def do_quota_class_show(cs, args):
     metavar='<floating-ips>',
     type=int,
     default=None,
-    help=_('New value for the "floating-ips" quota.'))
-@utils.arg(
-    '--floating_ips',
-    type=int,
     action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--floating-ips',
-    help=argparse.SUPPRESS)
+    help=_('New value for the "floating-ips" quota.'))
 @utils.arg(
     '--fixed-ips',
     metavar='<fixed-ips>',
     type=int,
     default=None,
+    action=shell.DeprecatedAction,
     help=_('New value for the "fixed-ips" quota.'))
 @utils.arg(
     '--metadata-items',
@@ -4595,38 +4831,17 @@ def do_quota_class_show(cs, args):
     default=None,
     help=_('New value for the "metadata-items" quota.'))
 @utils.arg(
-    '--metadata_items',
-    type=int,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--metadata-items',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--injected-files',
     metavar='<injected-files>',
     type=int,
     default=None,
     help=_('New value for the "injected-files" quota.'))
 @utils.arg(
-    '--injected_files',
-    type=int,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--injected-files',
-    help=argparse.SUPPRESS)
-@utils.arg(
     '--injected-file-content-bytes',
     metavar='<injected-file-content-bytes>',
     type=int,
     default=None,
     help=_('New value for the "injected-file-content-bytes" quota.'))
-@utils.arg(
-    '--injected_file_content_bytes',
-    type=int,
-    action=shell.DeprecatedAction,
-    use=_('use "%s"; this option will be removed in '
-          'novaclient 3.3.0.') % '--injected-file-content-bytes',
-    help=argparse.SUPPRESS)
 @utils.arg(
     '--injected-file-path-bytes',
     metavar='<injected-file-path-bytes>',
@@ -4644,13 +4859,85 @@ def do_quota_class_show(cs, args):
     metavar='<security-groups>',
     type=int,
     default=None,
+    action=shell.DeprecatedAction,
     help=_('New value for the "security-groups" quota.'))
 @utils.arg(
     '--security-group-rules',
     metavar='<security-group-rules>',
     type=int,
     default=None,
+    action=shell.DeprecatedAction,
     help=_('New value for the "security-group-rules" quota.'))
+@utils.arg(
+    '--server-groups',
+    metavar='<server-groups>',
+    type=int,
+    default=None,
+    help=_('New value for the "server-groups" quota.'))
+@utils.arg(
+    '--server-group-members',
+    metavar='<server-group-members>',
+    type=int,
+    default=None,
+    help=_('New value for the "server-group-members" quota.'))
+def do_quota_class_update(cs, args):
+    """Update the quotas for a quota class."""
+
+    _quota_update(cs.quota_classes, args.class_name, args)
+
+
+# 2.36 does not support updating quota for floating IPs, fixed IPs, security
+# groups or security group rules.
+@api_versions.wraps("2.36")
+@utils.arg(
+    'class_name',
+    metavar='<class>',
+    help=_('Name of quota class to set the quotas for.'))
+@utils.arg(
+    '--instances',
+    metavar='<instances>',
+    type=int, default=None,
+    help=_('New value for the "instances" quota.'))
+@utils.arg(
+    '--cores',
+    metavar='<cores>',
+    type=int, default=None,
+    help=_('New value for the "cores" quota.'))
+@utils.arg(
+    '--ram',
+    metavar='<ram>',
+    type=int, default=None,
+    help=_('New value for the "ram" quota.'))
+@utils.arg(
+    '--metadata-items',
+    metavar='<metadata-items>',
+    type=int,
+    default=None,
+    help=_('New value for the "metadata-items" quota.'))
+@utils.arg(
+    '--injected-files',
+    metavar='<injected-files>',
+    type=int,
+    default=None,
+    help=_('New value for the "injected-files" quota.'))
+@utils.arg(
+    '--injected-file-content-bytes',
+    metavar='<injected-file-content-bytes>',
+    type=int,
+    default=None,
+    help=_('New value for the "injected-file-content-bytes" quota.'))
+@utils.arg(
+    '--injected-file-path-bytes',
+    metavar='<injected-file-path-bytes>',
+    type=int,
+    default=None,
+    help=_('New value for the "injected-file-path-bytes" quota.'))
+@utils.arg(
+    '--key-pairs',
+    metavar='<key-pairs>',
+    type=int,
+    default=None,
+    help=_('New value for the "key-pairs" quota.'))
 @utils.arg(
     '--server-groups',
     metavar='<server-groups>',
@@ -4688,12 +4975,26 @@ def do_quota_class_update(cs, args):
     help=_('Specifies whether server files are located on shared storage.'),
     start_version='2.0',
     end_version='2.13')
+@utils.arg(
+    '--force',
+    dest='force',
+    action='store_true',
+    default=False,
+    help=_('Force to not verify the scheduler if a host is provided.'),
+    start_version='2.29')
 def do_evacuate(cs, args):
     """Evacuate server from failed host."""
 
     server = _find_server(cs, args.server)
     on_shared_storage = getattr(args, 'on_shared_storage', None)
-    res = server.evacuate(args.host, on_shared_storage, args.password)[1]
+    force = getattr(args, 'force', None)
+    update_kwargs = {}
+    if on_shared_storage is not None:
+        update_kwargs['on_shared_storage'] = on_shared_storage
+    if force:
+        update_kwargs['force'] = force
+    res = server.evacuate(host=args.host, password=args.password,
+                          **update_kwargs)[1]
     if isinstance(res, dict):
         utils.print_dict(res)
 
@@ -4855,6 +5156,7 @@ def do_server_group_list(cs, args):
     _print_server_group_details(cs, server_groups)
 
 
+@deprecated_network
 def do_secgroup_list_default_rules(cs, args):
     """List rules that will be added to the 'default' security group for
     new tenants.
@@ -4876,6 +5178,7 @@ def do_secgroup_list_default_rules(cs, args):
     metavar='<to-port>',
     help=_('Port at end of range.'))
 @utils.arg('cidr', metavar='<cidr>', help=_('CIDR for address range.'))
+@deprecated_network
 def do_secgroup_add_default_rule(cs, args):
     """Add a rule to the set of rules that will be added to the 'default'
     security group for new tenants (nova-network only).
@@ -4900,6 +5203,7 @@ def do_secgroup_add_default_rule(cs, args):
     metavar='<to-port>',
     help=_('Port at end of range.'))
 @utils.arg('cidr', metavar='<cidr>', help=_('CIDR for address range.'))
+@deprecated_network
 def do_secgroup_delete_default_rule(cs, args):
     """Delete a rule from the set of rules that will be added to the
     'default' security group for new tenants (nova-network only).
@@ -4933,14 +5237,6 @@ def do_secgroup_delete_default_rule(cs, args):
     default=argparse.SUPPRESS,
     nargs='*',
     help=_('Policies for the server groups.'))
-@utils.arg(
-    '--policy',
-    default=[],
-    real_action='append',
-    action=shell.DeprecatedAction,
-    use=_('use positional parameters; this option will be removed in '
-          'novaclient 3.3.0.'),
-    help=argparse.SUPPRESS)
 def do_server_group_create(cs, args):
     """Create a new server group with the specified details."""
     if not args.policy:
@@ -4998,7 +5294,7 @@ def do_version_list(cs, args):
     print(_("Maximum version %(v)s") %
           {'v': novaclient.API_MAX_VERSION.get_string()})
 
-    print (_("\nServer supported API versions:"))
+    print(_("\nServer supported API versions:"))
     utils.print_list(result, columns)
 
 
