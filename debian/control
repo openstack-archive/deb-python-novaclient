@@ -66,8 +66,8 @@ Build-Depends-Indep: python-babel,
                      testrepository,
 Standards-Version: 3.9.8
 Homepage: https://github.com/openstack/python-novaclient
-Vcs-Git: https://git.openstack.org/openstack/deb-python-novaclient
-Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-python-novaclient
+Vcs-Git: https://git.openstack.org/openstack/deb-python-novaclient -b debian/newton
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-python-novaclient?h=debian%2Fnewton
 XS-Testsuite: autopkgtest
 
 Package: python-novaclient
