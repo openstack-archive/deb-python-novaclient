@@ -1,0 +1,10 @@
+Code-Review+2: Andrey Kurilin <akurilin@mirantis.com>
+Workflow+1: Andrey Kurilin <akurilin@mirantis.com>
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Workflow+1: Kevin L. Mitchell <klmitch@mit.edu>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 03 Oct 2016 18:20:44 +0000
+Reviewed-on: https://review.openstack.org/380588
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
