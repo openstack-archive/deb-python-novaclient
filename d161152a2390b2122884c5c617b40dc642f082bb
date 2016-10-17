@@ -1,0 +1,8 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Workflow+1: Kevin L. Mitchell <klmitch@mit.edu>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 14 Oct 2016 16:03:23 +0000
+Reviewed-on: https://review.openstack.org/386378
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
