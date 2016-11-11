@@ -1,0 +1,12 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+1: Sarafraj Singh <Sarafraj.Singh@intel.com>
+Code-Review+1: Dinesh Bhor <dinesh.bhor@nttdata.com>
+Code-Review+1: Stephen Finucane <sfinucan@redhat.com>
+Code-Review+2: John Garbutt <john@johngarbutt.com>
+Workflow+1: John Garbutt <john@johngarbutt.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 11 Nov 2016 11:23:10 +0000
+Reviewed-on: https://review.openstack.org/394228
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
