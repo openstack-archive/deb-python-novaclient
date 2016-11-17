@@ -1,0 +1,9 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+2: John Garbutt <john@johngarbutt.com>
+Workflow+1: John Garbutt <john@johngarbutt.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 17 Nov 2016 13:14:28 +0000
+Reviewed-on: https://review.openstack.org/392523
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
