@@ -1,0 +1,11 @@
+Code-Review+1: Nicolas Simonds <nic@metacloud.com>
+Code-Review+1: Andrey Kurilin <akurilin@mirantis.com>
+Code-Review+2: Tony Breeds <tony@bakeyournoodle.com>
+Code-Review+2: Dan Smith <dms@danplanet.com>
+Workflow+1: Matt Riedemann <mriedem@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 30 Nov 2016 19:18:02 +0000
+Reviewed-on: https://review.openstack.org/389246
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/stable/newton
