@@ -1,0 +1,11 @@
+Code-Review+1: Dinesh Bhor <dinesh.bhor@nttdata.com>
+Code-Review+1: Diana Clarke <diana.joan.clarke@gmail.com>
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+2: Andrey Kurilin <akurilin@mirantis.com>
+Workflow+1: Andrey Kurilin <akurilin@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Dec 2016 17:53:50 +0000
+Reviewed-on: https://review.openstack.org/408295
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
