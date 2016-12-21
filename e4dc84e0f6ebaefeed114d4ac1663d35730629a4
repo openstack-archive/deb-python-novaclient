@@ -1,0 +1,10 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+1: Clenimar Filemon <clenimar@lsd.ufcg.edu.br>
+Code-Review+2: Sean Dague <sean@dague.net>
+Workflow+1: Matt Riedemann <mriedem@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 17 Dec 2016 17:22:22 +0000
+Reviewed-on: https://review.openstack.org/350140
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
