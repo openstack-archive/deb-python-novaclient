@@ -1,0 +1,8 @@
+Code-Review+2: Sean Dague <sean@dague.net>
+Workflow+1: Sean Dague <sean@dague.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 18 Jan 2017 15:59:23 +0000
+Reviewed-on: https://review.openstack.org/421879
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
