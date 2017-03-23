@@ -1,0 +1,10 @@
+Code-Review+1: Andrey Kurilin <andr.kurilin@gmail.com>
+Code-Review+1: Takashi NATSUME <natsume.takashi@lab.ntt.co.jp>
+Code-Review+2: Tony Breeds <tony@bakeyournoodle.com>
+Workflow+1: Tony Breeds <tony@bakeyournoodle.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 08 Mar 2017 06:45:33 +0000
+Reviewed-on: https://review.openstack.org/427342
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/stable/ocata
