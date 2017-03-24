@@ -1,0 +1,10 @@
+Code-Review+1: Jim Rollenhagen <jim@jimrollenhagen.com>
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+2: Ken'ichi Ohmichi <ken1ohmichi@gmail.com>
+Workflow+1: Ken'ichi Ohmichi <ken1ohmichi@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 24 Mar 2017 02:13:44 +0000
+Reviewed-on: https://review.openstack.org/447657
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
