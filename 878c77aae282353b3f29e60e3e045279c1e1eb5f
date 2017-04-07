@@ -1,0 +1,8 @@
+Code-Review+2: Andrey Kurilin <andr.kurilin@gmail.com>
+Workflow+1: Andrey Kurilin <andr.kurilin@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 07 Apr 2017 23:08:05 +0000
+Reviewed-on: https://review.openstack.org/454531
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
