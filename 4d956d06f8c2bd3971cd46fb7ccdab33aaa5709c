@@ -1,0 +1,9 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+2: Sean Dague <sean@dague.net>
+Workflow+1: Sean Dague <sean@dague.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 10 Apr 2017 17:40:49 +0000
+Reviewed-on: https://review.openstack.org/455140
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
