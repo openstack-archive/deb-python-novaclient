@@ -1,0 +1,11 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+1: Diana Clarke <diana.joan.clarke@gmail.com>
+Code-Review+1: Takashi NATSUME <natsume.takashi@lab.ntt.co.jp>
+Code-Review+2: John Garbutt <john@johngarbutt.com>
+Workflow+1: John Garbutt <john@johngarbutt.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 18 Apr 2017 14:52:44 +0000
+Reviewed-on: https://review.openstack.org/450763
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
