@@ -1,0 +1,10 @@
+Code-Review+2: Kevin L. Mitchell <klmitch@mit.edu>
+Code-Review+1: Diana Clarke <diana.joan.clarke@gmail.com>
+Code-Review+2: Sylvain Bauza <sbauza@redhat.com>
+Workflow+1: Sylvain Bauza <sbauza@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 19 Apr 2017 16:54:25 +0000
+Reviewed-on: https://review.openstack.org/457930
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
