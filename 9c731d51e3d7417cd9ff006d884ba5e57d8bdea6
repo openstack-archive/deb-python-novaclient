@@ -1,0 +1,8 @@
+Code-Review+2: Matt Riedemann <mriedem.os@gmail.com>
+Workflow+1: Matt Riedemann <mriedem.os@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 21 Apr 2017 15:52:33 +0000
+Reviewed-on: https://review.openstack.org/458837
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/stable/newton
