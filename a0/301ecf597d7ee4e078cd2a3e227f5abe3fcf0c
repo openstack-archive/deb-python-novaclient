@@ -1,0 +1,10 @@
+Code-Review+2: Stephen Finucane <sfinucan@redhat.com>
+Code-Review+2: Andrey Kurilin <andr.kurilin@gmail.com>
+Code-Review+2: Matt Riedemann <mriedem.os@gmail.com>
+Workflow+1: Matt Riedemann <mriedem.os@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 27 Jun 2017 01:23:37 +0000
+Reviewed-on: https://review.openstack.org/473228
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
