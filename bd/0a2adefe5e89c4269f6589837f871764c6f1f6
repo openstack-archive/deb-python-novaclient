@@ -1,0 +1,10 @@
+Code-Review+2: Matt Riedemann <mriedem.os@gmail.com>
+Code-Review+1: zhangdaolong <zhangdaolong@fiberhome.com>
+Code-Review+2: Sean Dague <sean@dague.net>
+Workflow+1: Sean Dague <sean@dague.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 10 Jul 2017 14:54:02 +0000
+Reviewed-on: https://review.openstack.org/479818
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
