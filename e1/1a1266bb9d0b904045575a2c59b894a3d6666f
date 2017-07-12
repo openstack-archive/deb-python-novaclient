@@ -1,0 +1,10 @@
+Code-Review+1: Artom Lifshitz <notartom@gmail.com>
+Code-Review+2: Matt Riedemann <mriedem.os@gmail.com>
+Code-Review+2: Andrey Kurilin <andr.kurilin@gmail.com>
+Workflow+1: Andrey Kurilin <andr.kurilin@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 12 Jul 2017 17:27:23 +0000
+Reviewed-on: https://review.openstack.org/480392
+Project: openstack/deb-python-novaclient
+Branch: refs/heads/master
