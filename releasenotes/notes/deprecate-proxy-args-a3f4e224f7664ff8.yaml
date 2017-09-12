@@ -1,5 +1,0 @@
----
-deprecations:
-  - The **proxy_tenant_id** and **proxy_token** arguments to the
-    novaclient.client.Client entry-point were never documented nor tested and
-    are now deprecated for removal in a future release.
